@@ -1,0 +1,18 @@
+{
+	"name": "membership-management-portal",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy --minify",
+		"cf-typegen": "wrangler types --env-interface CloudflareBindings"
+	},
+	"dependencies": {
+		"hono": "^4.13.13"
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.5",
+		"wrangler": "^4.149.0"
+	}
+}

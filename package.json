@@ -1,0 +1,11 @@
+{
+  "name": "internal-tooling",
+  "version": "1.0.0",
+  "scripts": {},
+  "packageManager": "pnpm@12.11.2",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

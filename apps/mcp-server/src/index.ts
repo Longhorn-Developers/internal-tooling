@@ -61,7 +61,7 @@ function createServer() {
 
 const handler = createMcpHandler(createServer, {
 	route: "/",
-	allowedHostnames: ["longhorndevelopers.org"],
+	allowedHostnames: ["mcp.longhorndevelopers.org"],
 });
 
 export default {

@@ -19,7 +19,10 @@ function createServer() {
 				a: z.number(),
 				b: z.number(),
 			}),
-			outputSchema: z.union([z.object({ result: z.number() }), z.object({ error: z.string() })]),
+			outputSchema: z.union([
+				z.object({ result: z.number() }),
+				z.object({ error: z.string() }),
+			]),
 		},
 		async ({ operation, a, b }) => {
 			let result: number;
@@ -37,8 +40,8 @@ function createServer() {
 					if (b === 0) {
 						const output = { error: "Cannot divide by zero" };
 						return {
-							content: [{ type: 'text', text: JSON.stringify(output) }],
-							structuredContent: output
+							content: [{ type: "text", text: JSON.stringify(output) }],
+							structuredContent: output,
 						};
 					}
 					result = a / b;
@@ -47,8 +50,8 @@ function createServer() {
 
 			const output = { result };
 			return {
-				content: [{ type: 'text', text: JSON.stringify(output) }],
-				structuredContent: output
+				content: [{ type: "text", text: JSON.stringify(output) }],
+				structuredContent: output,
 			};
 		},
 	);
@@ -57,8 +60,8 @@ function createServer() {
 }
 
 const handler = createMcpHandler(createServer, {
-	route: '/',
-	allowedHostnames: [ 'longhorndevelopers.org' ]
+	route: "/",
+	allowedHostnames: ["longhorndevelopers.org"],
 });
 
 export default {

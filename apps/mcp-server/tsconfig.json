@@ -8,10 +8,7 @@
 		"noEmit": true,
 		"allowSyntheticDefaultImports": true,
 		"forceConsistentCasingInFileNames": true,
-		"types": [
-			"./worker-configuration.d.ts",
-			"node"
-		]
+		"types": ["./worker-configuration.d.ts", "node"]
 	},
 	"include": ["worker-configuration.d.ts", "src/**/*.ts"]
 }

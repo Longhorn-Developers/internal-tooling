@@ -15,7 +15,6 @@
 		"@modelcontextprotocol/sdk": "1.30.0",
 		"@modelcontextprotocol/server": "2.0.0",
 		"agents": "^0.28.0",
-		"remote-mcp-server-authless": "link:",
 		"zod": "^4.6.6"
 	},
 	"devDependencies": {

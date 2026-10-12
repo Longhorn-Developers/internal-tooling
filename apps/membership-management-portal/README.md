@@ -13,12 +13,6 @@ npm run deploy
 npm run cf-typegen
 ```
 
-Pass the `CloudflareBindings` as generics when instantiating `Hono`:
-
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
 # Membership Management Portal
 
 ## Purpose
@@ -27,4 +21,4 @@ LHD frequently has new members joining in that need access to software and old m
 
 ## Scope
 
-Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Github. This is all software in which users have external accounts and are added into the club's group. What's currently outside of our scope is software the club uses such as CloudFlare and any future SSO.
+Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Github. This is all software in which users have external accounts and are added into the club's group. What's currently outside of our scope is software the club uses such as Cloudflare and any future SSO.

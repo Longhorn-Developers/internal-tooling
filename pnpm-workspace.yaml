@@ -4,5 +4,8 @@ onlyBuiltDependencies:
   - esbuild
   - workerd
 allowBuilds:
+  core-js-pure: true
   esbuild: true
   workerd: true
+minimumReleaseAgeExclude:
+  - zod@4.6.6

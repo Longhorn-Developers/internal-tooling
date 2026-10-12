@@ -1,9 +1,10 @@
-import { Hono } from "hono";
+import { WorkerEntrypoint } from 'cloudflare:workers'
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
-
-app.get("/boilerplate", (c) => {
-  return c.text("Boilerplate!");
-});
-
-export default app;
+export class MembershipService extends WorkerEntrypoint<Env> {
+  async exampleRPC(params: any) {
+    /*
+     * D1 data can be accessed via this.env.membership_db.prepare()
+     */
+    return { /* data */ }
+  }
+}

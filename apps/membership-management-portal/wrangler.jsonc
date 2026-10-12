@@ -4,17 +4,25 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "membership-management-portal",
+	"name": "membership-worker",
 	"main": "src/index.ts",
+	"routes": [],
 	"compatibility_date": "2026-10-06",
-//	"assets": {
-//		"binding": "ASSETS",
-//		"directory": "./public"
-//	},
+	//	"assets": {
+	//		"binding": "ASSETS",
+	//		"directory": "./public"
+	//	},
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "membership_db",
+			"database_name": "membership-db",
+			"database_id": "474c5c06-a8c1-474a-942b-bfb6e23b3a19"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

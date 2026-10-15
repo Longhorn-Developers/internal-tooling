@@ -1,15 +1,16 @@
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { teamMemberships, users } from './schema';
-import type { Position } from './schema';
+import { teamUsers, users, verticalNames, verticals } from './schema';
+import type { Vertical } from './schema';
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
-export type TeamMembership = typeof teamMemberships.$inferSelect;
+export type TeamUser = typeof teamUsers.$inferSelect;
+export type VerticalRecord = typeof verticals.$inferSelect;
 
 export type TeamMember = {
   user: User;
-  positions: Position[];
+  verticals: Vertical[];
 };
 
 /** Returns null when the user does not exist. */
@@ -45,29 +46,29 @@ export async function createUser(
 }
 
 /**
- * Lists users with explicit position assignments, grouping each user's positions.
+ * Lists users with explicit vertical assignments, grouping each user's verticals.
  * Returns [] for a team with no assignments or a team that does not exist.
- * The legacy users.teamId field does not create a position assignment.
  */
 export async function getTeamMembers(
   database: D1Database,
   teamId: string,
 ): Promise<TeamMember[]> {
   const assignments = await drizzle(database)
-    .select({ user: users, position: teamMemberships.position })
-    .from(teamMemberships)
-    .innerJoin(users, eq(teamMemberships.userId, users.id))
-    .where(eq(teamMemberships.teamId, teamId))
-    .orderBy(users.name, users.id, teamMemberships.position)
+    .select({ user: users, vertical: verticals.name })
+    .from(teamUsers)
+    .innerJoin(users, eq(teamUsers.userId, users.id))
+    .innerJoin(verticals, eq(teamUsers.verticalId, verticals.id))
+    .where(eq(teamUsers.teamId, teamId))
+    .orderBy(users.name, users.id, verticals.name)
     .all();
 
   const members = new Map<string, TeamMember>();
-  for (const { user, position } of assignments) {
+  for (const { user, vertical } of assignments) {
     const member = members.get(user.id);
     if (member) {
-      member.positions.push(position);
+      member.verticals.push(vertical);
     } else {
-      members.set(user.id, { user, positions: [position] });
+      members.set(user.id, { user, verticals: [vertical] });
     }
   }
 
@@ -76,46 +77,70 @@ export async function getTeamMembers(
 
 /**
  * Returns true for a new assignment, or false if it already exists.
- * Missing users/teams and invalid positions reject the promise.
+ * Missing users/teams and invalid verticals reject the promise.
  */
-export async function assignPosition(
+export async function assignVertical(
   database: D1Database,
   userId: string,
   teamId: string,
-  position: Position,
+  vertical: Vertical,
 ): Promise<boolean> {
-  const assignment = await drizzle(database)
-    .insert(teamMemberships)
-    .values({ userId, teamId, position })
+  const db = drizzle(database);
+  const record = await findVertical(database, vertical);
+  if (!record) {
+    throw new Error(`Vertical "${vertical}" is not initialized; run npm run db:migrate first`);
+  }
+
+  const assignment = await db
+    .insert(teamUsers)
+    .values({ userId, teamId, verticalId: record.id })
     .onConflictDoNothing({
       target: [
-        teamMemberships.userId,
-        teamMemberships.teamId,
-        teamMemberships.position,
+        teamUsers.teamId,
+        teamUsers.userId,
+        teamUsers.verticalId,
       ],
     })
-    .returning({ userId: teamMemberships.userId })
+    .returning({ userId: teamUsers.userId })
     .get();
 
   return assignment !== undefined;
 }
 
 /** Returns true if the assignment was removed, or false if it did not exist. */
-export async function removePosition(
+export async function removeVertical(
   database: D1Database,
   userId: string,
   teamId: string,
-  position: Position,
+  vertical: Vertical,
 ): Promise<boolean> {
+  const record = await findVertical(database, vertical);
+  if (!record) return false;
+
   const assignment = await drizzle(database)
-    .delete(teamMemberships)
+    .delete(teamUsers)
     .where(and(
-      eq(teamMemberships.userId, userId),
-      eq(teamMemberships.teamId, teamId),
-      eq(teamMemberships.position, position),
+      eq(teamUsers.userId, userId),
+      eq(teamUsers.teamId, teamId),
+      eq(teamUsers.verticalId, record.id),
     ))
-    .returning({ userId: teamMemberships.userId })
+    .returning({ userId: teamUsers.userId })
     .get();
 
   return assignment !== undefined;
+}
+
+async function findVertical(
+  database: D1Database,
+  vertical: Vertical,
+): Promise<VerticalRecord | undefined> {
+  if (!verticalNames.includes(vertical)) {
+    throw new Error(`Unsupported vertical: ${vertical}`);
+  }
+
+  return drizzle(database)
+    .select()
+    .from(verticals)
+    .where(eq(verticals.name, vertical))
+    .get();
 }

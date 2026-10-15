@@ -20,7 +20,8 @@
 		{
 			"binding": "membership_db",
 			"database_name": "membership-db",
-			"database_id": "474c5c06-a8c1-474a-942b-bfb6e23b3a19"
+			"database_id": "474c5c06-a8c1-474a-942b-bfb6e23b3a19",
+			"migrations_dir": "drizzle"
 		}
 	]
 	/**

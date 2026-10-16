@@ -1,5 +1,5 @@
 import type { StorybookConfig } from "@storybook/react-vite";
-import UnoCSS from "unocss/vite";
+import tailwindcss from "@tailwindcss/vite";
 
 const config: StorybookConfig = {
   stories: ["../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
@@ -13,7 +13,7 @@ const config: StorybookConfig = {
     options: {},
   },
   async viteFinal(config) {
-    config.plugins = [...(config.plugins || []), UnoCSS()];
+    config.plugins = [...(config.plugins || []), tailwindcss()];
     return config;
   },
 };

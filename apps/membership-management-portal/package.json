@@ -1,5 +1,5 @@
 {
-	"name": "membership-management-portal",
+	"name": "@longhorn-developers/membership-management-portal",
 	"version": "1.0.0",
 	"type": "module",
 	"main": "src/index.ts",

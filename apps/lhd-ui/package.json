@@ -1,5 +1,5 @@
 {
-	"name": "@longhorn-developers/lhd-ui",
+	"name": "@longhorn-developers/ui",
 	"version": "1.0.0",
 	"type": "module",
 	"main": "./dist/index.cjs",

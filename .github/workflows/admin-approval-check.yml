@@ -14,20 +14,20 @@ jobs:
           script: |
             const prNumber = context.payload.pull_request.number;
 
-            // Fetch the review history
-            const reviews = await github.rest.pulls.listReviews({
+            // 1. Fetch all reviews (using paginate to avoid missing data)
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
 
-            // Group reviews by user to determine their final/latest state
+            // 2. Group reviews by user to determine their final/latest state
             const latestReviews = {};
-            for (const review of reviews.data) {
+            for (const review of reviews) {
               latestReviews[review.user.login] = review;
             }
 
-            // Filter for users whose final active state is 'APPROVED'
+            // 3. Filter for users whose final active state is 'APPROVED'
             const activeApprovals = Object.values(latestReviews).filter(
               review => review.state === 'APPROVED'
             );
@@ -37,13 +37,30 @@ jobs:
               return;
             }
 
-            // Check if any of the active approvals are from an ADMIN or OWNER
-            const approvedByAdmin = activeApprovals.some(
-              (review) => ['ADMIN', 'OWNER'].includes(review.author_association)
-            );
+            // 4. Verify user permissions explicitly via the Collaborators API
+            let approvedByAdmin = false;
+            
+            for (const approval of activeApprovals) {
+              const username = approval.user.login;
+            
+              try {
+                const { data: permissionData } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: username,
+                });
+            
+                // Permission can be 'admin', 'write', 'read', or 'none'
+                if (permissionData.permission === 'admin') {
+                  approvedByAdmin = true;
+                  console.log(`Valid Admin approval found from user: ${username}`);
+                  break; 
+                }
+              } catch (err) {
+                console.log(`Could not fetch permissions for ${username}:`, err.message);
+              }
+            }
 
             if (!approvedByAdmin) {
-              core.setFailed("PR was approved by a standard user, but it strictly requires a Repository Admin approval to merge.");
-            } else {
-              console.log("Valid Admin/Owner approval found!");
+              core.setFailed("PR was approved, but it strictly requires a Repository Admin or Owner approval to merge.");
             }

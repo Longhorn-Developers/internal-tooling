@@ -1,11 +1,17 @@
 {
-  "name": "internal-tooling",
-  "version": "1.0.0",
-  "scripts": {},
-  "packageManager": "pnpm@12.11.2",
-  "private": true,
-  "devDependencies": {
-    "@types/node": "^26.6.5",
-    "typescript": "^7.0.2"
-  }
+    "name": "internal-tooling",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "check": "vp check",
+        "lint": "vp lint",
+        "fmt": "vp fmt --write .",
+        "pack:ui": "vp -C apps/lhd-ui pack"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.5",
+        "typescript": "^7.0.2",
+        "vite-plus": "catalog:"
+    },
+    "packageManager": "pnpm@12.11.2"
 }

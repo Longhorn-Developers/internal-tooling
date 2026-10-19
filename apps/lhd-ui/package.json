@@ -1,52 +1,56 @@
 {
-	"name": "@longhorn-developers/ui",
-	"version": "1.0.0",
-	"type": "module",
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
-		},
-		"./styles.css": "./dist/styles.css"
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"build:tsup": "tsup",
+    "name": "@longhorn-developers/ui",
+    "version": "1.0.0",
+    "files": [
+        "dist"
+    ],
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
+        },
+        "./styles.css": "./dist/styles.css"
+    },
+    "scripts": {
+        "build:pack": "vp pack",
         "build:tailwind": "tailwindcss -i src/styles.css -o dist/styles.css --minify",
-		"build": "pnpm build:tsup && pnpm build:tailwind",
-		"dev:tsup": "tsup --watch",
+        "build": "pnpm build:pack && pnpm build:tailwind",
+        "dev:pack": "vp pack --watch",
         "dev:tailwind": "tailwindcss -i src/styles.css -o dist/styles.css --watch",
-		"dev": "concurrently \"pnpm dev:tsup\" \"pnpm dev:tailwind\"",
-		"storybook": "storybook dev -p 6006",
-		"build-storybook": "storybook build"
-	},
-	"peerDependencies": {
-		"react": "^18.0.0 || ^19.0.0",
-		"react-dom": "^18.0.0 || ^19.0.0"
-	},
-	"devDependencies": {
-		"@storybook/addon-essentials": "^8.0.0",
-		"@storybook/addon-interactions": "^8.0.0",
-		"@storybook/addon-links": "^8.0.0",
-		"@storybook/react": "^8.0.0",
-		"@storybook/react-vite": "^8.0.0",
-		"@tailwindcss/cli": "^4.3.3",
-		"@tailwindcss/vite": "^4.3.3",
-		"@types/react": "^18.3.0",
-		"@types/react-dom": "^18.3.0",
-		"concurrently": "^10.0.6",
-		"react": "^18.3.1",
-		"react-dom": "^18.3.1",
-		"storybook": "^8.0.0",
-		"tailwindcss": "^4.3.3",
-		"tsup": "^8.0.0",
-		"typescript": "^5.4.0",
-		"vite": "^5.0.0"
-	}
+        "dev": "concurrently \"pnpm dev:pack\" \"pnpm dev:tailwind\"",
+        "storybook": "storybook dev -p 6006",
+        "build-storybook": "storybook build"
+    },
+    "devDependencies": {
+        "@storybook/addon-links": "^10.6.2",
+        "@storybook/react": "^10.6.2",
+        "@storybook/react-vite": "^10.6.2",
+        "@tailwindcss/cli": "^4.3.3",
+        "@tailwindcss/vite": "^4.3.3",
+        "@types/react": "^18.3.0",
+        "@types/react-dom": "^18.3.0",
+        "concurrently": "^10.0.6",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "storybook": "^10.6.2",
+        "tailwindcss": "^4.3.3",
+        "typescript": "^5.4.0",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
+        "@storybook/addon-docs": "^10.6.2"
+    },
+    "peerDependencies": {
+        "react": "^18.0.0 || ^19.0.0",
+        "react-dom": "^18.0.0 || ^19.0.0"
+    }
 }

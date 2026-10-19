@@ -1,27 +1,26 @@
 {
-	"name": "@longhorn-developers/mcp-server",
-	"version": "0.0.0",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"format": "oxfmt --write .",
-		"lint:fix": "oxlint --fix",
-		"start": "wrangler dev",
-		"cf-typegen": "wrangler types",
-		"type-check": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@modelcontextprotocol/sdk": "1.30.0",
-		"@modelcontextprotocol/server": "2.0.0",
-		"agents": "^0.28.0",
-		"zod": "^4.6.6"
-	},
-	"devDependencies": {
-		"@types/node": "^26.6.5",
-		"oxfmt": "^0.56.0",
-		"oxlint": "^1.71.0",
-		"typescript": "6.0.3",
-		"wrangler": "^4.149.0"
-	}
+    "name": "@longhorn-developers/mcp-server",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "format": "vp fmt --write .",
+        "lint:fix": "vp lint --fix",
+        "start": "wrangler dev",
+        "cf-typegen": "wrangler types",
+        "type-check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "1.30.0",
+        "@modelcontextprotocol/server": "2.0.0",
+        "agents": "^0.28.0",
+        "zod": "^4.6.6"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.5",
+        "typescript": "6.0.3",
+        "vite-plus": "catalog:",
+        "wrangler": "^4.149.0"
+    }
 }

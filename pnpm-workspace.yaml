@@ -1,9 +1,22 @@
 packages:
-  - 'apps/*'
+    - "apps/*"
+onlyBuiltDependencies:
+    - esbuild
+    - workerd
 allowBuilds:
-  '@parcel/watcher': false
-  core-js-pure: true
-  esbuild: true
-  workerd: true
+    "@parcel/watcher": false
+    core-js-pure: true
+    esbuild: true
+    workerd: true
 minimumReleaseAgeExclude:
-  - zod@4.6.6
+    - zod@4.6.6
+catalog:
+    vite: npm:@voidzero-dev/vite-plus-core@1.3.0
+    vite-plus: 1.3.0
+overrides:
+    vite@*: "catalog:"
+peerDependencyRules:
+    allowAny:
+        - vite
+    allowedVersions:
+        vite: "*"

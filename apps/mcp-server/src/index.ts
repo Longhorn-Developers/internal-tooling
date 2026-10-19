@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 
+import { registerDiningTools } from "./tools/dining";
+
 function createServer() {
     const server = new McpServer({
         name: "Longhorn Developers",
@@ -56,12 +58,16 @@ function createServer() {
         },
     );
 
+    registerDiningTools(server);
+
     return server;
 }
 
 const handler = createMcpHandler(createServer, {
     route: "/",
-    allowedHostnames: ["mcp.longhorndevelopers.org"],
+    // Setting this opts out of the library's localhost default, so `wrangler dev`
+    // is rejected unless the loopback names sit alongside production.
+    allowedHostnames: ["mcp.longhorndevelopers.org", "localhost", "127.0.0.1"],
 });
 
 export default {

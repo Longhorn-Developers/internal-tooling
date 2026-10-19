@@ -1,9 +1,7 @@
 packages:
   - 'apps/*'
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
 allowBuilds:
+  '@parcel/watcher': false
   core-js-pure: true
   esbuild: true
   workerd: true

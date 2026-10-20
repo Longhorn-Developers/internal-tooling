@@ -25,10 +25,13 @@ Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Gi
 
 ## Database
 
-The D1 database has five tables: `users`, `statuses`, `teams`, `verticals`, and
-`team_users`. Users can belong to multiple teams, with one or more verticals per
-team. Users also have an `isExec` flag and optional `dateJoined` / `dateLeft`
-fields (`YYYY-MM-DD`).
+The D1 database has three tables: `users`, `teams`, and `team_users`. Users can
+belong to multiple teams, with one or more verticals (`product`, `tech`,
+`design`) per team. Each assignment has an `isLead` flag, so a vertical can have
+co-leads, but a user is either a lead or not within one team and vertical. Users
+have a `status` (`applicant`, `active`, `inactive`, `alum`; defaults to
+`applicant`), an `isExec` flag, and optional `dateJoined` / `dateLeft` fields
+(`YYYY-MM-DD`). Status and vertical values are enforced with CHECK constraints.
 
 Run these commands from this app's directory to initialize remote D1 using the
 database binding in `wrangler.jsonc`. No `.env` file is needed with Wrangler login:
@@ -39,8 +42,8 @@ npx wrangler login
 npm run db:migrate
 ```
 
-The initial migration creates the tables and inserts the applicant status and
-six verticals. Wrangler tracks applied migrations, so rerunning is safe.
+The initial migration creates the tables. Wrangler tracks applied migrations,
+so rerunning is safe.
 
 After changing `src/db/schema.ts`, run `npm run db:generate`, review and commit
 the generated SQL and `drizzle/meta` files, then run `npm run db:migrate`.
@@ -54,10 +57,12 @@ Import from `src/db/access.ts` and pass the D1 binding first:
 import { getUserById, assignVertical } from './db/access';
 
 const user = await getUserById(this.env.membership_db, userId);
-await assignVertical(this.env.membership_db, userId, teamId, 'developer fellow');
+await assignVertical(this.env.membership_db, userId, teamId, 'tech', true); // as lead
 ```
 
 Available helpers: `createUser`, `getUserById`, `getTeamMembers`,
 `assignVertical`, and `removeVertical`. Create users and teams before assigning
-verticals. `getTeamMembers` returns `{ user, verticals }[]`; assignment/removal
-helpers return whether a row changed. Database errors reject the promise.
+verticals. `getTeamMembers` returns `{ user, verticals: { vertical, isLead }[] }[]`.
+`assignVertical` inserts the assignment or updates `isLead` on an existing one;
+assignment/removal helpers return whether a row changed. Database errors reject
+the promise.

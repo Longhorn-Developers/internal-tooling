@@ -1,16 +1,20 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { teamUsers, users, verticalNames, verticals } from './schema';
+import { teamUsers, users } from './schema';
 import type { Vertical } from './schema';
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type TeamUser = typeof teamUsers.$inferSelect;
-export type VerticalRecord = typeof verticals.$inferSelect;
+
+export type VerticalAssignment = {
+  vertical: Vertical;
+  isLead: boolean;
+};
 
 export type TeamMember = {
   user: User;
-  verticals: Vertical[];
+  verticals: VerticalAssignment[];
 };
 
 /** Returns null when the user does not exist. */
@@ -27,7 +31,7 @@ export async function getUserById(
   return user ?? null;
 }
 
-/** Creates a user; duplicate IDs and invalid references reject the promise. */
+/** Creates a user; duplicate IDs and invalid statuses reject the promise. */
 export async function createUser(
   database: D1Database,
   data: NewUser,
@@ -54,21 +58,24 @@ export async function getTeamMembers(
   teamId: string,
 ): Promise<TeamMember[]> {
   const assignments = await drizzle(database)
-    .select({ user: users, vertical: verticals.name })
+    .select({
+      user: users,
+      vertical: teamUsers.vertical,
+      isLead: teamUsers.isLead,
+    })
     .from(teamUsers)
     .innerJoin(users, eq(teamUsers.userId, users.id))
-    .innerJoin(verticals, eq(teamUsers.verticalId, verticals.id))
     .where(eq(teamUsers.teamId, teamId))
-    .orderBy(users.name, users.id, verticals.name)
+    .orderBy(users.name, users.id, teamUsers.vertical)
     .all();
 
   const members = new Map<string, TeamMember>();
-  for (const { user, vertical } of assignments) {
+  for (const { user, vertical, isLead } of assignments) {
     const member = members.get(user.id);
     if (member) {
-      member.verticals.push(vertical);
+      member.verticals.push({ vertical, isLead });
     } else {
-      members.set(user.id, { user, verticals: [vertical] });
+      members.set(user.id, { user, verticals: [{ vertical, isLead }] });
     }
   }
 
@@ -76,7 +83,8 @@ export async function getTeamMembers(
 }
 
 /**
- * Returns true for a new assignment, or false if it already exists.
+ * Assigns a vertical, or updates isLead on an existing assignment.
+ * Returns true if a row was inserted or changed, or false if it already matched.
  * Missing users/teams and invalid verticals reject the promise.
  */
 export async function assignVertical(
@@ -84,22 +92,15 @@ export async function assignVertical(
   userId: string,
   teamId: string,
   vertical: Vertical,
+  isLead = false,
 ): Promise<boolean> {
-  const db = drizzle(database);
-  const record = await findVertical(database, vertical);
-  if (!record) {
-    throw new Error(`Vertical "${vertical}" is not initialized; run npm run db:migrate first`);
-  }
-
-  const assignment = await db
+  const assignment = await drizzle(database)
     .insert(teamUsers)
-    .values({ userId, teamId, verticalId: record.id })
-    .onConflictDoNothing({
-      target: [
-        teamUsers.teamId,
-        teamUsers.userId,
-        teamUsers.verticalId,
-      ],
+    .values({ userId, teamId, vertical, isLead })
+    .onConflictDoUpdate({
+      target: [teamUsers.teamId, teamUsers.userId, teamUsers.vertical],
+      set: { isLead },
+      setWhere: ne(teamUsers.isLead, isLead),
     })
     .returning({ userId: teamUsers.userId })
     .get();
@@ -114,33 +115,15 @@ export async function removeVertical(
   teamId: string,
   vertical: Vertical,
 ): Promise<boolean> {
-  const record = await findVertical(database, vertical);
-  if (!record) return false;
-
   const assignment = await drizzle(database)
     .delete(teamUsers)
     .where(and(
       eq(teamUsers.userId, userId),
       eq(teamUsers.teamId, teamId),
-      eq(teamUsers.verticalId, record.id),
+      eq(teamUsers.vertical, vertical),
     ))
     .returning({ userId: teamUsers.userId })
     .get();
 
   return assignment !== undefined;
-}
-
-async function findVertical(
-  database: D1Database,
-  vertical: Vertical,
-): Promise<VerticalRecord | undefined> {
-  if (!verticalNames.includes(vertical)) {
-    throw new Error(`Unsupported vertical: ${vertical}`);
-  }
-
-  return drizzle(database)
-    .select()
-    .from(verticals)
-    .where(eq(verticals.name, vertical))
-    .get();
 }

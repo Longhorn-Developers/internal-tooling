@@ -1,41 +1,9 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "94747a91-89bb-4e74-b128-7ba5e2650801",
+  "id": "fd5aba88-70b1-4f54-9734-505650fce955",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "statuses": {
-      "name": "statuses",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "statuses_name_unique": {
-          "name": "statuses_name_unique",
-          "columns": [
-            "name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "team_users": {
       "name": "team_users",
       "columns": {
@@ -53,12 +21,20 @@
           "notNull": true,
           "autoincrement": false
         },
-        "vertical_id": {
-          "name": "vertical_id",
+        "vertical": {
+          "name": "vertical",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "is_lead": {
+          "name": "is_lead",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -66,13 +42,6 @@
           "name": "team_users_user_id_idx",
           "columns": [
             "user_id"
-          ],
-          "isUnique": false
-        },
-        "team_users_vertical_id_idx": {
-          "name": "team_users_vertical_id_idx",
-          "columns": [
-            "vertical_id"
           ],
           "isUnique": false
         }
@@ -103,33 +72,25 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "team_users_vertical_id_verticals_id_fk": {
-          "name": "team_users_vertical_id_verticals_id_fk",
-          "tableFrom": "team_users",
-          "tableTo": "verticals",
-          "columnsFrom": [
-            "vertical_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
-        "team_users_team_id_user_id_vertical_id_pk": {
+        "team_users_team_id_user_id_vertical_pk": {
           "columns": [
             "team_id",
             "user_id",
-            "vertical_id"
+            "vertical"
           ],
-          "name": "team_users_team_id_user_id_vertical_id_pk"
+          "name": "team_users_team_id_user_id_vertical_pk"
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "valid_vertical": {
+          "name": "valid_vertical",
+          "value": "\"team_users\".\"vertical\" IN ('product', 'tech', 'design')"
+        }
+      }
     },
     "teams": {
       "name": "teams",
@@ -193,8 +154,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "status_id": {
-          "name": "status_id",
+        "status": {
+          "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -225,59 +186,13 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "users_status_id_statuses_id_fk": {
-          "name": "users_status_id_statuses_id_fk",
-          "tableFrom": "users",
-          "tableTo": "statuses",
-          "columnsFrom": [
-            "status_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "verticals": {
-      "name": "verticals",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "verticals_name_unique": {
-          "name": "verticals_name_unique",
-          "columns": [
-            "name"
-          ],
-          "isUnique": true
-        }
-      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "valid_vertical_name": {
-          "name": "valid_vertical_name",
-          "value": "\"verticals\".\"name\" IN (\n        'product fellow', 'developer fellow',\n        'product lead', 'developer lead',\n        'design lead', 'design fellow'\n      )"
+        "valid_status": {
+          "name": "valid_status",
+          "value": "\"users\".\"status\" IN ('applicant', 'active', 'inactive', 'alum')"
         }
       }
     }

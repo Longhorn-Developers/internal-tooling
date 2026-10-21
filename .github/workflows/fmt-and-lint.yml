@@ -24,7 +24,7 @@ jobs:
         run: pnpm i
 
       - name: Run Linter
-        run: vp lint
+        run: pnpm exec vp lint
 
       - name: Check Formatting
-        run: vp fmt --check
+        run: pnpm exec vp fmt --check

@@ -1,15 +1,20 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { teamMemberships, users } from './schema';
-import type { Position } from './schema';
+import { teamUsers, users } from './schema';
+import type { Vertical } from './schema';
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
-export type TeamMembership = typeof teamMemberships.$inferSelect;
+export type TeamUser = typeof teamUsers.$inferSelect;
+
+export type VerticalAssignment = {
+  vertical: Vertical;
+  isLead: boolean;
+};
 
 export type TeamMember = {
   user: User;
-  positions: Position[];
+  verticals: VerticalAssignment[];
 };
 
 /** Returns null when the user does not exist. */
@@ -26,7 +31,7 @@ export async function getUserById(
   return user ?? null;
 }
 
-/** Creates a user; duplicate IDs and invalid references reject the promise. */
+/** Creates a user; duplicate IDs and invalid statuses reject the promise. */
 export async function createUser(
   database: D1Database,
   data: NewUser,
@@ -45,29 +50,32 @@ export async function createUser(
 }
 
 /**
- * Lists users with explicit position assignments, grouping each user's positions.
+ * Lists users with explicit vertical assignments, grouping each user's verticals.
  * Returns [] for a team with no assignments or a team that does not exist.
- * The legacy users.teamId field does not create a position assignment.
  */
 export async function getTeamMembers(
   database: D1Database,
   teamId: string,
 ): Promise<TeamMember[]> {
   const assignments = await drizzle(database)
-    .select({ user: users, position: teamMemberships.position })
-    .from(teamMemberships)
-    .innerJoin(users, eq(teamMemberships.userId, users.id))
-    .where(eq(teamMemberships.teamId, teamId))
-    .orderBy(users.name, users.id, teamMemberships.position)
+    .select({
+      user: users,
+      vertical: teamUsers.vertical,
+      isLead: teamUsers.isLead,
+    })
+    .from(teamUsers)
+    .innerJoin(users, eq(teamUsers.userId, users.id))
+    .where(eq(teamUsers.teamId, teamId))
+    .orderBy(users.name, users.id, teamUsers.vertical)
     .all();
 
   const members = new Map<string, TeamMember>();
-  for (const { user, position } of assignments) {
+  for (const { user, vertical, isLead } of assignments) {
     const member = members.get(user.id);
     if (member) {
-      member.positions.push(position);
+      member.verticals.push({ vertical, isLead });
     } else {
-      members.set(user.id, { user, positions: [position] });
+      members.set(user.id, { user, verticals: [{ vertical, isLead }] });
     }
   }
 
@@ -75,46 +83,46 @@ export async function getTeamMembers(
 }
 
 /**
- * Returns true for a new assignment, or false if it already exists.
- * Missing users/teams and invalid positions reject the promise.
+ * Assigns a vertical, or updates isLead on an existing assignment.
+ * Returns true if a row was inserted or changed, or false if it already matched.
+ * Missing users/teams and invalid verticals reject the promise.
  */
-export async function assignPosition(
+export async function assignVertical(
   database: D1Database,
   userId: string,
   teamId: string,
-  position: Position,
+  vertical: Vertical,
+  isLead = false,
 ): Promise<boolean> {
   const assignment = await drizzle(database)
-    .insert(teamMemberships)
-    .values({ userId, teamId, position })
-    .onConflictDoNothing({
-      target: [
-        teamMemberships.userId,
-        teamMemberships.teamId,
-        teamMemberships.position,
-      ],
+    .insert(teamUsers)
+    .values({ userId, teamId, vertical, isLead })
+    .onConflictDoUpdate({
+      target: [teamUsers.teamId, teamUsers.userId, teamUsers.vertical],
+      set: { isLead },
+      setWhere: ne(teamUsers.isLead, isLead),
     })
-    .returning({ userId: teamMemberships.userId })
+    .returning({ userId: teamUsers.userId })
     .get();
 
   return assignment !== undefined;
 }
 
 /** Returns true if the assignment was removed, or false if it did not exist. */
-export async function removePosition(
+export async function removeVertical(
   database: D1Database,
   userId: string,
   teamId: string,
-  position: Position,
+  vertical: Vertical,
 ): Promise<boolean> {
   const assignment = await drizzle(database)
-    .delete(teamMemberships)
+    .delete(teamUsers)
     .where(and(
-      eq(teamMemberships.userId, userId),
-      eq(teamMemberships.teamId, teamId),
-      eq(teamMemberships.position, position),
+      eq(teamUsers.userId, userId),
+      eq(teamUsers.teamId, teamId),
+      eq(teamUsers.vertical, vertical),
     ))
-    .returning({ userId: teamMemberships.userId })
+    .returning({ userId: teamUsers.userId })
     .get();
 
   return assignment !== undefined;

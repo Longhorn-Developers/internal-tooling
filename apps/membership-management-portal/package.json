@@ -6,12 +6,14 @@
     "scripts": {
         "dev": "wrangler dev",
         "deploy": "wrangler deploy --minify",
-        "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+        "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+        "db:generate": "drizzle-kit generate",
+        "db:migrate": "wrangler d1 migrations apply membership_db --remote"
     },
 	"devDependencies": {
 		"@types/node": "^26.6.5",
 		"drizzle-kit": "^0.31.11",
-		"tsx": "^4.23.15"
+		"wrangler": "^4.151.0"
 	},
 	"dependencies": {
 		"drizzle-orm": "^0.45.4"

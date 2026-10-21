@@ -23,51 +23,46 @@ LHD frequently has new members joining in that need access to software and old m
 
 Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Github. This is all software in which users have external accounts and are added into the club's group. What's currently outside of our scope is software the club uses such as Cloudflare and any future SSO.
 
-## Database access helpers
+## Database
 
-Import the helpers from `src/db/access.ts` and pass the worker's D1 binding,
-`this.env.membership_db`, as the first argument:
+The D1 database has three tables: `users`, `teams`, and `team_users`. Users can
+belong to multiple teams, with one or more verticals (`product`, `tech`,
+`design`) per team. Each assignment has an `isLead` flag, so a vertical can have
+co-leads, but a user is either a lead or not within one team and vertical. Users
+have a `status` (`applicant`, `active`, `inactive`, `alum`; defaults to
+`applicant`), an `isExec` flag, and optional `dateJoined` / `dateLeft` fields
+(`YYYY-MM-DD`). Status and vertical values are enforced with CHECK constraints.
 
-```ts
-import { getUserById, assignPosition } from './db/access';
-
-// Inside a MembershipService method:
-const user = await getUserById(this.env.membership_db, userId);
-if (!user) {
-  throw new Error(`User ${userId} not found`);
-}
-
-const added = await assignPosition(
-  this.env.membership_db,
-  user.id,
-  teamId,
-  'developer fellow',
-);
-```
-
-| Helper | Result |
-| --- | --- |
-| `getUserById(database, userId)` | A `User`, or `null` if missing. |
-| `createUser(database, data)` | The created `User`, including schema defaults. Duplicate IDs or invalid references throw. |
-| `getTeamMembers(database, teamId)` | `{ user, positions }[]`, with one entry per person, ordered by name and ID; positions are sorted alphabetically. Empty or missing teams return `[]`. |
-| `assignPosition(database, userId, teamId, position)` | `true` when inserted, or `false` when already assigned. Invalid references or positions throw. |
-| `removePosition(database, userId, teamId, position)` | `true` when removed, or `false` when the assignment was missing. |
-
-`User`, `NewUser`, and `TeamMembership` types are derived from the schema.
-The `Position` type restricts assignments to the six supported positions.
-Database errors reject the helpers' promises so callers can handle failures.
-
-Apply the schema migrations and seed referenced teams/statuses before using the
-helpers. In particular, the default user status requires a status with ID
-`applicant`. User creation still requires the legacy `teamId` field; it does not
-create a position assignment. Call `assignPosition` separately to populate
-`team_memberships`, which is the source for `getTeamMembers`.
-
-Run the helper tests with Node.js 24 or newer:
+Run these commands from this app's directory to initialize remote D1 using the
+database binding in `wrangler.jsonc`. No `.env` file is needed with Wrangler login:
 
 ```sh
-npm test
+npm install
+npx wrangler login
+npm run db:migrate
 ```
 
-The tests generate SQL from the schema and run the D1 Drizzle adapter against an
-in-memory SQLite database; they do not access the deployed database.
+The initial migration creates the tables. Wrangler tracks applied migrations,
+so rerunning is safe.
+
+After changing `src/db/schema.ts`, run `npm run db:generate`, review and commit
+the generated SQL and `drizzle/meta` files, then run `npm run db:migrate`.
+The deployed Worker accesses D1 through `this.env.membership_db`.
+
+## Database access helpers
+
+Import from `src/db/access.ts` and pass the D1 binding first:
+
+```ts
+import { getUserById, assignVertical } from './db/access';
+
+const user = await getUserById(this.env.membership_db, userId);
+await assignVertical(this.env.membership_db, userId, teamId, 'tech', true); // as lead
+```
+
+Available helpers: `createUser`, `getUserById`, `getTeamMembers`,
+`assignVertical`, and `removeVertical`. Create users and teams before assigning
+verticals. `getTeamMembers` returns `{ user, verticals: { vertical, isLead }[] }[]`.
+`assignVertical` inserts the assignment or updates `isLead` on an existing one;
+assignment/removal helpers return whether a row changed. Database errors reject
+the promise.

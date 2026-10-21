@@ -1,0 +1,24 @@
+name: Format and Lint Check
+
+on:
+  push:
+    branches: [ main, lhd-ui, mcp-server, membership-management-portal ]
+  pull_request:
+    branches: [ main, lhd-ui, mcp-server, membership-management-portal ]
+
+jobs:
+  fmt-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pnpm i
+
+      - name: Run Linter
+        run: vp lint
+
+      - name: Check Formatting
+        run: vp fmt --check

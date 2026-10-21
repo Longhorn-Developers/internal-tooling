@@ -10,12 +10,12 @@
         "db:generate": "drizzle-kit generate",
         "db:migrate": "wrangler d1 migrations apply membership_db --remote"
     },
-	"devDependencies": {
-		"@types/node": "^26.6.5",
-		"drizzle-kit": "^0.31.11",
-		"wrangler": "^4.151.0"
-	},
-	"dependencies": {
-		"drizzle-orm": "^0.45.4"
-	}
+    "dependencies": {
+        "drizzle-orm": "^0.45.4"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.5",
+        "drizzle-kit": "^0.31.11",
+        "wrangler": "^4.151.0"
+    }
 }

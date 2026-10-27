@@ -7,6 +7,7 @@ import {
     getLocations,
     getMenu,
     getNutrition,
+    getFeedHours,
     hoursForDate,
     parseDate,
     searchMenuItems,
@@ -128,9 +129,19 @@ describe("hoursForDate picks the most specific schedule", () => {
     // so a naive "first period that covers this date" returns the semester one.
     it("uses the Thanksgiving break schedule inside the semester range", async () => {
         const period = await hoursForDate("11/26/2026");
-        expect(period.label).toMatch(/Thanksgiving Break/);
+        // UT misspells this one in the feed ("Thanskgiving"), so match the range.
+        expect(period.label).toMatch(/Break \(11\/23\/26 - 11\/29\/26\)/);
         const j2 = period.locations.find((l) => l.name === "J2 Dining")!;
         expect(j2.week[3]).toBeNull(); // Thanksgiving Day, closed
+    });
+
+    // Regression: the feed holds every period, not just the semester, and reading
+    // only the first one had J2 open on Thanksgiving.
+    it("reads every period the feed publishes, not just the first", async () => {
+        const periods = await getFeedHours();
+        expect(periods.length).toBeGreaterThan(1);
+        expect(periods.map((p) => p.label).join("|")).toMatch(/Than(ks|sk)giving Break/);
+        expect(periods.every((p) => p.locations.length > 0)).toBe(true);
     });
 
     it("still uses the semester schedule on an ordinary day", async () => {
@@ -421,28 +432,28 @@ describe("audit regressions", () => {
 describe("hour ranges the fixtures do not exercise", () => {
     const scheduleWith = (cells: string[]) => ({
         "hours-of-operation":
-            "<details><summary>Edge Term (10/01/26 - 10/31/26)</summary><h5>Dining Halls</h5>" +
+            "<details><summary>Edge Term (02/01/27 - 02/28/27)</summary><h5>Dining Halls</h5>" +
             `<table><tbody><tr><td>Night Owl</td>${cells.map((c) => `<td>${c}</td>`).join("")}</tr></tbody></table></details>`,
     });
 
     // "Midnight" means 00:00 when it opens a range and 24:00 when it closes one.
     it("reads Midnight as the start of the day when it opens a range", async () => {
         stubFetch(scheduleWith(["Midnight-8:00am", ...Array(6).fill("Closed")]));
-        const period = await hoursForDate("10/05/2026"); // a Monday
+        const period = await hoursForDate("02/08/2027"); // a Monday
         const owl = period.locations.find((l) => l.name === "Night Owl")!;
         expect(owl.week[0]).toEqual([{ start: 0, end: 8 * 60, label: "Midnight-8:00am" }]);
     });
 
     it("carries a range past midnight into the next day", async () => {
         stubFetch(scheduleWith(["10:00pm-2:00am", ...Array(6).fill("Closed")]));
-        const period = await hoursForDate("10/05/2026");
+        const period = await hoursForDate("02/08/2027");
         const owl = period.locations.find((l) => l.name === "Night Owl")!;
         expect(owl.week[0]).toEqual([{ start: 22 * 60, end: 26 * 60, label: "10:00pm-2:00am" }]);
     });
 
     it("counts a past-midnight range as open just before closing", async () => {
         stubFetch(scheduleWith(["10:00pm-2:00am", ...Array(6).fill("Closed")]));
-        const rows = await statusAt("10/05/2026", 25 * 60); // 1am, still the Monday entry
+        const rows = await statusAt("02/08/2027", 25 * 60); // 1am, still the Monday entry
         const owl = rows.find((r) => r.name === "Night Owl")!;
         expect(owl.open).toBe(true);
         expect(owl.closesIn).toBe(60);

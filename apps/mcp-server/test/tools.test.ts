@@ -175,7 +175,26 @@ describe("dining_hours", () => {
     });
 
     it("reports the schedule in force, including break schedules", async () => {
-        expect(await textOf("dining_hours", { date: "2026-11-26" })).toMatch(/Thanksgiving Break/);
+        // "Thanskgiving" is UT's own spelling in the hours feed.
+        expect(await textOf("dining_hours", { date: "2026-11-26" })).toMatch(
+            /Than(ks|sk)giving Break/,
+        );
+    });
+});
+
+describe("search_menu_items argument handling", () => {
+    // Regression: this used a raw substring on the location, so "Jester City
+    // Limits" (what dining_hours prints) found nothing while "JCL" worked.
+    it("accepts the same location aliases the other tools do", async () => {
+        for (const location of ["JCL", "Jester City Limits", "Kinsolving"]) {
+            const out = await textOf("search_menu_items", { query: "a", location });
+            expect(out).not.toMatch(/^No menu item matches/);
+        }
+    });
+
+    it("rejects an unknown diet code instead of matching nothing", async () => {
+        const out = await textOf("search_menu_items", { query: "wrap", diet: ["GF"] });
+        expect(out).toMatch(/Unknown diet code/);
     });
 });
 
@@ -247,6 +266,34 @@ describe("gaps found in review", () => {
         });
         expect(all.length).toBeGreaterThan(without.length);
         expect(without).not.toMatch(/contains [^\n]*Milk/);
+    });
+
+    // Regression: the label budget covers the first 40 refs, so anything past it
+    // used to fall back to the menu tags. 35 of this week's recipes carry no tags
+    // at all, and Chocolate Pistacio Cloud Cake (untagged, ref 92 of 94 at JCL
+    // dinner) has peanuts on its label. Unverified items get withheld instead.
+    it("withholds items it could not check when an allergen is excluded", async () => {
+        stubFetch({ "label.aspx": 500 });
+        const out = await textOf("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            exclude: ["PNTS"],
+        });
+        expect(out).toMatch(/are not listed/);
+        expect(out).not.toMatch(/ · #\d/); // nothing was presented as safe
+    });
+
+    it("marks an item whose label went unread as menu-tags, not allergen-free", async () => {
+        stubFetch({ "label.aspx": 500 });
+        const { structuredContent } = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+        });
+        const items = structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((sec) => sec.items),
+        );
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.every((i) => i.allergenSource === "menu-tags")).toBe(true);
     });
 
     // A station is small enough that the label budget always covers it, so this

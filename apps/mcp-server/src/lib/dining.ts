@@ -48,6 +48,7 @@ export function austinNow(now = new Date()) {
         dayIndex: DAY_NAMES.indexOf(get("weekday")),
         minutes: hour * 60 + Number(get("minute")),
         mdy: `${get("month")}/${get("day")}/${get("year")}`,
+        iso: `${get("year")}-${get("month")}-${get("day")}`,
     };
 }
 
@@ -161,11 +162,12 @@ function periodFromObject(
     return { label, ...parseRangeLabel(label), locations };
 }
 
-/** The period UT currently treats as active. ~4 KB. */
-export function getCurrentHours(): Promise<HoursPeriod> {
-    return cached("dining:hours:current", 3600, async () => {
+/** Every period the feed publishes, in feed order. ~12 KB. */
+export function getFeedHours(): Promise<HoursPeriod[]> {
+    return cached("dining:hours:feed", 3600, async () => {
         const body = await getText(`${ENDPOINT}?hours=1`, 3600);
-        const start = body.indexOf("{", body.indexOf("diningHours"));
+        const marker = body.indexOf("diningHours");
+        const start = marker < 0 ? -1 : body.indexOf("{", marker);
         const end = body.lastIndexOf("}");
         if (start < 0 || end <= start)
             throw new UpstreamError("Could not read the dining hours feed");
@@ -173,10 +175,24 @@ export function getCurrentHours(): Promise<HoursPeriod> {
             string,
             Record<string, Record<string, string[]>>
         >;
-        const [label, cats] = Object.entries(raw)[0] ?? [];
-        if (!label || !cats) throw new UpstreamError("The dining hours feed was empty");
-        return periodFromObject(label, cats);
+        const periods = Object.entries(raw).map(([label, cats]) => periodFromObject(label, cats));
+        if (!periods.length) throw new UpstreamError("The dining hours feed was empty");
+        return periods;
     });
+}
+
+/** Shortest period covering d, since breaks and finals sit inside the semester. */
+const mostSpecific = (periods: HoursPeriod[], iso: string): HoursPeriod | undefined => {
+    const span = (p: HoursPeriod) => Date.parse(p.end!) - Date.parse(p.start!);
+    return periods
+        .filter((p) => p.start && p.end && iso >= p.start && iso <= p.end)
+        .sort((a, b) => span(a) - span(b))[0];
+};
+
+/** The period in force today. */
+export async function getCurrentHours(): Promise<HoursPeriod> {
+    const periods = await getFeedHours();
+    return mostSpecific(periods, austinNow().iso) ?? periods[0]!;
 }
 
 /** Every published period. Only needed for dates outside the current one. */
@@ -212,43 +228,34 @@ export function getAllHours(): Promise<HoursPeriod[]> {
 }
 
 /**
- * Today comes from the live feed. Other dates take the shortest period covering
- * them, since break and finals schedules sit inside the semester range.
+ * Any date takes the shortest period covering it, since break and finals
+ * schedules sit inside the semester range. Today is no exception: the feed
+ * lists every period, not just the semester, so reading only the first one
+ * reported J2 open on Thanksgiving.
  */
 export async function hoursForDate(mdy: string): Promise<HoursPeriod> {
-    const current = await getCurrentHours();
-    if (mdy === austinNow().mdy) return current;
-
     const [mm, dd, yyyy] = mdy.split("/");
     const iso = `${yyyy}-${mm}-${dd}`;
-    const all = await getAllHours().catch(() => [] as HoursPeriod[]);
-    const span = (p: HoursPeriod) => Date.parse(p.end!) - Date.parse(p.start!);
-    const covering = all
-        .filter((p) => p.start && p.end && iso >= p.start && iso <= p.end)
-        .sort((a, b) => span(a) - span(b));
-    if (covering[0]) return covering[0];
 
-    if (all.length) {
-        const latest = all
-            .map((p) => p.end)
-            .filter(Boolean)
-            .sort((a, b) => a!.localeCompare(b!))
-            .at(-1);
-        throw new Error(
-            `UT has not published dining hours for ${mdy}.` +
-                (latest ? ` The schedule currently runs through ${latest}.` : ""),
-        );
-    }
-    // couldn't load the schedule, so only today is safe to answer
-    if (current.start && current.end) {
-        const covered = iso >= current.start && iso <= current.end;
-        if (!covered) {
-            throw new UpstreamError(
-                `Could not load UT's published dining schedule, so hours for ${mdy} are unknown.`,
-            );
-        }
-    }
-    return current;
+    const feed = await getFeedHours();
+    const fromFeed = mostSpecific(feed, iso);
+    if (fromFeed) return fromFeed;
+
+    // The feed only carries the current term; the housing page goes further out.
+    const all = await getAllHours().catch(() => [] as HoursPeriod[]);
+    const covering = mostSpecific(all, iso);
+    if (covering) return covering;
+
+    const known = all.length ? all : feed;
+    const latest = known
+        .map((p) => p.end)
+        .filter(Boolean)
+        .sort((a, b) => a!.localeCompare(b!))
+        .at(-1);
+    throw new Error(
+        `UT has not published dining hours for ${mdy}.` +
+            (latest ? ` The schedule currently runs through ${latest}.` : ""),
+    );
 }
 
 export type OpenStatus = {
@@ -530,6 +537,8 @@ export type MenuItem = {
     nutrition?: Macros & { source: "label" };
     /** From the label's CONTAINS line. More complete than the menu tags. */
     labelAllergens?: string[];
+    /** Whether the label was actually read. Without it the allergen list is menu tags only. */
+    labelChecked?: boolean;
 };
 export type MenuSection = { section: string; items: MenuItem[] };
 export type MenuMeal = { meal: string; sections: MenuSection[] };
@@ -670,7 +679,8 @@ export async function withNutrition(
                     // The label's CONTAINS line is the authoritative allergen
                     // list. Menu tags miss some: 450257 is tagged vegan with
                     // wheat and soy, but its label also says tree nuts.
-                    if (label.allergens) item.labelAllergens = splitAllergens(label.allergens);
+                    item.labelChecked = true;
+                    item.labelAllergens = splitAllergens(label.allergens ?? "");
                 }
             } catch {}
         }),
@@ -736,13 +746,12 @@ export async function searchMenuItems(
 ) {
     const feed = await getMenuFeed();
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    const locQ = opts.location ? norm(opts.location) : undefined;
     const hits: ItemHit[] = [];
 
     for (const [date, day] of Object.entries(feed.days)) {
         if (opts.date && date !== opts.date) continue;
         for (const loc of day.locations) {
-            if (locQ && !norm(loc.locationName).includes(locQ)) continue;
+            if (opts.location && !matchesLocation(loc.locationName, opts.location)) continue;
             for (const meal of loc.meals) {
                 let section = "";
                 for (const r of meal.recipes) {

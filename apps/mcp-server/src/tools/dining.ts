@@ -23,6 +23,21 @@ import {
 
 const MAX_ROWS = 60;
 
+/** A code that isn't recognised would silently filter nothing, so reject it. */
+const codes = (list: string[] | undefined, field: string) => {
+    const out = (list ?? []).map((code) => code.trim().toUpperCase());
+    const bad = out.filter((code) => !DIET_LEGENDS[code]);
+    if (bad.length) {
+        throw new Error(
+            `Unknown ${field} code(s): ${bad.join(", ")}. Valid codes are ` +
+                `${Object.entries(DIET_LEGENDS)
+                    .map(([code, label]) => `${code} (${label})`)
+                    .join(", ")}.`,
+        );
+    }
+    return out;
+};
+
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
 
 /** Tool handlers answer with a readable message instead of throwing at the client. */
@@ -163,19 +178,6 @@ export function registerDiningTools(server: McpServer): void {
 
                 // An unrecognised code must never pass silently: a dietary
                 // restriction that fails open hands someone an allergen.
-                const codes = (list: string[] | undefined, field: string) => {
-                    const out = (list ?? []).map((code) => code.trim().toUpperCase());
-                    const bad = out.filter((code) => !DIET_LEGENDS[code]);
-                    if (bad.length) {
-                        throw new Error(
-                            `Unknown ${field} code(s): ${bad.join(", ")}. Valid codes are ` +
-                                `${Object.entries(DIET_LEGENDS)
-                                    .map(([code, label]) => `${code} (${label})`)
-                                    .join(", ")}.`,
-                        );
-                    }
-                    return out;
-                };
                 const want = codes(diet, "diet");
                 const avoid = codes(exclude, "exclude");
 
@@ -244,14 +246,23 @@ export function registerDiningTools(server: McpServer): void {
                 // Menu tags under-report: 450257 is tagged vegan with wheat and
                 // soy, but its label also lists tree nuts. Now that the labels
                 // are here, drop anything they reveal.
+                //
+                // An item whose label went unread has nothing behind it but the
+                // tags, and 35 of this week's recipes carry none at all. Chocolate
+                // Pistacio Cloud Cake is untagged and its label lists peanuts, so
+                // unverified items are held back rather than shown as safe.
                 let caughtByLabel = 0;
+                let withheld = 0;
                 if (avoid.length) {
                     for (const entry of meals) {
                         for (const section of entry.sections) {
-                            const kept = section.items.filter(
-                                (item) => !avoid.some((code) => labelHasAllergen(item, code)),
-                            );
-                            caughtByLabel += section.items.length - kept.length;
+                            const kept: MenuItem[] = [];
+                            for (const item of section.items) {
+                                if (avoid.some((code) => labelHasAllergen(item, code)))
+                                    caughtByLabel++;
+                                else if (!item.labelChecked) withheld++;
+                                else kept.push(item);
+                            }
                             section.items = kept;
                         }
                         entry.sections = entry.sections.filter((section) => section.items.length);
@@ -287,6 +298,10 @@ export function registerDiningTools(server: McpServer): void {
                     ? `
 ${caughtByLabel} item(s) were dropped because their label lists an allergen the menu tags omit.`
                     : "";
+                const unverified = withheld
+                    ? `
+${withheld} item(s) are not listed: their labels could not all be read in one request, and the menu tags alone are not enough to call an item safe. Narrow by meal or station to have those checked too.`
+                    : "";
                 const coverage =
                     covered < total
                         ? `\nNutrition shown for ${covered} of ${total} items; UT publishes it one item at a time. ` +
@@ -312,7 +327,7 @@ ${caughtByLabel} item(s) were dropped because their label lists an allergen the 
                                     .join("\n"),
                         )
                         .join("\n\n") +
-                    `\n\nPer serving. P/C/F are grams. Menu data cached by UT at ${menu.lastCached}.${coverage}${caught}`;
+                    `\n\nPer serving. P/C/F are grams. Menu data cached by UT at ${menu.lastCached}.${coverage}${caught}${unverified}`;
 
                 const structuredContent = {
                     location: menu.location,
@@ -331,7 +346,9 @@ ${caughtByLabel} item(s) were dropped because their label lists an allergen the 
                                 allergens: item.labelAllergens?.length
                                     ? item.labelAllergens
                                     : allergens(item.legends),
-                                allergenSource: item.labelAllergens?.length ? "label" : "menu-tags",
+                                // "menu-tags" means nobody read the label, so an
+                                // empty list there is unknown, not allergen-free.
+                                allergenSource: item.labelChecked ? "label" : "menu-tags",
                                 nutrition: item.nutrition
                                     ? {
                                           calories: item.nutrition.calories ?? null,
@@ -544,7 +561,7 @@ ${caughtByLabel} item(s) were dropped because their label lists an allergen the 
                 const { hits, lastCached } = await searchMenuItems(query, {
                     date: date ? parseDate(date) : undefined,
                     location,
-                    diet: diet?.map((code) => code.toUpperCase()),
+                    diet: diet ? codes(diet, "diet") : undefined,
                 });
                 if (!hits.length) {
                     const window = await getMenuWindow();

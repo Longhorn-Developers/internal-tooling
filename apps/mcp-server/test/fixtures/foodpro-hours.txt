@@ -29,4 +29,132 @@ const diningHours = {"Fall 2026 Semester (08/24/26 - 12/15/26)": {
 "Hook 'em Hut (WCP)":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed"]},
 "Food Trucks": {
 "La Fonda Food Trailer":["8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","Closed","Closed"],
-"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","Closed","Closed"]}}};
+"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","Closed","Closed"]}},
+"Week Before Thanksgiving (11/16/26 - 11/22/26)": {
+"Dining Halls": {
+"Jester City Limits":["10:30am-10:00pm","10:30am-10:00pm","10:30am-10:00pm","10:30am-10:00pm","10:30am-3:00pm","Closed","Closed"],
+"J2 Dining":["7:00am-10:00pm","7:00am-10:00pm","7:00am-10:00pm","7:00am-10:00pm","7:00am-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-10:00pm"],
+"Kins Dining":["7:00am-10:00pm","7:00am-10:00pm","7:00am-10:00pm","7:00am-10:00pm","7:00am-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-10:00pm"]},
+"Restaurants": {
+"Chick-fil-A (Texas Union)":["10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","Closed","Closed"],
+"Chick-fil-A (WCP)":["8:00am-7:00pm","8:00am-7:00pm","8:00am-7:00pm","8:00am-7:00pm","9:00am-4:00pm","Closed","Closed"],
+"Cypress Bend Cafe":["7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","Closed","Closed"],
+"Jesta Pizza":["10:30am-12:00am","10:30am-12:00am","10:30am-12:00am","10:30am-12:00am","Closed","Closed","Closed"],
+"Littlefield Patio Cafe":["7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","Closed","Closed"],
+"One Two Three Sushi":["11:00am-3:00pm","10:00am-6:00pm","10:00am-6:00pm","10:00am-6:00pm","10:00am-4:00pm","Closed","Closed"],
+"Noodle Lab ":["10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","Closed","Closed"],
+"Panda Express":["11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-4:00pm","Closed","Closed"],
+"Shake Smart":["10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-4:00pm","Closed","Closed"],
+"Sabor Tacos y Mas":["10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","Closed","Closed"],
+"Tower Burger":["10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","Closed","Closed"]},
+"Coffee Shops": {
+"Jester Java":["7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","Closed","Closed"],
+"Longhorn Coffee Co.":["7:00am-6:00pm","7:00am-6:00pm","7:00am-6:00pm","7:00am-6:00pm","7:00am-5:00pm","Closed","Closed"],
+"Prufrock's Coffee":["9:00am-5:00pm","9:00am-5:00pm","9:00am-5:00pm","Closed","Closed","Closed","Closed"],
+"Union Coffee House":["8:00am-6:00pm","8:00am-6:00pm","8:00am-6:00pm","8:00am-6:00pm","8:00am-4:00pm","Closed","Closed"],
+"Up and Atom":["9:00am-5:00pm","9:00am-5:00pm","9:00am-5:00pm","9:00am-5:00pm","9:00am-3:00pm","Closed","Closed"],
+"Varsity Grounds":["6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","Closed","Closed"]},
+"Markets": {
+"Jester City Market":["9:00am-Midnight","9:00am-Midnight","9:00am-Midnight","9:00am-Midnight","9:00am-8:00pm","Closed","Closed"],
+"Kin's Market":["9:00am-10:00pm","9:00am-10:00pm","9:00am-10:00pm","9:00am-10:00pm","9:00am-8:00pm","Closed","Closed"],
+"Hook 'em Hut (Texas Union)":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed"],
+"Hook 'em Hut (WCP)":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed"]},
+"Food Trucks": {
+"La Fonda Food Trailer":["8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","Closed","Closed"],
+"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","Closed","Closed"]}},
+"Thanskgiving Break (11/23/26 - 11/29/26)": {
+"Dining Halls": {
+"Jester City Limits":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"J2 Dining":["9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","Closed","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-10:00pm"],
+"Kins Dining":["Closed","Closed","Closed","Closed","Closed","Closed","9:00am-2:00pm|4:30pm-10:00pm"]},
+"Restaurants": {
+"Chick-fil-A (Texas Union)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Chick-fil-A (WCP)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Cypress Bend Cafe":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Jesta Pizza":["Closed","Closed","Closed","Closed","Closed","Closed","5:00pm-Midnight"],
+"Littlefield Patio Cafe":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"One Two Three Sushi":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Noodle Lab ":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Panda Express":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Shake Smart":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Sabor Tacos y Mas":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Tower Burger":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"]},
+"Coffee Shops": {
+"Jester Java":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Longhorn Coffee Co.":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Prufrock's Coffee":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Union Coffee House":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Up and Atom":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Varsity Grounds":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed","Closed","10:00am-7:00pm"]},
+"Markets": {
+"Jester City Market":["Closed","Closed","Closed","Closed","Closed","Closed","Noon-Midnight"],
+"Kin's Market":["Closed","Closed","Closed","Closed","Closed","Closed","Noon-10:00pm"],
+"Hook 'em Hut (Texas Union)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Hook 'em Hut (WCP)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"]},
+"Food Trucks": {
+"La Fonda Food Trailer":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","Closed","Closed","Closed","Closed"]}},
+"Finals Fall 2026 (12/07/26 - 12/13/26)": {
+"Dining Halls": {
+"Jester City Limits":["10:30am-10:00pm","10:30am-10:00pm","10:30am-10:00pm","10:30am-10:00pm","Closed","Closed","Closed"],
+"J2 Dining":["7:00am-10:00pm","7:00am-9:00pm|10:00pm-Midnight","7:00am-10:00pm","7:00am-10:00pm","7:00am-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-10:00pm"],
+"Kins Dining":["7:00am-10:00pm","7:00am-9:00pm|10:00pm-Midnight","7:00am-10:00pm","7:00am-10:00pm","7:00am-9:00pm","9:00am-2:00pm|4:30pm-9:00pm","9:00am-2:00pm|4:30pm-10:00pm"]},
+"Restaurants": {
+"Chick-fil-A (Texas Union)":["10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","Closed","Closed"],
+"Chick-fil-A (WCP)":["8:00am-7:00pm","8:00am-7:00pm","8:00am-7:00pm","8:00am-7:00pm","9:00am-4:00pm","11:00am-4:00pm","Closed"],
+"Cypress Bend Cafe":["7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","Closed","Closed"],
+"Jesta Pizza":["4:00pm-Midnight","4:00pm-Midnight","4:00pm-Midnight","4:00pm-Midnight","4:00pm-Midnight","Closed","Closed"],
+"Littlefield Patio Cafe":["7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","7:00am-5:00pm","Closed","Closed"],
+"One Two Three Sushi":["11:00am-3:00pm","10:00am-6:00pm","10:00am-6:00pm","10:00am-6:00pm","10:00am-4:00pm","Closed","Closed"],
+"Noodle Lab ":["10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","Closed","Closed"],
+"Panda Express":["11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm","11:00am-8:00pm"],
+"Shake Smart":["10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","10:00am-5:00pm","Closed","Closed"],
+"Sabor Tacos y Mas":["10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","10:30am-4:00pm","Closed","Closed"],
+"Tower Burger":["10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","10:30am-3:00pm","Closed","Closed"]},
+"Coffee Shops": {
+"Jester Java":["7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","7:00am-4:00pm","Closed","Closed"],
+"Longhorn Coffee Co.":["7:00am-6:00pm","7:00am-6:00pm","7:00am-6:00pm","7:00am-6:00pm","7:00am-5:00pm","Closed","Closed"],
+"Prufrock's Coffee":["9:00am-5:00pm","9:00am-5:00pm","9:00am-5:00pm","9:00am-5:00pm","9:00am-3:00pm","Closed","Closed"],
+"Union Coffee House":["7:30am-6:00pm","7:30am-6:00pm","7:30am-6:00pm","7:30am-6:00pm","7:30am-4:00pm","Closed","Closed"],
+"Up and Atom":["9:00am-5:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Varsity Grounds":["6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","6:30am-10:00pm","10:00am-8:00pm","10:00am-7:00pm"]},
+"Markets": {
+"Jester City Market":["9:00am-Midnight","9:00am-Midnight","9:00am-Midnight","9:00am-Midnight","9:00am-Midnight","Noon-9:00pm","Noon-Midnight"],
+"Kin's Market":["9:00am-10:00pm","9:00am-10:00pm","9:00am-10:00pm","9:00am-10:00pm","9:00am-10:00pm","Noon-9:00pm","Noon-10:00pm"],
+"Hook 'em Hut (Texas Union)":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed"],
+"Hook 'em Hut (WCP)":["8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","8:00am-3:00pm","Closed","Closed"]},
+"Food Trucks": {
+"La Fonda Food Trailer":["8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","Closed","Closed"],
+"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","8:00am-2:00pm","Closed","Closed"]}},
+"Closing Fall 2026 (12/14/26 - 12/20/26)": {
+"Dining Halls": {
+"Jester City Limits":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"J2 Dining":["7:00am-9:00pm","7:00am-2:00pm","Closed","Closed","Closed","Closed","Closed"],
+"Kins Dining":["7:00am-9:00pm","7:00am-2:00pm","Closed","Closed","Closed","Closed","Closed"]},
+"Restaurants": {
+"Chick-fil-A (Texas Union)":["10:00am-3:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Chick-fil-A (WCP)":["8:00am-4:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Cypress Bend Cafe":["7:00am-3:00pm","7:00am-3:00pm","Closed","Closed","Closed","Closed","Closed"],
+"Jesta Pizza":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Littlefield Patio Cafe":["7:00am-3:00pm","7:00am-3:00pm","Closed","Closed","Closed","Closed","Closed"],
+"One Two Three Sushi":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Noodle Lab ":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Panda Express":["11:00am-4:00pm","11:00am-4:00pm","Closed","Closed","Closed","Closed","Closed"],
+"Shake Smart":["10:00am-5:00pm","10:00am-5:00pm","Closed","Closed","Closed","Closed","Closed"],
+"Sabor Tacos y Mas":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Tower Burger":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"]},
+"Coffee Shops": {
+"Jester Java":["7:00am-4:00pm","7:00am-11:00am","Closed","Closed","Closed","Closed","Closed"],
+"Longhorn Coffee Co.":["7:00am-3:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Prufrock's Coffee":["9:00am-3:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Union Coffee House":["7:30am-3:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Up and Atom":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Varsity Grounds":["8:00am-3:00pm","8:00am-3:00pm","Closed","Closed","Closed","Closed","Closed"]},
+"Markets": {
+"Jester City Market":["9:00am-8:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Kin's Market":["9:00am-8:00pm","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Hook 'em Hut (Texas Union)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"],
+"Hook 'em Hut (WCP)":["Closed","Closed","Closed","Closed","Closed","Closed","Closed"]},
+"Food Trucks": {
+"La Fonda Food Trailer":["8:00am-10:30am|11:00am-2:00pm","8:00am-10:30am|11:00am-2:00pm","Closed","Closed","Closed","Closed","Closed"],
+"512 Brew Bus":["8:00am-2:00pm","8:00am-2:00pm","Closed","Closed","Closed","Closed","Closed"]}}};

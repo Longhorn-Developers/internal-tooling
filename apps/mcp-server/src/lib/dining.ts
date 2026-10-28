@@ -652,8 +652,12 @@ function macrosFromLabel(n: Nutrition): Macros {
     return out;
 }
 
-/** Workers allow 50 subrequests per request on the free plan; the feed takes one. */
-export const LABEL_BUDGET = 40;
+/**
+ * The free plan allows 50 subrequests, and cache reads and writes count too. A
+ * cold call spends 3 on the menu feed, 2 on the label batch and one fetch per
+ * label, so this leaves a few spare rather than sitting on the limit.
+ */
+export const LABEL_BUDGET = 36;
 
 export async function withNutrition(
     items: MenuItem[],
@@ -665,12 +669,34 @@ export async function withNutrition(
     }
 
     const refs = [...byRef.keys()];
+    const slice = refs.slice(0, LABEL_BUDGET);
+
+    // Cloudflare counts cache.match and cache.put against the same per-request
+    // budget as fetch, so a label each going through the cache cost three
+    // subrequests apiece -- 123 for an unfiltered menu, over the free plan's 50,
+    // and 41 even when every label was already cached. The whole set shares one
+    // entry instead, which puts a cold call at 45 and a warm one at 2.
+    const labels = await cached(`dining:labels:${slice.join(",")}`, 86400, async () => {
+        const out: Record<string, Nutrition | null> = {};
+        await Promise.all(
+            slice.map(async (ref) => {
+                const [number, serving] = ref.split("*");
+                try {
+                    out[ref] = await fetchLabel(number!, serving);
+                } catch {
+                    out[ref] = null;
+                }
+            }),
+        );
+        return out;
+    });
+
     let covered = 0;
     await Promise.all(
-        refs.slice(0, LABEL_BUDGET).map(async (ref) => {
-            const [number, serving] = ref.split("*");
+        slice.map(async (ref) => {
             try {
-                const label = await getNutrition(number!, serving);
+                const label = labels[ref];
+                if (!label) return;
                 const macros = macrosFromLabel(label);
                 if (!Object.keys(macros).length) return;
                 covered++;
@@ -793,67 +819,69 @@ export type Nutrition = {
     allergens?: string;
 };
 
+async function fetchLabel(recipeNumber: string, serving?: string): Promise<Nutrition> {
+    const port = `${recipeNumber}*${serving ?? "1"}`;
+    const html = await getText(
+        `${FOODPRO}/label.aspx?RecNumAndPort=${encodeURIComponent(port)}`,
+        86400,
+    );
+    const pick = (cls: string) => {
+        const out = [
+            ...html.matchAll(new RegExp(`class="${cls}"[^>]*>([\\s\\S]*?)</(?:span|div|td)>`, "g")),
+        ].map((m) => text(m[1]!));
+        return out.filter(Boolean);
+    };
+
+    // Every figure sits in a .nutfactstopnutrient span, alternating between
+    // "Name 5.4g" and the matching "7%" daily value. The page prints the FDA
+    // panel and then a fuller detail table, so each nutrient appears twice
+    // under slightly different names; the later, richer row wins.
+    const ALIAS: Record<string, string> = {
+        "total fat": "fat",
+        "total carbohydrate": "carbohydrates",
+        carbohydrate: "carbohydrates",
+        "trans fat": "trans fatty acid",
+        "added sugars": "added sugar",
+    };
+    const nutrients: { name: string; amount: string; dv?: string }[] = [];
+    const seen = new Map<string, number>();
+    let last = -1;
+    for (const raw of pick("nutfactstopnutrient")) {
+        const value = raw.match(/^(.*?[A-Za-z.])\s*([\d.]+\s*(?:kcal|g|mg|mcg))$/i);
+        if (value) {
+            const name = value[1]!.replace(/\.$/, "").trim();
+            const amount = value[2]!.replace(/\s+/g, "");
+            const key = ALIAS[name.toLowerCase()] ?? name.toLowerCase();
+            const at = seen.get(key);
+            if (at === undefined) {
+                seen.set(key, nutrients.push({ name, amount }) - 1);
+                last = nutrients.length - 1;
+            } else {
+                nutrients[at] = { name, amount, dv: nutrients[at]!.dv };
+                last = at;
+            }
+            continue;
+        }
+        const dv = raw.match(/^([\d.]+%)$/);
+        if (dv && last >= 0) nutrients[last]!.dv = dv[1];
+    }
+
+    if (!nutrients.length) {
+        throw new UpstreamError(`No nutrition label could be read for item ${recipeNumber}`);
+    }
+    return {
+        name: pick("labelrecipe")[0] ?? recipeNumber,
+        servingSize: pick("nutfactsservsize").find((s) => !/^serving size$/i.test(s)),
+        calories: pick("nutfactscaloriesval")[0],
+        nutrients,
+        ingredients: pick("labelingredientsvalue")[0],
+        allergens: pick("labelallergensvalue")[0],
+    };
+}
+
 /** One item's full label. ~19 KB, far cheaper than re-reading the whole feed. */
 export function getNutrition(recipeNumber: string, serving?: string): Promise<Nutrition> {
-    const port = `${recipeNumber}*${serving ?? "1"}`;
-    return cached(`dining:label:${port}`, 86400, async () => {
-        const html = await getText(
-            `${FOODPRO}/label.aspx?RecNumAndPort=${encodeURIComponent(port)}`,
-            86400,
-        );
-        const pick = (cls: string) => {
-            const out = [
-                ...html.matchAll(
-                    new RegExp(`class="${cls}"[^>]*>([\\s\\S]*?)</(?:span|div|td)>`, "g"),
-                ),
-            ].map((m) => text(m[1]!));
-            return out.filter(Boolean);
-        };
-
-        // Every figure sits in a .nutfactstopnutrient span, alternating between
-        // "Name 5.4g" and the matching "7%" daily value. The page prints the FDA
-        // panel and then a fuller detail table, so each nutrient appears twice
-        // under slightly different names; the later, richer row wins.
-        const ALIAS: Record<string, string> = {
-            "total fat": "fat",
-            "total carbohydrate": "carbohydrates",
-            carbohydrate: "carbohydrates",
-            "trans fat": "trans fatty acid",
-            "added sugars": "added sugar",
-        };
-        const nutrients: { name: string; amount: string; dv?: string }[] = [];
-        const seen = new Map<string, number>();
-        let last = -1;
-        for (const raw of pick("nutfactstopnutrient")) {
-            const value = raw.match(/^(.*?[A-Za-z.])\s*([\d.]+\s*(?:kcal|g|mg|mcg))$/i);
-            if (value) {
-                const name = value[1]!.replace(/\.$/, "").trim();
-                const amount = value[2]!.replace(/\s+/g, "");
-                const key = ALIAS[name.toLowerCase()] ?? name.toLowerCase();
-                const at = seen.get(key);
-                if (at === undefined) {
-                    seen.set(key, nutrients.push({ name, amount }) - 1);
-                    last = nutrients.length - 1;
-                } else {
-                    nutrients[at] = { name, amount, dv: nutrients[at]!.dv };
-                    last = at;
-                }
-                continue;
-            }
-            const dv = raw.match(/^([\d.]+%)$/);
-            if (dv && last >= 0) nutrients[last]!.dv = dv[1];
-        }
-
-        if (!nutrients.length) {
-            throw new UpstreamError(`No nutrition label could be read for item ${recipeNumber}`);
-        }
-        return {
-            name: pick("labelrecipe")[0] ?? recipeNumber,
-            servingSize: pick("nutfactsservsize").find((s) => !/^serving size$/i.test(s)),
-            calories: pick("nutfactscaloriesval")[0],
-            nutrients,
-            ingredients: pick("labelingredientsvalue")[0],
-            allergens: pick("labelallergensvalue")[0],
-        };
-    });
+    return cached(`dining:label:${recipeNumber}*${serving ?? "1"}`, 86400, () =>
+        fetchLabel(recipeNumber, serving),
+    );
 }

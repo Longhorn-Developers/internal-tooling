@@ -533,9 +533,15 @@ export const splitAllergens = (contains: string): string[] =>
  */
 export const mergedAllergens = (item: MenuItem): string[] => {
     const out = [...(item.labelAllergens ?? [])];
-    for (const tag of allergens(item.legends)) {
-        const word = tag.toLowerCase().replace(/s$/, "");
-        if (!out.some((a) => a.toLowerCase().includes(word))) out.push(tag);
+    for (const code of item.legends) {
+        if (DIET_TAGS.has(code)) continue;
+        // Match on the code's own word, not on the two strings looking alike. The
+        // menu says "Sesame Seeds" where the label says "Sesame", and "Fish" is a
+        // substring of "Crustacean Shellfish" without being the same allergen.
+        const word = LABEL_ALLERGEN_WORDS[code];
+        if (word && out.some((a) => word.test(a))) continue;
+        const name = (DIET_LEGENDS[code] ?? code).replace(/^Contains /, "");
+        if (!out.includes(name)) out.push(name);
     }
     return out;
 };
@@ -692,7 +698,7 @@ export async function withNutrition(
     // budget as fetch, so a label each going through the cache cost three
     // subrequests apiece -- 123 for an unfiltered menu, over the free plan's 50,
     // and 41 even when every label was already cached. The whole set shares one
-    // entry instead, which puts a cold call at 45 and a warm one at 2.
+    // entry instead, which puts a cold call at 41 and a warm one at 2.
     const labels = await cached(
         `dining:labels:${slice.join(",")}`,
         86400,

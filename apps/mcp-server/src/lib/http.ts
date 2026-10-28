@@ -162,7 +162,3 @@ export async function getText(url: string, ttlSeconds = 600): Promise<string> {
     if (looksLikeLogin(body)) throw new UpstreamError(`${url} now requires a UT EID login`);
     return body;
 }
-
-export async function getJSON<T>(url: string, ttlSeconds = 600): Promise<T> {
-    return (await get(url, ttlSeconds, "application/json,*/*;q=0.8")).json() as Promise<T>;
-}

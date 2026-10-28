@@ -308,16 +308,30 @@ describe("gaps found in review", () => {
         expect(item.some((a) => /Soy/i.test(a))).toBe(true);
     });
 
-    it("does not duplicate an allergen both sources name", async () => {
+    // Explicit expected lists, not the implementation's own matching rule, since
+    // a guard written with that rule cannot see a mistake in it.
+    it.each([
+        [["WHT"], ["Wheat"], ["Wheat"]],
+        // the menu says "Sesame Seeds" where every UT label says "Sesame"
+        [["SS", "VGN"], ["Sesame"], ["Sesame"]],
+        // "Fish" is inside "Crustacean Shellfish" but is a different allergen
+        [["FSH"], ["Crustacean Shellfish"], ["Crustacean Shellfish", "Fish"]],
+        [
+            ["SOY"],
+            ["Milk", "Crustacean Shellfish", "Wheat"],
+            ["Milk", "Crustacean Shellfish", "Wheat", "Soy"],
+        ],
+        [["SOY", "WHT"], ["Wheat"], ["Wheat", "Soy"]],
+    ])("merges legends %j with label %j", (legends, labelAllergens, expected) => {
         expect(
             mergedAllergens({
                 number: "1",
                 name: "x",
-                legends: ["WHT"],
-                labelAllergens: ["Wheat"],
+                legends,
+                labelAllergens,
                 labelChecked: true,
             }),
-        ).toEqual(["Wheat"]);
+        ).toEqual(expected);
     });
 
     // Excluding a diet tag is a menu-tag question, already settled before the

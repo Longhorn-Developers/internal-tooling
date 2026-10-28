@@ -510,6 +510,9 @@ const LABEL_ALLERGEN_WORDS: Record<string, RegExp> = {
 };
 
 /** Does this item's label name an allergen the caller is avoiding? */
+/** VGN, VGT and HAL are diet tags; a label never names them. */
+export const isAllergenCode = (code: string): boolean => code in LABEL_ALLERGEN_WORDS;
+
 export const labelHasAllergen = (item: MenuItem, code: string): boolean => {
     const word = LABEL_ALLERGEN_WORDS[code];
     if (!word || !item.labelAllergens?.length) return false;
@@ -522,6 +525,20 @@ export const splitAllergens = (contains: string): string[] =>
         .split(/\s*,\s*/)
         .map((a) => a.trim())
         .filter(Boolean);
+
+/**
+ * Neither source is a superset of the other. 6" Flour Tortilla is tagged SOY,WHT
+ * but its label reads only "Wheat", while Chocolate Pistacio Cloud Cake carries
+ * no tags and its label lists peanuts. Both get reported.
+ */
+export const mergedAllergens = (item: MenuItem): string[] => {
+    const out = [...(item.labelAllergens ?? [])];
+    for (const tag of allergens(item.legends)) {
+        const word = tag.toLowerCase().replace(/s$/, "");
+        if (!out.some((a) => a.toLowerCase().includes(word))) out.push(tag);
+    }
+    return out;
+};
 
 export const allergens = (legends: string[]): string[] =>
     legends
@@ -676,20 +693,27 @@ export async function withNutrition(
     // subrequests apiece -- 123 for an unfiltered menu, over the free plan's 50,
     // and 41 even when every label was already cached. The whole set shares one
     // entry instead, which puts a cold call at 45 and a warm one at 2.
-    const labels = await cached(`dining:labels:${slice.join(",")}`, 86400, async () => {
-        const out: Record<string, Nutrition | null> = {};
-        await Promise.all(
-            slice.map(async (ref) => {
-                const [number, serving] = ref.split("*");
-                try {
-                    out[ref] = await fetchLabel(number!, serving);
-                } catch {
-                    out[ref] = null;
-                }
-            }),
-        );
-        return out;
-    });
+    const labels = await cached(
+        `dining:labels:${slice.join(",")}`,
+        86400,
+        async () => {
+            const out: Record<string, Nutrition | null> = {};
+            await Promise.all(
+                slice.map(async (ref) => {
+                    const [number, serving] = ref.split("*");
+                    try {
+                        out[ref] = await fetchLabel(number!, serving);
+                    } catch {
+                        out[ref] = null;
+                    }
+                }),
+            );
+            return out;
+        },
+        // A label that failed is stored as null, and pinning that for a day would
+        // blank the item colo-wide off one blip. Keep a partial set for minutes.
+        (bundle) => (Object.values(bundle).some((v) => v === null) ? 300 : 86400),
+    );
 
     let covered = 0;
     await Promise.all(

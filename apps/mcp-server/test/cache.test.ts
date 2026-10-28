@@ -255,3 +255,27 @@ describe("upstream failures are explicit", () => {
         );
     });
 });
+
+describe("a partial label bundle is not kept as long as a complete one", () => {
+    it("re-reads a bundle that had a failure once its short deadline passes", async () => {
+        stubCaches();
+        const log = stubFetch({ "label.aspx": 500 });
+        const load = async () => {
+            let ok = 0;
+            try {
+                await getText("https://x/label.aspx?a");
+                ok++;
+            } catch {}
+            return { ok };
+        };
+        const ttlFor = (v: { ok: number }) => (v.ok ? 86400 : 300);
+
+        await cached("bundle", 86400, load, ttlFor);
+        const afterFirst = log.length;
+
+        vi.setSystemTime(Date.now() + 301_000);
+        resetCache(); // fresh isolate; the edge entry is what's being tested
+        await cached("bundle", 86400, load, ttlFor);
+        expect(log.length).toBeGreaterThan(afterFirst);
+    });
+});

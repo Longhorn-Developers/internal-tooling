@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { resetCache } from "../src/lib/http";
+import { allergens, getMenu, mergedAllergens } from "../src/lib/dining";
 import { registerDiningTools } from "../src/tools/dining";
 import { FIXED_NOW, stubFetch } from "./fixtures";
 
@@ -245,16 +246,89 @@ describe("gaps found in review", () => {
 
     // The menu tags under-report. 450257 is tagged vegan with wheat and soy,
     // but its label also lists tree nuts.
-    it("prefers the label's allergen list over the menu tags", async () => {
+    it("reports the label's allergens as well as the menu tags", async () => {
         const res = await call("get_dining_menu", { location: "J2", meal: "Lunch" });
         const items = res.structuredContent!.meals.flatMap((m) =>
             m.sections.flatMap((x) => x.items),
         );
-        const fromLabel = items.filter((i) => i.allergenSource === "label");
-        expect(fromLabel.length).toBeGreaterThan(0);
-        expect(fromLabel.some((i) => i.allergens.some((a) => /Soybeans|Milk|Wheat/.test(a)))).toBe(
+        const checked = items.filter((i) => i.allergenSource === "label+menu-tags");
+        expect(checked.length).toBeGreaterThan(0);
+        expect(checked.some((i) => i.allergens.some((a) => /Soybeans|Milk|Wheat/.test(a)))).toBe(
             true,
         );
+    });
+
+    // The invariant that matters in the output, not just in the helper: reading a
+    // label may only ever add allergens, never remove one the menu asserted.
+    it("never drops a menu-tag allergen from an item it read a label for", async () => {
+        const res = await call("get_dining_menu", { location: "J2", meal: "Lunch" });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((x) => x.items),
+        );
+        const checked = items.filter((i) => i.allergenSource === "label+menu-tags");
+        expect(checked.length).toBeGreaterThan(0);
+
+        // legends aren't in the output, so take them from the menu underneath
+        const menu = await getMenu("J2", "10/15/2026");
+        const tags = new Map<string, string[]>();
+        for (const meal of menu.meals)
+            for (const section of meal.sections)
+                for (const item of section.items)
+                    tags.set(
+                        item.serving ? `${item.number}*${item.serving}` : item.number,
+                        item.legends,
+                    );
+
+        let compared = 0;
+        for (const item of checked) {
+            for (const tagged of allergens(tags.get(item.id) ?? [])) {
+                compared++;
+                const word = tagged.toLowerCase().replace(/s$/, "");
+                expect(
+                    item.allergens.some((a) => a.toLowerCase().includes(word)),
+                    `${item.name} (${item.id}) lost "${tagged}"`,
+                ).toBe(true);
+            }
+        }
+        expect(compared).toBeGreaterThan(0);
+    });
+
+    // Neither source contains the other: 6" Flour Tortilla is tagged SOY,WHT and
+    // its label reads only "Wheat", so preferring the label erased the soy and
+    // then stamped the shortened list as label-verified.
+    it("keeps a tagged allergen the label leaves out", async () => {
+        const item = mergedAllergens({
+            number: "211004",
+            name: '6" Flour Tortilla',
+            legends: ["SOY", "WHT", "VGN"],
+            labelAllergens: ["Wheat"],
+            labelChecked: true,
+        });
+        expect(item).toContain("Wheat");
+        expect(item.some((a) => /Soy/i.test(a))).toBe(true);
+    });
+
+    it("does not duplicate an allergen both sources name", async () => {
+        expect(
+            mergedAllergens({
+                number: "1",
+                name: "x",
+                legends: ["WHT"],
+                labelAllergens: ["Wheat"],
+                labelChecked: true,
+            }),
+        ).toEqual(["Wheat"]);
+    });
+
+    // Excluding a diet tag is a menu-tag question, already settled before the
+    // labels are read, so it must not withhold everything past the budget.
+    it("does not withhold items when the exclusion is a diet tag", async () => {
+        const out = await textOf("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            exclude: ["VGT"],
+        });
+        expect(out).not.toMatch(/are not listed/);
     });
 
     it("drops an item whose label names an excluded allergen", async () => {

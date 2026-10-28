@@ -42,6 +42,8 @@ export async function cached<T>(
     key: string,
     ttlSeconds: number,
     load: () => Promise<T>,
+    /** Lets a partial result be kept for less time than a complete one. */
+    ttlFor?: (value: T) => number,
 ): Promise<T> {
     const now = Date.now();
     const hit = memo.get(key);
@@ -94,7 +96,7 @@ export async function cached<T>(
         }
         failures.delete(key);
 
-        const exp = Date.now() + ttlSeconds * 1000;
+        const exp = Date.now() + (ttlFor ? ttlFor(value) : ttlSeconds) * 1000;
         remember(key, value, exp);
         if (cache) {
             try {
@@ -103,7 +105,7 @@ export async function cached<T>(
                     new Response(JSON.stringify({ exp, v: value }), {
                         headers: {
                             "Content-Type": "application/json",
-                            "Cache-Control": `max-age=${ttlSeconds}`,
+                            "Cache-Control": `max-age=${Math.round((exp - Date.now()) / 1000)}`,
                         },
                     }),
                 );

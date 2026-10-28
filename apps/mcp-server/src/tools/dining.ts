@@ -11,9 +11,11 @@ import {
     getMenu,
     getMenuWindow,
     getNutrition,
+    isAllergenCode,
     hoursForDate,
     labelHasAllergen,
     matchesLocation,
+    mergedAllergens,
     parseDate,
     searchMenuItems,
     statusAt,
@@ -253,12 +255,15 @@ export function registerDiningTools(server: McpServer): void {
                 // unverified items are held back rather than shown as safe.
                 let caughtByLabel = 0;
                 let withheld = 0;
-                if (avoid.length) {
+                // Only allergens need the label. Excluding VGT is a menu-tag
+                // question and already settled, so it shouldn't withhold anything.
+                const needsLabel = avoid.filter(isAllergenCode);
+                if (needsLabel.length) {
                     for (const entry of meals) {
                         for (const section of entry.sections) {
                             const kept: MenuItem[] = [];
                             for (const item of section.items) {
-                                if (avoid.some((code) => labelHasAllergen(item, code)))
+                                if (needsLabel.some((code) => labelHasAllergen(item, code)))
                                     caughtByLabel++;
                                 else if (!item.labelChecked) withheld++;
                                 else kept.push(item);
@@ -283,9 +288,7 @@ export function registerDiningTools(server: McpServer): void {
                               .filter(Boolean)
                               .join(" ")
                         : "nutrition unavailable";
-                    const allergenList = item.labelAllergens?.length
-                        ? item.labelAllergens
-                        : allergens(item.legends);
+                    const allergenList = mergedAllergens(item);
                     const notes = [
                         ...dietTags(item.legends),
                         ...(allergenList.length ? [`contains ${allergenList.join("/")}`] : []),
@@ -343,12 +346,12 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                 name: item.name,
                                 serving: item.serving ?? null,
                                 dietary: dietTags(item.legends),
-                                allergens: item.labelAllergens?.length
-                                    ? item.labelAllergens
-                                    : allergens(item.legends),
-                                // "menu-tags" means nobody read the label, so an
-                                // empty list there is unknown, not allergen-free.
-                                allergenSource: item.labelChecked ? "label" : "menu-tags",
+                                allergens: mergedAllergens(item),
+                                // Both sources miss things the other catches, so
+                                // the list is the union. "menu-tags" means nobody
+                                // read the label, and an empty list there is
+                                // unknown rather than allergen-free.
+                                allergenSource: item.labelChecked ? "label+menu-tags" : "menu-tags",
                                 nutrition: item.nutrition
                                     ? {
                                           calories: item.nutrition.calories ?? null,

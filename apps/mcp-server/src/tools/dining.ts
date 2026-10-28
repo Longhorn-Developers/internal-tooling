@@ -77,6 +77,7 @@ const CATEGORIES =
 
 const NUTRITION_SHAPE = z
     .object({
+        servingSize: z.string().nullable(),
         calories: z.number().nullable(),
         protein: z.number().nullable(),
         carbs: z.number().nullable(),
@@ -279,10 +280,10 @@ export function registerDiningTools(server: McpServer): void {
                     const macro = n
                         ? [
                               n.calories !== undefined ? `${Math.round(n.calories)} cal` : "",
-                              n.protein !== undefined ? `P ${n.protein}` : "",
-                              n.carbs !== undefined ? `C ${n.carbs}` : "",
-                              n.fat !== undefined ? `F ${n.fat}` : "",
-                              n.fiber ? `fib ${n.fiber}` : "",
+                              n.protein !== undefined ? `P ${n.protein}g` : "",
+                              n.carbs !== undefined ? `C ${n.carbs}g` : "",
+                              n.fat !== undefined ? `F ${n.fat}g` : "",
+                              n.fiber ? `fib ${n.fiber}g` : "",
                               n.sodium ? `Na ${Math.round(n.sodium)}mg` : "",
                           ]
                               .filter(Boolean)
@@ -294,7 +295,10 @@ export function registerDiningTools(server: McpServer): void {
                         ...(allergenList.length ? [`contains ${allergenList.join("/")}`] : []),
                     ].join(", ");
                     const ref = item.serving ? `${item.number}*${item.serving}` : item.number;
-                    return `    ${item.name}${item.serving ? ` (${item.serving})` : ""} · ${macro}${notes ? ` · ${notes}` : ""} · #${ref}`;
+                    // serving is a multiplier on the recipe's base portion, so "(3)"
+                    // means nothing on its own. The label prints "3 oz"; use that.
+                    const portion = n?.servingSize ?? (item.serving ? `${item.serving}x` : "");
+                    return `    ${item.name}${portion ? ` (${portion})` : ""} · ${macro}${notes ? ` · ${notes}` : ""} · #${ref}`;
                 };
 
                 const caught = caughtByLabel
@@ -330,7 +334,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                     .join("\n"),
                         )
                         .join("\n\n") +
-                    `\n\nPer serving. P/C/F are grams. Menu data cached by UT at ${menu.lastCached}.${coverage}${caught}${unverified}`;
+                    `\n\nFigures are per serving; the size in brackets is what the label prints. Menu data cached by UT at ${menu.lastCached}.${coverage}${caught}${unverified}`;
 
                 const structuredContent = {
                     location: menu.location,
@@ -354,6 +358,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                 allergenSource: item.labelChecked ? "label+menu-tags" : "menu-tags",
                                 nutrition: item.nutrition
                                     ? {
+                                          servingSize: item.nutrition.servingSize ?? null,
                                           calories: item.nutrition.calories ?? null,
                                           protein: item.nutrition.protein ?? null,
                                           carbs: item.nutrition.carbs ?? null,

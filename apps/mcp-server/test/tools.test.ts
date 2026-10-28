@@ -93,7 +93,8 @@ describe("registration", () => {
 describe("get_dining_menu", () => {
     it("returns per-serving macros for each item", async () => {
         const out = await textOf("get_dining_menu", { location: "J2", meal: "Lunch" });
-        expect(out).toMatch(/\d+ cal P [\d.]+ C [\d.]+ F [\d.]+/);
+        // units on every figure: one line read on its own should not be ambiguous
+        expect(out).toMatch(/\d+ cal P [\d.]+g C [\d.]+g F [\d.]+g/);
     });
 
     it("spells out dietary tags and allergens rather than raw codes", async () => {

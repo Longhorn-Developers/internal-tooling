@@ -428,7 +428,8 @@ export async function getLocationDetail(name: string): Promise<DiningLocation | 
 }
 
 /** Per serving. Grams unless the name says mg or mcg. */
-export type Macros = {
+/** The numeric fields only, so a label row can be assigned by key. */
+type MacroAmounts = {
     calories?: number;
     protein?: number;
     carbs?: number;
@@ -446,8 +447,13 @@ export type Macros = {
     vitaminD?: number;
 };
 
+export type Macros = MacroAmounts & {
+    /** As the label prints it, e.g. "3 oz". The feed's serv is only a multiplier. */
+    servingSize?: string;
+};
+
 /** Same figures, spelled the way label.aspx spells them. */
-const LABEL_KEYS: Record<string, keyof Macros> = {
+const LABEL_KEYS: Record<string, keyof MacroAmounts> = {
     calories: "calories",
     protein: "protein",
     carbohydrates: "carbs",
@@ -672,6 +678,7 @@ function macrosFromLabel(n: Nutrition): Macros {
     // use the big printed number, so we match what a student reads off the label
     const printed = Number((n.calories ?? "").replace(/[^\d.]/g, ""));
     if (Number.isFinite(printed) && printed > 0) out.calories = printed;
+    if (n.servingSize) out.servingSize = n.servingSize;
     return out;
 }
 

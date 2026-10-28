@@ -11,7 +11,7 @@ export interface Env {
     GUILD_ID: string // wrangler.toml [vars]
     TEAM_CATEGORY_ID?: string // optional: Discord category new team channels are created under
 }
-
+ 
 // Role naming
 // Roles are found by name (case-insensitive) so the DB doesn't have to store role ids.
 //
@@ -163,7 +163,7 @@ export async function getDiscordId(env: Env, userId: string) {
     }
     return user.discordId
 }
-
+ 
 // ============================================================
 // Roles: looking them up by name (never creates anything) and creating them (never assigns anything)
 // ============================================================
@@ -228,7 +228,7 @@ async function deleteRole(env: Env, role: DiscordRole) {
         if (!(e instanceof DiscordError && e.code === UNKNOWN_ROLE)) throw e
     }
 }
-
+ 
 // ============================================================
 // Team channels
 // ============================================================

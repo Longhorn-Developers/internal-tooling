@@ -178,27 +178,47 @@ describe("get_dining_menu", () => {
 
     // A client reading only the structured output was told 36 items with no sign
     // that 60 more had been held back.
-    it("reports withheld items in the structured output, not just the text", async () => {
-        const res = await call("get_dining_menu", {
-            location: "JCL",
-            meal: "Dinner",
-            exclude: ["PNTS"],
-        });
+    // Every item considered is either listed, withheld because its label went
+    // unread, or dropped because its label named the excluded allergen. Both
+    // non-listed kinds have to be exercised or the arithmetic proves nothing:
+    // the first case here has no label drops, the second has 64 of them.
+    it.each([
+        [{ location: "JCL", meal: "Dinner", exclude: ["PNTS"] }, "count"] as const,
+        [{ location: "J2", exclude: ["MLK", "WHT", "SOY", "PNTS"] }, "droppedByLabel"] as const,
+    ])("accounts for every item it did not list: %j", async (args, nonZero) => {
+        const res = await call("get_dining_menu", args);
         const structured = res.structuredContent!;
         const shown = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items)).length;
-        // Every item considered is either listed, withheld, or dropped by its
-        // label. Leaving the dropped ones out made the lead sentence undercount.
+        expect(structured.withheld[nonZero]).toBeGreaterThan(0);
+        expect(structured.withheld.count).toBeGreaterThan(0);
         expect(structured.withheld.of).toBe(
             shown + structured.withheld.count + structured.withheld.droppedByLabel,
         );
-        const lead = res.content[0]!.text.split("\n")[0]!;
-        if (structured.withheld.count > 0) {
-            expect(lead).toMatch(
-                new RegExp(
-                    `^WITHHELD: ${structured.withheld.count} of ${structured.withheld.of} items`,
-                ),
-            );
-        }
+        // The lead sentence quotes both numbers, so it has to quote these.
+        expect(res.content[0]!.text.split("\n")[0]!).toMatch(
+            new RegExp(
+                `^WITHHELD: ${structured.withheld.count} of ${structured.withheld.of} items`,
+            ),
+        );
+    });
+
+    // Filtering everything away is not the same as there being no menu, and the
+    // reply still has to account for the items rather than print bare headings.
+    it("accounts for the items when every one of them is filtered away", async () => {
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            exclude: ["MLK", "WHT", "SOY", "PNTS"],
+        });
+        const structured = res.structuredContent!;
+        const rows = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
+        expect(rows).toEqual([]);
+        expect(structured.withheld.of).toBeGreaterThan(0);
+        expect(structured.withheld.count + structured.withheld.droppedByLabel).toBe(
+            structured.withheld.of,
+        );
+        const text = res.content.map((c) => c.text).join("\n");
+        expect(text).toMatch(/WITHHELD: \d+ of \d+ items/);
+        expect(text).toMatch(/dropped because their label/);
     });
 
     // The flag is the whole point of the guard, and the stated use for the

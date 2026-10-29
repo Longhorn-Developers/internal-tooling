@@ -130,7 +130,8 @@ export function registerDiningTools(server: McpServer): void {
                 "Each line ends with a reference like #081906*3, which is the recipe and its serving. " +
                 "Pass it to menu_item_nutrition for an item this call could not cover, or for the " +
                 "ingredient statement. Keep the serving: the same recipe is different nutrition at a " +
-                "different portion.",
+                "different portion. It is for calling the other tools, not for showing to the person " +
+                "asking, who wants the dish name.",
             inputSchema: z.object({
                 location: z.string().describe('Dining hall: "J2", "Kins" or "JCL"'),
                 date: z

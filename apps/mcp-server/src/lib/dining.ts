@@ -537,6 +537,58 @@ export const splitAllergens = (contains: string): string[] =>
  * but its label reads only "Wheat", while Chocolate Pistacio Cloud Cake carries
  * no tags and its label lists peanuts. Both get reported.
  */
+/**
+ * Things people avoid that are not allergens and are not tagged anywhere. The
+ * feed carries an ingredient statement for 995 of 997 recipes and we parse past
+ * it already, so these cost nothing to answer. Each is a phrase specific enough
+ * to mean what it says: an open ingredient search is useless, because "oil"
+ * matches 712 of 997 recipes and "soda" matches baking soda in 80 of them.
+ *
+ * This is a preference filter, not a safety one. Allergens stay on the label's
+ * CONTAINS line, where a wrong answer matters more than a missed dish.
+ */
+export const AVOID_INGREDIENTS: Record<string, { label: string; test: RegExp }> = {
+    "seed-oils": {
+        label: "seed oils",
+        test: /\bcanola\b|soybean oil|sunflower oil|vegetable oil|cottonseed|safflower oil|grapeseed/i,
+    },
+    hfcs: { label: "high fructose corn syrup", test: /high.fructose/i },
+    "palm-oil": { label: "palm oil", test: /palm oil|palm kernel/i },
+    gelatin: { label: "gelatin", test: /\bgelatin\b/i },
+    msg: { label: "added MSG", test: /monosodium glutamate|\bMSG\b/i },
+    "artificial-color": {
+        label: "artificial colour",
+        test: /\b(red|blue|yellow)\s*#?\s*\d|artificial color|fd&c/i,
+    },
+};
+
+export const hasAvoided = (ingredients: string | undefined, key: string): boolean =>
+    !!ingredients && (AVOID_INGREDIENTS[key]?.test.test(ingredients) ?? false);
+
+const OUNCE_G = 28.3495;
+
+/**
+ * UT's label scales most recipes correctly per unit, but a few treat the base
+ * figure as per-unit when it is already the whole portion, so a *3 triples a
+ * full serving. Crispy Chopped Bacon comes back as 897 cal and 89.7 g of fat
+ * for 3 oz, which is more fat than the food weighs. Roughly one multi-portion
+ * recipe in twenty is like this. We cannot tell which figure UT meant, so the
+ * number is passed through and flagged rather than quietly corrected.
+ */
+export const implausible = (m: Macros): string | undefined => {
+    const grams = (() => {
+        const oz = m.servingSize?.match(/([\d.]+)\s*oz\b/i);
+        if (oz) return Number(oz[1]) * OUNCE_G;
+        const g = m.servingSize?.match(/([\d.]+)\s*g\b/i);
+        return g ? Number(g[1]) : undefined;
+    })();
+    if (!grams || !Number.isFinite(grams) || grams <= 0) return undefined;
+    if (m.fat !== undefined && m.fat > grams) return "more fat than the serving weighs";
+    if (m.calories !== undefined && m.calories / grams > 9.5)
+        return "more calories than pure fat of the same weight";
+    return undefined;
+};
+
 export const mergedAllergens = (item: MenuItem): string[] => {
     const out = [...(item.labelAllergens ?? [])];
     for (const code of item.legends) {
@@ -562,6 +614,8 @@ export type MenuItem = {
     name: string;
     serving?: string;
     legends: string[];
+    /** Keys from AVOID_INGREDIENTS found in the feed's ingredient text. */
+    avoid: string[];
     /** Per serving, from the item's label. Missing if the label wouldn't parse. */
     nutrition?: Macros & { source: "label" };
     /** From the label's CONTAINS line. More complete than the menu tags. */
@@ -578,7 +632,7 @@ export type MenuMeal = { meal: string; sections: MenuSection[] };
  * 081906 reports 299 kcal at portionSize "3 oz" and is served at serv=3, while
  * its label for 081906*3 says 897. Use label.aspx for nutrition.
  */
-type RecipeMeta = { name: string; legends: string[] };
+type RecipeMeta = { name: string; legends: string[]; avoid: string[] };
 
 type RawDays = Record<
     string,
@@ -640,9 +694,16 @@ function getMenuFeed(): Promise<MenuFeed> {
             const name = win.match(/"name"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1];
             if (!name) continue;
             const legends = win.match(/"legends"\s*:\s*\[([^\]]*)\]/)?.[1] ?? "";
+            // Keep the flags, not the 538 KB of ingredient text: storing that would
+            // triple the cached feed and it gets JSON-parsed on every cache read.
+            const ingredients = win.match(/"ingredients"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1];
+            const avoid = ingredients
+                ? Object.keys(AVOID_INGREDIENTS).filter((k) => hasAvoided(ingredients, k))
+                : [];
             recipes[m[1]!] = {
                 name: JSON.parse(`"${name}"`) as string,
                 legends: [...legends.matchAll(/"([^"]+)"/g)].map((l) => l[1]!),
+                avoid,
             };
         }
 
@@ -667,7 +728,7 @@ export async function getMenuWindow(): Promise<{
     return { dates: feed.dates, lastCached: feed.lastCached, locations: [...locations] };
 }
 
-function macrosFromLabel(n: Nutrition): Macros {
+export function macrosFromLabel(n: Nutrition): Macros {
     const out: Macros = {};
     for (const row of n.nutrients) {
         const key = LABEL_KEYS[row.name.toLowerCase()];
@@ -787,6 +848,7 @@ export async function getMenu(locationName: string, mdy: string, mealFilter?: st
                 name: meta?.name ?? r.name,
                 serving,
                 legends: meta?.legends ?? [],
+                avoid: meta?.avoid ?? [],
             });
         }
         if (current.items.length) sections.push(current);
@@ -880,6 +942,7 @@ export async function searchMenuItems(
                             name,
                             serving,
                             legends,
+                            avoid: meta?.avoid ?? [],
                         },
                     });
                 }

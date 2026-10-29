@@ -583,6 +583,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                             `${window.dates[window.dates.length - 1]} at ${window.locations.join(", ")}.`,
                     );
                 }
+                // Whole-word matches first; searchMenuItems already put today first.
+                hits.sort((x, y) => x.tier - y.tier);
+                const loose = hits.filter((h) => h.tier === 2).length;
                 const body = cap(hits, MAX_ROWS, (hit) => {
                     const allergenList = allergens(hit.item.legends);
                     const notes = [
@@ -595,7 +598,12 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     return `  ${hit.date}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})`;
                 });
                 return text(
-                    `${hits.length} match(es) for "${query}":\n\n${body}\n\n` +
+                    `${hits.length} match(es) for "${query}", today first:\n\n${body}\n\n` +
+                        (loose
+                            ? `${loose} of these are marked [loose]: the query appears inside a ` +
+                              `longer word rather than as a word of its own. Treat them as weak matches.
+`
+                            : "") +
                         `Menu data cached by UT at ${lastCached}. ` +
                         "For nutrition, call menu_item_nutrition with an item reference, or get_dining_menu for a meal.",
                 );

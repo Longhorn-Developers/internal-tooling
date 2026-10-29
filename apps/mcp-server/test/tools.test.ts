@@ -21,7 +21,7 @@ type MenuStructured = {
         distinctWithNutrition: number;
         distinctItems: number;
     };
-    withheld: { count: number; of: number };
+    withheld: { count: number; droppedByLabel: number; of: number };
     meals: {
         meal: string;
         sections: {
@@ -88,7 +88,11 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<T
     if (!tool) throw new Error(`No such tool: ${name}`);
     const result = await tool.handler(args, {});
     if (tool.config.outputSchema && !result.isError) {
-        tool.config.outputSchema.parse(result.structuredContent);
+        const parsed = tool.config.outputSchema.parse(result.structuredContent);
+        // zod strips keys the schema does not declare; the schema the server
+        // publishes sets additionalProperties: false and rejects them. Comparing
+        // what survived the parse against what went in catches the difference.
+        expect(JSON.stringify(parsed)).toBe(JSON.stringify(result.structuredContent));
     }
     return result;
 }
@@ -152,16 +156,25 @@ describe("get_dining_menu", () => {
 
     // The field sits inside structuredContent beside the array it describes, so
     // counting something else there reads as a contradiction.
-    it("counts nutrition coverage over the rows it is sitting next to", async () => {
-        const res = await call("get_dining_menu", { location: "JCL" });
-        const structured = res.structuredContent!;
-        const items = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
-        expect(structured.nutritionCoverage.items).toBe(items.length);
-        expect(structured.nutritionCoverage.withNutrition).toBe(
-            items.filter((i) => i.nutrition !== null).length,
-        );
-        expect(structured.nutritionCoverage.distinctItems).toBeLessThanOrEqual(items.length);
-    });
+    // Withholding is the case that can pull the counts apart: it removes rows
+    // after the coverage figures have been taken, so a call with no exclusion
+    // cannot tell you anything here.
+    it.each([{ location: "JCL" }, { location: "JCL", exclude: ["PNTS"] }])(
+        "counts nutrition coverage over the rows it is sitting next to: %j",
+        async (args) => {
+            const structured = (await call("get_dining_menu", args)).structuredContent!;
+            const items = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
+            expect(structured.nutritionCoverage.items).toBe(items.length);
+            expect(structured.nutritionCoverage.withNutrition).toBe(
+                items.filter((i) => i.nutrition !== null).length,
+            );
+            const distinct = new Set(items.map((i) => i.id)).size;
+            expect(structured.nutritionCoverage.distinctItems).toBe(distinct);
+            expect(structured.nutritionCoverage.distinctWithNutrition).toBeLessThanOrEqual(
+                distinct,
+            );
+        },
+    );
 
     // A client reading only the structured output was told 36 items with no sign
     // that 60 more had been held back.
@@ -173,7 +186,11 @@ describe("get_dining_menu", () => {
         });
         const structured = res.structuredContent!;
         const shown = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items)).length;
-        expect(structured.withheld.of).toBe(shown + structured.withheld.count);
+        // Every item considered is either listed, withheld, or dropped by its
+        // label. Leaving the dropped ones out made the lead sentence undercount.
+        expect(structured.withheld.of).toBe(
+            shown + structured.withheld.count + structured.withheld.droppedByLabel,
+        );
         const lead = res.content[0]!.text.split("\n")[0]!;
         if (structured.withheld.count > 0) {
             expect(lead).toMatch(

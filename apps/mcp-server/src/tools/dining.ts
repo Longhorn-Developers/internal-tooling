@@ -163,18 +163,21 @@ const MENU_OUTPUT = z.object({
     location: z.string(),
     date: z.string(),
     lastCached: z.string(),
-    // withNutrition/items count the rows in `meals` below. The distinct figures
-    // count recipe references, which is what the label budget is spent on; one
-    // recipe can appear at several stations.
+    // All four figures describe the rows in `meals` below and nothing else.
+    // withNutrition/items count rows; the distinct pair counts recipe references
+    // among those same rows, since one recipe can appear at several stations and
+    // the label budget is spent per reference.
     nutritionCoverage: z.object({
         withNutrition: z.number(),
         items: z.number(),
         distinctWithNutrition: z.number(),
         distinctItems: z.number(),
     }),
-    // Items held back because their allergens could not be verified. They are not
-    // in `meals`, so count > 0 means this is not the full menu.
-    withheld: z.object({ count: z.number(), of: z.number() }),
+    // Items that were on the menu and are not in `meals`: `count` could not be
+    // cleared because their label went unread, `droppedByLabel` were dropped
+    // because their label named an excluded allergen. `of` is everything that was
+    // considered, so count > 0 means this is not the full menu.
+    withheld: z.object({ count: z.number(), droppedByLabel: z.number(), of: z.number() }),
     meals: z.array(
         z.object({
             meal: z.string(),
@@ -188,7 +191,7 @@ const MENU_OUTPUT = z.object({
                             serving: z.string().nullable(),
                             dietary: z.array(z.string()),
                             allergens: z.array(z.string()).nullable(),
-                            allergenSource: z.string(),
+                            allergenSource: z.enum(["label+menu-tags", "menu-tags"]),
                             nutrition: NUTRITION_SHAPE,
                         }),
                     ),
@@ -349,7 +352,7 @@ export function registerDiningTools(server: McpServer): void {
                                 distinctWithNutrition: 0,
                                 distinctItems: 0,
                             },
-                            withheld: { count: 0, of: 0 },
+                            withheld: { count: 0, droppedByLabel: 0, of: 0 },
                             meals: [],
                         },
                     };
@@ -359,7 +362,7 @@ export function registerDiningTools(server: McpServer): void {
                 const shown = meals.flatMap((entry) =>
                     entry.sections.flatMap((section) => section.items),
                 );
-                const { covered, total } = await withNutrition(shown);
+                await withNutrition(shown);
 
                 // Menu tags under-report: 450257 is tagged vegan with wheat and
                 // soy, but its label also lists tree nuts. Now that the labels
@@ -423,6 +426,12 @@ export function registerDiningTools(server: McpServer): void {
                     entry.sections.flatMap((section) => section.items),
                 );
                 const coveredRows = shownItems.filter((item) => item.nutrition).length;
+                const refOf = (item: MenuItem) =>
+                    item.serving ? `${item.number}*${item.serving}` : item.number;
+                const total = new Set(shownItems.map(refOf)).size;
+                const covered = new Set(
+                    shownItems.filter((item) => item.nutrition).map(refOf),
+                ).size;
                 const caught = caughtByLabel
                     ? `
 ${caughtByLabel} item(s) were dropped because their label lists an allergen the menu tags omit.`
@@ -441,8 +450,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                               .join(", ")
                         : "";
 
+                const considered = shownItems.length + withheld + caughtByLabel;
                 const lead = withheld
-                    ? `WITHHELD: ${withheld} of ${shownItems.length + withheld} items are not listed ` +
+                    ? `WITHHELD: ${withheld} of ${considered} items are not listed ` +
                       `below. Their allergen labels could not all be read in one request, and the menu ` +
                       `tags alone cannot clear them, so this is not the full menu. Ask for one meal or ` +
                       `station to have the rest checked.\n\n`
@@ -475,7 +485,11 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         distinctWithNutrition: covered,
                         distinctItems: total,
                     },
-                    withheld: { count: withheld, of: shownItems.length + withheld },
+                    withheld: {
+                        count: withheld,
+                        droppedByLabel: caughtByLabel,
+                        of: considered,
+                    },
                     meals: meals.map((entry) => ({
                         meal: entry.meal,
                         sections: entry.sections.map((section) => ({
@@ -815,23 +829,26 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         matched: hits.length,
                         shown: Math.min(hits.length, MAX_ROWS),
                         lastCached,
-                        hits: hits.slice(0, MAX_ROWS).map((hit) => ({
-                            id: hit.item.serving
-                                ? `${hit.item.number}*${hit.item.serving}`
-                                : hit.item.number,
-                            name: hit.item.name,
-                            date: hit.date,
-                            isToday: hit.isToday,
-                            meal: hit.meal,
-                            location: hit.location,
-                            station: hit.section,
-                            dietary: dietTags(hit.item.legends),
-                            allergens: allergens(hit.item.legends).length
-                                ? allergens(hit.item.legends)
-                                : null,
-                            allergenSource: "menu-tags" as const,
-                            exact: hit.tier === 1,
-                        })),
+                        hits: hits.slice(0, MAX_ROWS).map((hit) => {
+                            const tagged = allergens(hit.item.legends);
+                            return {
+                                id: hit.item.serving
+                                    ? `${hit.item.number}*${hit.item.serving}`
+                                    : hit.item.number,
+                                name: hit.item.name,
+                                date: hit.date,
+                                isToday: hit.isToday,
+                                meal: hit.meal,
+                                location: hit.location,
+                                station: hit.section,
+                                dietary: dietTags(hit.item.legends),
+                                // Tags only, so [] cannot be told apart from
+                                // "checked, none": null says nobody checked.
+                                allergens: tagged.length ? tagged : null,
+                                allergenSource: "menu-tags" as const,
+                                exact: hit.tier === 1,
+                            };
+                        }),
                     },
                 );
             },

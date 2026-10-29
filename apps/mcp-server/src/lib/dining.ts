@@ -577,12 +577,21 @@ const OUNCE_G = 28.3495;
  */
 export const implausible = (m: Macros): string | undefined => {
     const grams = (() => {
-        // "1/2 oz" has to read as half an ounce. Taking the denominator alone made
-        // the serving look four times heavier, and the guard stopped firing.
-        const oz = m.servingSize?.match(/(?:(\d+)\s*\/\s*)?([\d.]+)\s*oz\b/i);
+        // Servings come as "3 oz", "1/2 oz" and "1 1/2 oz", and all three have to
+        // read as themselves. An optional leading number anchored to nothing lets
+        // "1 1/2 oz" re-anchor on the fraction and lose the whole part, which
+        // under-reads the serving and fires the guard on a label that is fine.
+        // UT also prints "4 ozL" on about ninety rows a week; that is ounces.
+        const oz = m.servingSize?.match(
+            /(?:(\d+)[\s-]+)?(?:(\d+)\s*\/\s*(\d+)|([\d.]+))\s*ozl?\b/i,
+        );
         if (oz) {
-            const whole = Number(oz[2]);
-            return (oz[1] === undefined ? whole : Number(oz[1]) / whole) * OUNCE_G;
+            const [, whole, numerator, denominator, plain] = oz;
+            const ounces =
+                plain === undefined
+                    ? Number(whole ?? 0) + Number(numerator) / Number(denominator)
+                    : Number(plain);
+            return ounces * OUNCE_G;
         }
         const g = m.servingSize?.match(/([\d.]+)\s*g\b/i);
         return g ? Number(g[1]) : undefined;

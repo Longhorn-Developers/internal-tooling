@@ -579,8 +579,11 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 if (!hits.length) {
                     const window = await getMenuWindow();
                     return text(
-                        `No menu item matches "${query}" between ${window.dates[0]} and ` +
-                            `${window.dates[window.dates.length - 1]} at ${window.locations.join(", ")}.`,
+                        `Nothing on the published menu (${window.dates[0]} to ` +
+                            `${window.dates[window.dates.length - 1]}, at ${window.locations.join(", ")}) ` +
+                            `matches "${query}". This searches item names and station names only, not ` +
+                            `ingredients, and the feed carries no drinks at all, so a miss here does not ` +
+                            `mean UT never serves it.`,
                     );
                 }
                 // Whole-word matches first; searchMenuItems already put today first.
@@ -595,7 +598,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     const ref = hit.item.serving
                         ? `#${hit.item.number}*${hit.item.serving}`
                         : `#${hit.item.number}`;
-                    return `  ${hit.date}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})`;
+                    // Saying "today" spares the model dating the row itself.
+                    const when = (hit.isToday ? "today" : hit.date).padEnd(10);
+                    return `  ${when}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})${hit.tier === 2 ? "  [loose]" : ""}`;
                 });
                 return text(
                     `${hits.length} match(es) for "${query}", today first:\n\n${body}\n\n` +

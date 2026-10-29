@@ -550,10 +550,10 @@ export const splitAllergens = (contains: string): string[] =>
 export const AVOID_INGREDIENTS: Record<string, { label: string; test: RegExp }> = {
     "seed-oils": {
         label: "seed oils",
-        test: /\bcanola\b|soybean oil|sunflower oil|vegetable oil|cottonseed|safflower oil|grapeseed/i,
+        test: /\bcanola\b|soybean oil|sunflower oil|vegetable oil|vegetable shortening|\bcorn oil\b|cottonseed|safflower oil|grapeseed/i,
     },
     hfcs: { label: "high fructose corn syrup", test: /high.fructose/i },
-    "palm-oil": { label: "palm oil", test: /palm oil|palm kernel/i },
+    "palm-oil": { label: "palm oil", test: /palm (?:fruit )?oil|palm kernel/i },
     gelatin: { label: "gelatin", test: /\bgelatin\b/i },
     msg: { label: "added MSG", test: /monosodium glutamate|\bMSG\b/i },
     "artificial-color": {
@@ -577,8 +577,13 @@ const OUNCE_G = 28.3495;
  */
 export const implausible = (m: Macros): string | undefined => {
     const grams = (() => {
-        const oz = m.servingSize?.match(/([\d.]+)\s*oz\b/i);
-        if (oz) return Number(oz[1]) * OUNCE_G;
+        // "1/2 oz" has to read as half an ounce. Taking the denominator alone made
+        // the serving look four times heavier, and the guard stopped firing.
+        const oz = m.servingSize?.match(/(?:(\d+)\s*\/\s*)?([\d.]+)\s*oz\b/i);
+        if (oz) {
+            const whole = Number(oz[2]);
+            return (oz[1] === undefined ? whole : Number(oz[1]) / whole) * OUNCE_G;
+        }
         const g = m.servingSize?.match(/([\d.]+)\s*g\b/i);
         return g ? Number(g[1]) : undefined;
     })();

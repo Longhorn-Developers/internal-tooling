@@ -19,6 +19,13 @@ describe("ingredient preferences", () => {
         ["Corn syrup, sugar", "hfcs", false],
         ["Salt, monosodium glutamate", "msg", true],
         ["Palm oil, flour", "palm-oil", true],
+        // Found on the live feed: the plant-based cheeses say "Palm Fruit Oil",
+        // which is exactly what someone avoiding palm oil is looking for.
+        ["Water, palm fruit oil, starch", "palm-oil", true],
+        ["Flour, corn oil, salt", "seed-oils", true],
+        ["Flour, vegetable shortening, sugar", "seed-oils", true],
+        // Corn, but not an oil: the point is a named term, not a substring.
+        ["Corn, water, salt", "seed-oils", false],
     ])("%s against %s", (ingredients, key, expected) => {
         expect(hasAvoided(ingredients, key)).toBe(expected);
     });
@@ -43,6 +50,13 @@ describe("implausible nutrition", () => {
     // 85g, so the fat alone outweighs the food.
     it("flags more fat than the serving weighs", () => {
         expect(implausible({ servingSize: "3 oz", fat: 89.7, calories: 897 })).toMatch(/fat/);
+    });
+
+    // "1/2 oz" was matching the denominator, so half an ounce was read as two
+    // and the serving looked four times heavier than it is.
+    it("reads a fractional ounce serving as the fraction", () => {
+        expect(implausible({ servingSize: "1/2 oz", fat: 20, calories: 200 })).toMatch(/fat/);
+        expect(implausible({ servingSize: "1/2 oz", fat: 5, calories: 50 })).toBeUndefined();
     });
 
     it("reads a serving given in grams", () => {

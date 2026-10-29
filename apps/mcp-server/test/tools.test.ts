@@ -15,7 +15,13 @@ type MenuStructured = {
     location: string;
     date: string;
     lastCached: string;
-    nutritionCoverage: { withNutrition: number; items: number };
+    nutritionCoverage: {
+        withNutrition: number;
+        items: number;
+        distinctWithNutrition: number;
+        distinctItems: number;
+    };
+    withheld: { count: number; of: number };
     meals: {
         meal: string;
         sections: {
@@ -23,12 +29,20 @@ type MenuStructured = {
             items: {
                 id: string;
                 name: string;
-                allergens: string[];
+                // null when nobody read the label: [] there would read as a
+                // positive claim of allergen-free.
+                allergens: string[] | null;
                 allergenSource: string;
-                nutrition: { calories: number | null } | null;
+                nutrition: { calories: number | null; warning: string | null } | null;
             }[];
         }[];
     }[];
+};
+
+type SearchStructured = {
+    matched: number;
+    shown: number;
+    hits: { allergens: string[] | null; allergenSource: string; exact: boolean }[];
 };
 
 type ToolResult = {
@@ -38,7 +52,13 @@ type ToolResult = {
 };
 
 type Registered = {
-    config: { title?: string; description?: string };
+    config: {
+        title?: string;
+        description?: string;
+        // Zod object, kept structural: the SDK types structuredContent as an
+        // open record whatever the schema says, so tsc will never link them.
+        outputSchema?: { parse: (value: unknown) => unknown };
+    };
     handler: (args: unknown, extra?: unknown) => Promise<ToolResult>;
 };
 
@@ -58,10 +78,19 @@ function tools(): Record<string, Registered> {
     return registry;
 }
 
+/**
+ * Declaring an outputSchema makes the client reject any non-error response that
+ * does not match it, and nothing in the SDK's types enforces that. Checking here
+ * makes every test in this file a schema test for free.
+ */
 async function call(name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
     const tool = tools()[name];
     if (!tool) throw new Error(`No such tool: ${name}`);
-    return tool.handler(args, {});
+    const result = await tool.handler(args, {});
+    if (tool.config.outputSchema && !result.isError) {
+        tool.config.outputSchema.parse(result.structuredContent);
+    }
+    return result;
 }
 
 const textOf = async (name: string, args: Record<string, unknown> = {}) =>
@@ -119,6 +148,56 @@ describe("get_dining_menu", () => {
         expect(items.some((i) => i.nutrition?.calories !== null && i.nutrition !== null)).toBe(
             true,
         );
+    });
+
+    // The field sits inside structuredContent beside the array it describes, so
+    // counting something else there reads as a contradiction.
+    it("counts nutrition coverage over the rows it is sitting next to", async () => {
+        const res = await call("get_dining_menu", { location: "JCL" });
+        const structured = res.structuredContent!;
+        const items = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
+        expect(structured.nutritionCoverage.items).toBe(items.length);
+        expect(structured.nutritionCoverage.withNutrition).toBe(
+            items.filter((i) => i.nutrition !== null).length,
+        );
+        expect(structured.nutritionCoverage.distinctItems).toBeLessThanOrEqual(items.length);
+    });
+
+    // A client reading only the structured output was told 36 items with no sign
+    // that 60 more had been held back.
+    it("reports withheld items in the structured output, not just the text", async () => {
+        const res = await call("get_dining_menu", {
+            location: "JCL",
+            meal: "Dinner",
+            exclude: ["PNTS"],
+        });
+        const structured = res.structuredContent!;
+        const shown = structured.meals.flatMap((m) => m.sections.flatMap((s) => s.items)).length;
+        expect(structured.withheld.of).toBe(shown + structured.withheld.count);
+        const lead = res.content[0]!.text.split("\n")[0]!;
+        if (structured.withheld.count > 0) {
+            expect(lead).toMatch(
+                new RegExp(
+                    `^WITHHELD: ${structured.withheld.count} of ${structured.withheld.of} items`,
+                ),
+            );
+        }
+    });
+
+    // The flag is the whole point of the guard, and the stated use for the
+    // structured output is totalling macros, which is where it does the damage.
+    it("carries the implausible-figure warning into the structured output", async () => {
+        const res = await call("get_dining_menu", { location: "J2", meal: "Lunch" });
+        const items = res
+            .structuredContent!.meals.flatMap((m) => m.sections.flatMap((s) => s.items))
+            .filter((i) => i.nutrition);
+        expect(items.length).toBeGreaterThan(0);
+        // Present on every row, so a consumer can read it unconditionally.
+        for (const item of items) expect(item.nutrition).toHaveProperty("warning");
+        const text = res.content.map((c) => c.text).join("\n");
+        for (const item of items) {
+            if (item.nutrition?.warning) expect(text).toMatch(/FIGURE LOOKS WRONG/);
+        }
     });
 
     it("says how many items it could cover when the label budget binds", async () => {
@@ -198,6 +277,32 @@ describe("search_menu_items argument handling", () => {
         const out = await textOf("search_menu_items", { query: "wrap", diet: ["GF"] });
         expect(out).toMatch(/Unknown diet code/);
     });
+
+    // Loose matches sort last and the row cap cuts them off, so counting them
+    // over every hit announced weak rows that are nowhere in the response.
+    it("counts loose matches over the rows it actually shows", async () => {
+        for (const query of ["a", "e", "chicken", "corn"]) {
+            const out = await textOf("search_menu_items", { query });
+            const claimed = Number(
+                out.match(/^(\d+) of the rows shown are marked \[loose\]/m)?.[1] ?? 0,
+            );
+            const printed = (out.match(/\[loose\]/g) ?? []).length;
+            // One mention in the note itself when the note is there at all.
+            expect(printed - (claimed ? 1 : 0), query).toBe(claimed);
+        }
+    });
+
+    // get_dining_menu stopped saying [] for an unread label; search never reads
+    // one at all, so [] here would teach the model the opposite lesson.
+    it("never claims an item is allergen-free from the menu tags alone", async () => {
+        const res = await call("search_menu_items", { query: "chicken" });
+        const structured = res.structuredContent as unknown as SearchStructured;
+        expect(structured.hits.length).toBeGreaterThan(0);
+        for (const hit of structured.hits) {
+            expect(hit.allergens).not.toEqual([]);
+            expect(hit.allergenSource).toBe("menu-tags");
+        }
+    });
 });
 
 describe("menu_item_nutrition", () => {
@@ -254,9 +359,11 @@ describe("gaps found in review", () => {
         );
         const checked = items.filter((i) => i.allergenSource === "label+menu-tags");
         expect(checked.length).toBeGreaterThan(0);
-        expect(checked.some((i) => i.allergens.some((a) => /Soybeans|Milk|Wheat/.test(a)))).toBe(
-            true,
-        );
+        // null means the label went unread, which contradicts the source field.
+        expect(checked.filter((i) => i.allergens === null)).toEqual([]);
+        expect(
+            checked.some((i) => (i.allergens ?? []).some((a) => /Soybeans|Milk|Wheat/.test(a))),
+        ).toBe(true);
     });
 
     // The invariant that matters in the output, not just in the helper: reading a
@@ -268,6 +375,7 @@ describe("gaps found in review", () => {
         );
         const checked = items.filter((i) => i.allergenSource === "label+menu-tags");
         expect(checked.length).toBeGreaterThan(0);
+        expect(checked.filter((i) => i.allergens === null)).toEqual([]);
 
         // legends aren't in the output, so take them from the menu underneath
         const menu = await getMenu("J2", "10/15/2026");
@@ -286,7 +394,7 @@ describe("gaps found in review", () => {
                 compared++;
                 const word = tagged.toLowerCase().replace(/s$/, "");
                 expect(
-                    item.allergens.some((a) => a.toLowerCase().includes(word)),
+                    (item.allergens ?? []).some((a) => a.toLowerCase().includes(word)),
                     `${item.name} (${item.id}) lost "${tagged}"`,
                 ).toBe(true);
             }

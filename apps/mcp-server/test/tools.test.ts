@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { resetCache } from "../src/lib/http";
 import { allergens, getMenu, mergedAllergens } from "../src/lib/dining";
-import { registerDiningTools } from "../src/tools/dining";
+import { CATEGORY_LIST, registerDiningTools } from "../src/tools/dining";
 import { FIXED_NOW, stubFetch } from "./fixtures";
 
 /**
@@ -223,18 +223,80 @@ describe("get_dining_menu", () => {
 
     // The flag is the whole point of the guard, and the stated use for the
     // structured output is totalling macros, which is where it does the damage.
-    it("carries the implausible-figure warning into the structured output", async () => {
-        const res = await call("get_dining_menu", { location: "J2", meal: "Lunch" });
+    // Crispy Chopped Bacon is published as 897 cal and 89.7 g of fat for a 3 oz
+    // serving, so this meal is the one that actually has something to flag.
+    // Pointed at Lunch, which has nothing implausible, every assertion about
+    // the flag was skipped and removing the flag entirely kept the suite green.
+    it("carries the implausible-figure warning into both copies", async () => {
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Dinner",
+            date: "10/16/2026",
+        });
         const items = res
             .structuredContent!.meals.flatMap((m) => m.sections.flatMap((s) => s.items))
             .filter((i) => i.nutrition);
         expect(items.length).toBeGreaterThan(0);
         // Present on every row, so a consumer can read it unconditionally.
         for (const item of items) expect(item.nutrition).toHaveProperty("warning");
+        const warned = items.filter((i) => i.nutrition?.warning);
+        expect(warned.length).toBeGreaterThan(0);
         const text = res.content.map((c) => c.text).join("\n");
-        for (const item of items) {
-            if (item.nutrition?.warning) expect(text).toMatch(/FIGURE LOOKS WRONG/);
+        expect(text).toMatch(/FIGURE LOOKS WRONG/);
+        // The two copies have to name the same items.
+        for (const item of warned) expect(text).toContain(item.name);
+    });
+
+    // The label budget covers the first 36 references; past it the tags are all
+    // there is, and dropping them left items with tree nuts on the menu line
+    // and no allergens at all in the copy the model is told to prefer.
+    it("keeps menu-tag allergens for items whose label went unread", async () => {
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Dinner",
+            date: "10/16/2026",
+        });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((s) => s.items),
+        );
+        const unread = items.filter((i) => i.allergenSource === "menu-tags");
+        expect(unread.length).toBeGreaterThan(0);
+        const tagged = unread.filter((i) => i.allergens !== null);
+        expect(tagged.length).toBeGreaterThan(0);
+        const text = res.content.map((c) => c.text).join("\n");
+        for (const item of tagged) {
+            expect(item.allergens).not.toEqual([]);
+            // Whatever the structured copy claims has to be on the menu line.
+            const line = text.split("\n").find((l) => l.includes(`#${item.id}`));
+            for (const allergen of item.allergens ?? []) expect(line).toContain(allergen);
         }
+    });
+
+    // A row with no allergen note, in a list where every other row says what it
+    // contains, reads as "contains none of them". Past the label budget nobody
+    // checked, and 35 of this week's recipes carry no tags at all, so the note
+    // has to say which of the two it is.
+    it("never leaves an unchecked item looking allergen-free", async () => {
+        const res = await call("get_dining_menu", { location: "JCL", meal: "Dinner" });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((s) => s.items),
+        );
+        const text = res.content.map((c) => c.text).join("\n");
+        const lineFor = (id: string) => text.split("\n").find((l) => l.includes(`#${id}`));
+
+        const unchecked = items.filter((i) => i.allergenSource === "menu-tags");
+        expect(unchecked.length).toBeGreaterThan(0);
+        for (const item of unchecked) {
+            const line = lineFor(item.id);
+            expect(line, item.name).toMatch(/allergens unchecked|menu tags only/);
+        }
+        // And a row whose label was read must not be muddied with that caveat.
+        const read = items.filter((i) => i.allergenSource === "label+menu-tags");
+        expect(read.length).toBeGreaterThan(0);
+        for (const item of read) {
+            expect(lineFor(item.id), item.name).not.toMatch(/allergens unchecked|menu tags only/);
+        }
+        expect(text).toMatch(/Do not read those rows as allergen-free/);
     });
 
     it("says how many items it could cover when the label budget binds", async () => {
@@ -244,6 +306,18 @@ describe("get_dining_menu", () => {
 
     // A restriction that silently ignores an unknown code hands someone the
     // allergen they asked to avoid.
+    // Saying "nothing at this station" when an ingredient preference is what
+    // emptied it is a confident false statement about what UT served.
+    it("names the ingredient preference when that is what emptied the menu", async () => {
+        const out = await textOf("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            station: "Baked Potato Bar",
+            avoid: ["seed-oils", "gelatin"],
+        });
+        if (/^Nothing at/.test(out)) expect(out).toMatch(/avoiding seed oils, gelatin/);
+    });
+
     it("rejects an unrecognised exclude code instead of ignoring it", async () => {
         for (const bad of [["peanuts"], ["Peanut", "Milk"], ["NUTS"]]) {
             const out = await textOf("get_dining_menu", {
@@ -306,7 +380,24 @@ describe("search_menu_items argument handling", () => {
     it("accepts the same location aliases the other tools do", async () => {
         for (const location of ["JCL", "Jester City Limits", "Kinsolving"]) {
             const out = await textOf("search_menu_items", { query: "a", location });
-            expect(out).not.toMatch(/^No menu item matches/);
+            expect(out, location).not.toMatch(/^Nothing on the published menu/);
+        }
+    });
+
+    // The header says "today first" and a student asking "can I get steak today"
+    // got four days of future rows above the two for today, because the sort
+    // ordered on match quality alone.
+    it("puts today's rows first, as the header says it does", async () => {
+        for (const query of ["chicken", "steak", "salad", "a"]) {
+            const out = await textOf("search_menu_items", { query });
+            const rows = out.split("\n").filter((l) => /^ {2}(today|\d{2}\/)/.test(l));
+            if (!rows.length) continue;
+            const lastToday = rows.map((l) => l.trimStart().startsWith("today")).lastIndexOf(true);
+            const firstOther = rows.findIndex((l) => !l.trimStart().startsWith("today"));
+            if (lastToday >= 0 && firstOther >= 0)
+                expect(lastToday, `${query}: a later day sorted above today`).toBeLessThan(
+                    firstOther,
+                );
         }
     });
 
@@ -519,6 +610,18 @@ describe("gaps found in review", () => {
         expect(out).not.toMatch(/ · #\d/); // nothing was presented as safe
     });
 
+    it("never reports an empty allergen list for an item nobody checked", async () => {
+        const res = await call("get_dining_menu", { location: "JCL", meal: "Dinner" });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((s) => s.items),
+        );
+        const unchecked = items.filter((i) => i.allergenSource === "menu-tags");
+        expect(unchecked.length).toBeGreaterThan(0);
+        // Tags are worth reporting; an empty list from them is not a finding.
+        for (const item of unchecked) expect(item.allergens, item.name).not.toEqual([]);
+        expect(unchecked.some((i) => i.allergens === null)).toBe(true);
+    });
+
     it("marks an item whose label went unread as menu-tags, not allergen-free", async () => {
         stubFetch({ "label.aspx": 500 });
         const { structuredContent } = await call("get_dining_menu", {
@@ -565,14 +668,39 @@ describe("gaps found in review", () => {
         expect(out).not.toMatch(/No dining location matching/);
     });
 
-    it("only offers categories that list_dining_locations can actually return", async () => {
-        for (const category of [
-            "Dining Halls",
-            "Restaurants",
-            "Coffee Shops",
-            "Markets",
-            "Food Trucks",
-        ]) {
+    it("advertises every category it puts a location in", async () => {
+        const all = await call("list_dining_locations", {});
+        const present = new Set(
+            (all.structuredContent as unknown as { locations: { category: string }[] }).locations.map(
+                (l) => l.category,
+            ),
+        );
+        expect(present.size).toBeGreaterThan(1);
+        for (const category of present) {
+            expect(CATEGORY_LIST as readonly string[], `${category} is not advertised`).toContain(
+                category,
+            );
+            const out = await textOf("list_dining_locations", { category });
+            expect(out, category).not.toMatch(/No locations in category/);
+        }
+    });
+
+    // A model that reads a category off one tool and asks the other for it has
+    // to get an answer. The two sources name one group differently, and the
+    // housing spelling used to win, so dining_hours printed a Markets heading
+    // over locations list_dining_locations said were not in any such category.
+    it("agrees with dining_hours about what the categories are", async () => {
+        const hours = await call("dining_hours", {});
+        const printed = new Set(
+            (hours.structuredContent as unknown as { locations: { category: string }[] }).locations.map(
+                (l) => l.category,
+            ),
+        );
+        expect(printed.size).toBeGreaterThan(1);
+        for (const category of printed) {
+            expect(CATEGORY_LIST as readonly string[], `${category} is not advertised`).toContain(
+                category,
+            );
             const out = await textOf("list_dining_locations", { category });
             expect(out, category).not.toMatch(/No locations in category/);
         }

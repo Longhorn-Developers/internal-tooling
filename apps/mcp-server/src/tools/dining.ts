@@ -126,7 +126,11 @@ export function registerDiningTools(server: McpServer): void {
                 "calories, protein, carbs, fat, fiber and sodium, plus allergens and dietary tags. " +
                 "Built for meal planning: one call returns what is needed to assemble meals against calorie or " +
                 "macro targets and dietary restrictions. Menus cover the current week only, and only the dining " +
-                "halls (J2, Kins, JCL). Prefer the structured output when totalling macros.",
+                "halls (J2, Kins, JCL). Prefer the structured output when totalling macros. " +
+                "Each line ends with a reference like #081906*3, which is the recipe and its serving. " +
+                "Pass it to menu_item_nutrition for an item this call could not cover, or for the " +
+                "ingredient statement. Keep the serving: the same recipe is different nutrition at a " +
+                "different portion.",
             inputSchema: z.object({
                 location: z.string().describe('Dining hall: "J2", "Kins" or "JCL"'),
                 date: z

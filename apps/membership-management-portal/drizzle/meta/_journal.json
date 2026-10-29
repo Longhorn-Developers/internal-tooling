@@ -8,6 +8,13 @@
             "when": 1792518800342,
             "tag": "0000_initial_membership",
             "breakpoints": true
+        },
+        {
+            "idx": 1,
+            "version": "6",
+            "when": 1793168537768,
+            "tag": "0001_github_teams_and_repos",
+            "breakpoints": true
         }
     ]
 }

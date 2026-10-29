@@ -1,0 +1,249 @@
+{
+    "version": "6",
+    "dialect": "sqlite",
+    "id": "0ea7cc18-f656-45a8-aba5-1bfa4c358c62",
+    "prevId": "fd5aba88-70b1-4f54-9734-505650fce955",
+    "tables": {
+        "team_repos": {
+            "name": "team_repos",
+            "columns": {
+                "repo_name": {
+                    "name": "repo_name",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "team_id": {
+                    "name": "team_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "team_repos_team_id_idx": {
+                    "name": "team_repos_team_id_idx",
+                    "columns": ["team_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "team_repos_team_id_teams_id_fk": {
+                    "name": "team_repos_team_id_teams_id_fk",
+                    "tableFrom": "team_repos",
+                    "tableTo": "teams",
+                    "columnsFrom": ["team_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "no action",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "team_users": {
+            "name": "team_users",
+            "columns": {
+                "team_id": {
+                    "name": "team_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "user_id": {
+                    "name": "user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "vertical": {
+                    "name": "vertical",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "is_lead": {
+                    "name": "is_lead",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": false
+                }
+            },
+            "indexes": {
+                "team_users_user_id_idx": {
+                    "name": "team_users_user_id_idx",
+                    "columns": ["user_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "team_users_team_id_teams_id_fk": {
+                    "name": "team_users_team_id_teams_id_fk",
+                    "tableFrom": "team_users",
+                    "tableTo": "teams",
+                    "columnsFrom": ["team_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "no action",
+                    "onUpdate": "no action"
+                },
+                "team_users_user_id_users_id_fk": {
+                    "name": "team_users_user_id_users_id_fk",
+                    "tableFrom": "team_users",
+                    "tableTo": "users",
+                    "columnsFrom": ["user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "no action",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {
+                "team_users_team_id_user_id_vertical_pk": {
+                    "columns": ["team_id", "user_id", "vertical"],
+                    "name": "team_users_team_id_user_id_vertical_pk"
+                }
+            },
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "valid_vertical": {
+                    "name": "valid_vertical",
+                    "value": "\"team_users\".\"vertical\" IN ('product', 'tech', 'design')"
+                }
+            }
+        },
+        "teams": {
+            "name": "teams",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "github_team_slug": {
+                    "name": "github_team_slug",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "teams_github_team_slug_unique": {
+                    "name": "teams_github_team_slug_unique",
+                    "columns": ["github_team_slug"],
+                    "isUnique": true
+                }
+            },
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "users": {
+            "name": "users",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "email": {
+                    "name": "email",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "github_id": {
+                    "name": "github_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "discord_id": {
+                    "name": "discord_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'applicant'"
+                },
+                "is_exec": {
+                    "name": "is_exec",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": false
+                },
+                "date_joined": {
+                    "name": "date_joined",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "date_left": {
+                    "name": "date_left",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "valid_status": {
+                    "name": "valid_status",
+                    "value": "\"users\".\"status\" IN ('applicant', 'active', 'inactive', 'alum')"
+                }
+            }
+        }
+    },
+    "views": {},
+    "enums": {},
+    "_meta": {
+        "schemas": {},
+        "tables": {},
+        "columns": {}
+    },
+    "internal": {
+        "indexes": {}
+    }
+}

@@ -14,6 +14,7 @@ const inList = (values: readonly string[]) =>
 export const teams = sqliteTable('teams', {
     id: text('id').primaryKey().notNull(),
     name: text('name').notNull(),
+    githubTeamSlug: text('github_team_slug').unique(), // null until the GitHub team is created.
 })
 
 export const users = sqliteTable(
@@ -51,4 +52,17 @@ export const teamUsers = sqliteTable(
         index('team_users_user_id_idx').on(table.userId),
         check('valid_vertical', sql`${table.vertical} IN (${inList(verticalNames)})`),
     ],
+)
+
+// Source of truth for which org repositories belong to which team; GitHub is synced to match.
+// repoName is the primary key, so each repository belongs to at most one team.
+export const teamRepos = sqliteTable(
+    'team_repos',
+    {
+        repoName: text('repo_name').primaryKey().notNull(), // name within the org, e.g. "portal-web"
+        teamId: text('team_id')
+            .notNull()
+            .references(() => teams.id),
+    },
+    (table) => [index('team_repos_team_id_idx').on(table.teamId)],
 )

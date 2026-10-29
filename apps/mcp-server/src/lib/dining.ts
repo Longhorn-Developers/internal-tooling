@@ -797,10 +797,37 @@ export async function getMenu(locationName: string, mdy: string, mealFilter?: st
 
 export type ItemHit = {
     date: string;
+    isToday: boolean;
+    /** 1 = a whole word in the name or station, 2 = a loose substring. */
+    tier: 1 | 2;
     location: string;
     meal: string;
     section: string;
     item: MenuItem;
+};
+
+/**
+ * Tier 1 is a whole word in the item's name or its station, which is what
+ * someone typing "dessert" or "tacos" means. Nothing on the menu is named
+ * "dessert" but 137 items sit under a Desserts station, and a plural never
+ * matched its singular. Tier 2 keeps the old substring behaviour so nothing
+ * that used to be found is lost, but it is reported as the loose match it is:
+ * "ice" is inside Sliced, Diced and Rice.
+ */
+const stem = (w: string) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w);
+const tokens = (s: string) =>
+    s
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .filter(Boolean)
+        .map(stem);
+
+export const matchTier = (words: string[], name: string, section: string): 1 | 2 | 0 => {
+    if (!words.length) return 1; // no query: browsing by diet or location
+    const whole = new Set([...tokens(name), ...tokens(section)]);
+    if (words.every((w) => whole.has(stem(w)))) return 1;
+    const lower = name.toLowerCase();
+    return words.every((w) => lower.includes(w)) ? 2 : 0;
 };
 
 export async function searchMenuItems(
@@ -810,8 +837,20 @@ export async function searchMenuItems(
     const feed = await getMenuFeed();
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const hits: ItemHit[] = [];
+    const today = austinNow().mdy;
 
-    for (const [date, day] of Object.entries(feed.days)) {
+    // The feed runs Monday to Sunday, so by Wednesday the first rows are days
+    // already eaten. Anything capped off the end was the part being asked about.
+    const iso = (mdy: string) => {
+        const [m, d, y] = mdy.split("/");
+        return `${y}-${m}-${d}`;
+    };
+    const days = Object.entries(feed.days).sort(([a], [b]) => {
+        const rank = (d: string) => (d === today ? 0 : iso(d) > iso(today) ? 1 : 2);
+        return rank(a) - rank(b) || iso(a).localeCompare(iso(b));
+    });
+
+    for (const [date, day] of days) {
         if (opts.date && date !== opts.date) continue;
         for (const loc of day.locations) {
             if (opts.location && !matchesLocation(loc.locationName, opts.location)) continue;
@@ -824,12 +863,15 @@ export async function searchMenuItems(
                     }
                     const meta = feed.recipes[r.number];
                     const name = meta?.name ?? r.name;
-                    if (!words.every((w) => name.toLowerCase().includes(w))) continue;
+                    const tier = matchTier(words, name, section);
+                    if (!tier) continue;
                     const legends = meta?.legends ?? [];
                     if (opts.diet?.length && !opts.diet.every((d) => legends.includes(d))) continue;
                     const serving = r.serv || undefined;
                     hits.push({
                         date,
+                        isToday: date === today,
+                        tier,
                         location: loc.locationName,
                         meal: meal.mealName,
                         section,

@@ -82,7 +82,29 @@ D1 is the source of truth; `src/github/sync.ts` makes the GitHub org match it.
 
 Other Workers call these through the `MembershipService` RPC binding: `assignRepoToTeam`,
 `unassignRepo`, `syncGithubTeam`, `syncGithubExecTeam`, `auditGithubRepos`, and `syncGithub`. Each returns
-`{ changes, flags }`.
+`{ changes, flags, errors }`.
+
+### Sync errors
+
+If adding or removing a user's access fails (team membership, lead Admin, or removing direct
+Admin), the sync carries on and lists it in `errors`. Nothing is stored. Each error has a `code`,
+GitHub's `message`, the `operation`, `githubLogin`, and `target`, whether retrying can work as is
+(`retryable`), and a `fix` hint.
+
+| Code | Usually means | Resolve |
+| --- | --- | --- |
+| `GITHUB_USER_NOT_FOUND` | the user's `github_id` in D1 is wrong | fix `github_id`, then retry |
+| `GITHUB_FORBIDDEN` | the GitHub App lacks a permission | fix the app, then retry |
+| `GITHUB_RATE_LIMITED` | too many requests | retry after a few minutes |
+| `GITHUB_VALIDATION_FAILED` | GitHub rejected it (e.g. no free seats) | fix in GitHub by hand |
+| `GITHUB_UNAVAILABLE` | GitHub or network outage | retry |
+| `GITHUB_ERROR` | anything else | see the message |
+
+Bad app credentials (401) abort the sync instead, since every call would fail.
+
+To resolve automatically, pass the error to `retrySyncError(error)`. It re-syncs the error's team
+(re-reading D1) and returns `{ resolved, report }`; `resolved` is true when that change went through
+or is no longer needed. To resolve manually, fix it in GitHub; the next sync (or a retry) confirms it.
 
 Setup: an org owner creates a GitHub App owned by the org (org Settings → Developer settings →
 GitHub Apps) with **Organization → Members** and **Repository → Administration** set to read and

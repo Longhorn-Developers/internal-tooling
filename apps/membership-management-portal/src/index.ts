@@ -5,9 +5,10 @@ import {
     syncAll,
     syncExecTeam,
     syncTeam,
+    retryError,
     unassignRepoFromTeam,
 } from './github/sync'
-import type { Env as SyncEnv, SyncReport } from './github/sync'
+import type { Env as SyncEnv, SyncError, SyncReport } from './github/sync'
 
 // GitHub App credentials are secrets (see README); GITHUB_ORG/GITHUB_EXEC_TEAM are wrangler vars.
 export class MembershipService extends WorkerEntrypoint<Env & SyncEnv> {
@@ -39,5 +40,13 @@ export class MembershipService extends WorkerEntrypoint<Env & SyncEnv> {
     /** Syncs every project team and the exec team, then flags orphaned repositories. */
     async syncGithub(): Promise<SyncReport> {
         return syncAll(this.env)
+    }
+
+    /**
+     * Retries a failed user change from a SyncReport's `errors` by re-syncing its team.
+     * `resolved` says whether that change went through (or is no longer needed) this time.
+     */
+    async retrySyncError(error: SyncError): Promise<{ resolved: boolean; report: SyncReport }> {
+        return retryError(this.env, error)
     }
 }

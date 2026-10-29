@@ -98,6 +98,9 @@ const NUTRITION_SHAPE = z
         fiber: z.number().nullable(),
         sugar: z.number().nullable(),
         sodium: z.number().nullable(),
+        // Set when the figure contradicts itself, e.g. more fat than the serving
+        // weighs. Anything totalling macros from here needs to see it.
+        warning: z.string().nullable(),
     })
     .nullable();
 
@@ -133,7 +136,10 @@ const SEARCH_OUTPUT = z.object({
             location: z.string(),
             station: z.string(),
             dietary: z.array(z.string()),
-            allergens: z.array(z.string()),
+            // Search never reads a label, so [] here would be indistinguishable
+            // from "checked, none". null says nobody checked.
+            allergens: z.array(z.string()).nullable(),
+            allergenSource: z.literal("menu-tags"),
             exact: z.boolean(),
         }),
     ),
@@ -157,7 +163,18 @@ const MENU_OUTPUT = z.object({
     location: z.string(),
     date: z.string(),
     lastCached: z.string(),
-    nutritionCoverage: z.object({ withNutrition: z.number(), items: z.number() }),
+    // withNutrition/items count the rows in `meals` below. The distinct figures
+    // count recipe references, which is what the label budget is spent on; one
+    // recipe can appear at several stations.
+    nutritionCoverage: z.object({
+        withNutrition: z.number(),
+        items: z.number(),
+        distinctWithNutrition: z.number(),
+        distinctItems: z.number(),
+    }),
+    // Items held back because their allergens could not be verified. They are not
+    // in `meals`, so count > 0 means this is not the full menu.
+    withheld: z.object({ count: z.number(), of: z.number() }),
     meals: z.array(
         z.object({
             meal: z.string(),
@@ -326,7 +343,13 @@ export function registerDiningTools(server: McpServer): void {
                             location: menu.location,
                             date: mdy,
                             lastCached: menu.lastCached,
-                            nutritionCoverage: { withNutrition: 0, items: 0 },
+                            nutritionCoverage: {
+                                withNutrition: 0,
+                                items: 0,
+                                distinctWithNutrition: 0,
+                                distinctItems: 0,
+                            },
+                            withheld: { count: 0, of: 0 },
                             meals: [],
                         },
                     };
@@ -446,7 +469,13 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     location: menu.location,
                     date: mdy,
                     lastCached: menu.lastCached,
-                    nutritionCoverage: { withNutrition: covered, items: total },
+                    nutritionCoverage: {
+                        withNutrition: coveredRows,
+                        items: shownItems.length,
+                        distinctWithNutrition: covered,
+                        distinctItems: total,
+                    },
+                    withheld: { count: withheld, of: shownItems.length + withheld },
                     meals: meals.map((entry) => ({
                         meal: entry.meal,
                         sections: entry.sections.map((section) => ({
@@ -474,6 +503,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                           fiber: item.nutrition.fiber ?? null,
                                           sugar: item.nutrition.sugar ?? null,
                                           sodium: item.nutrition.sodium ?? null,
+                                          // The text line says this too, but a client
+                                          // totalling from here would never see that.
+                                          warning: implausible(item.nutrition) ?? null,
                                       }
                                     : null,
                             })),
@@ -750,7 +782,10 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 }
                 // Whole-word matches first; searchMenuItems already put today first.
                 hits.sort((x, y) => x.tier - y.tier);
-                const loose = hits.filter((h) => h.tier === 2).length;
+                // Count only the rows that survive the cap. Loose matches sort last,
+                // so a query with MAX_ROWS exact hits shows none of them, and saying
+                // otherwise points at rows that are not in the response.
+                const loose = hits.slice(0, MAX_ROWS).filter((h) => h.tier === 2).length;
                 const body = cap(hits, MAX_ROWS, (hit) => {
                     const allergenList = allergens(hit.item.legends);
                     const notes = [
@@ -767,11 +802,13 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 return textWith(
                     `${hits.length} match(es) for "${query}", today first:\n\n${body}\n\n` +
                         (loose
-                            ? `${loose} of these are marked [loose]: the query appears inside a ` +
-                              `longer word rather than as a word of its own. Treat them as weak matches.
-`
+                            ? `${loose} of the rows shown are marked [loose]: the query appears inside ` +
+                              `a longer word rather than as a word of its own. Treat them as weak matches.\n\n`
                             : "") +
                         `Menu data cached by UT at ${lastCached}. ` +
+                        "Allergens here come from the menu tags only, which miss allergens the label " +
+                        "declares; no allergen list means the tags named none, which is unknown rather " +
+                        "than allergen-free. " +
                         "For nutrition, call menu_item_nutrition with an item reference, or get_dining_menu for a meal.",
                     {
                         query,
@@ -789,7 +826,10 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                             location: hit.location,
                             station: hit.section,
                             dietary: dietTags(hit.item.legends),
-                            allergens: allergens(hit.item.legends),
+                            allergens: allergens(hit.item.legends).length
+                                ? allergens(hit.item.legends)
+                                : null,
+                            allergenSource: "menu-tags" as const,
                             exact: hit.tier === 1,
                         })),
                     },

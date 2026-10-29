@@ -81,6 +81,43 @@ describe("implausible nutrition", () => {
         expect(implausible({ servingSize: "85 g", fat: 90, calories: 897 })).toMatch(/fat/);
     });
 
+    // A serving with no weight -- UT prints a bare "Serving size" on every cake
+    // -- left both weight rules blind, so a 140 cal dessert carrying 22.1 g of
+    // fat (199 cal of fat on its own) went out unflagged.
+    it.each([
+        [{ servingSize: "Serving size", calories: 140, fat: 22.1 }, true],
+        [{ servingSize: "Serving size", calories: 0, fat: 3.9 }, true],
+        [{ calories: 18, fat: 4.5 }, true],
+        // Legitimate, and within the rounding UT prints at.
+        [{ servingSize: "Serving size", calories: 100, fat: 11 }, false],
+        [{ servingSize: "1 each", calories: 897, fat: 89.7 }, false],
+        // Fat under a gram cannot say anything about a small calorie figure.
+        [{ servingSize: "Serving size", calories: 1, fat: 0.5 }, false],
+    ])("weighs fat against the calorie figure: %j", (macros, flagged) => {
+        const verdict = implausible(macros);
+        if (flagged) expect(verdict).toMatch(/calorie figure/);
+        else expect(verdict).toBeUndefined();
+    });
+
+    // The panel's own macros imply a calorie figure. Parslied Noodles prints 18
+    // calories over 7.3g protein, 40.8g carbs and 4.5g fat, which is 233, and
+    // no weight rule can see it because "4 oz" makes that serving look fine.
+    it.each([
+        [{ servingSize: "4 oz", calories: 18, protein: 7.3, carbs: 40.8, fat: 4.5 }, true],
+        [{ servingSize: "1 each", calories: 172, protein: 4, carbs: 8, fat: 3 }, true],
+        // Printed higher than the macros allow is just as wrong as lower.
+        [{ servingSize: "1 each", calories: 120, protein: 2, carbs: 8, fat: 0.5 }, true],
+        // Ordinary labels, including ones where rounding leaves a small gap.
+        [{ servingSize: "4 oz", calories: 200, protein: 10, carbs: 20, fat: 8 }, false],
+        [{ servingSize: "1 each", calories: 897, protein: 22.4, carbs: 0, fat: 89.7 }, false],
+        // A small absolute gap on a small figure is rounding, not a defect.
+        [{ servingSize: "1 each", calories: 60, protein: 1, carbs: 2, fat: 4 }, false],
+    ])("checks the macros against the calorie figure: %j", (macros, flagged) => {
+        const verdict = implausible(macros);
+        if (flagged) expect(verdict).toBeDefined();
+        else expect(verdict).toBeUndefined();
+    });
+
     it("flags more calories than pure fat of that weight", () => {
         expect(implausible({ servingSize: "1 oz", calories: 400 })).toMatch(/calories/);
     });

@@ -80,13 +80,27 @@ const CODES = Object.entries(DIET_LEGENDS)
     .map(([code, label]) => `${code} (${label})`)
     .join(", ");
 
-/** The six categories UT groups locations under. */
+/**
+ * What UT groups locations under. The hours feed and the housing site disagree
+ * -- the feed says Markets where the site says convenience-stores -- and the
+ * feed wins, because it is what dining_hours prints and a category a caller was
+ * just shown has to be one they can ask for. A test holds this list to what
+ * list_dining_locations can actually return.
+ */
+export const CATEGORY_LIST = [
+    "Dining Halls",
+    "Restaurants",
+    "Coffee Shops",
+    "Markets",
+    "Food Trucks",
+    "Convenience Stores",
+] as const;
+
 const AVOID_KEYS = Object.entries(AVOID_INGREDIENTS)
     .map(([key, v]) => `${key} (${v.label})`)
     .join(", ");
 
-const CATEGORIES =
-    "Dining Halls, Restaurants, Coffee Shops, Markets, Food Trucks, Convenience Stores";
+const CATEGORIES = CATEGORY_LIST.join(", ");
 
 const NUTRITION_SHAPE = z
     .object({
@@ -154,7 +168,10 @@ const LOCATIONS_OUTPUT = z.object({
             address: z.string().nullable(),
             latitude: z.number().nullable(),
             longitude: z.number().nullable(),
-            payment: z.array(z.string()),
+            // null, not [], when nobody looked: the detail page that carries
+            // payment methods is only fetched for a named location, and []
+            // reads as "accepts no payment methods".
+            payment: z.array(z.string()).nullable(),
         }),
     ),
 });
@@ -207,8 +224,11 @@ export function registerDiningTools(server: McpServer): void {
         {
             title: "Get dining menu",
             description:
-                "Get a UT Austin dining hall menu for one day and meal, with per-serving nutrition for every item: " +
-                "calories, protein, carbs, fat, fiber and sodium, plus allergens and dietary tags. " +
+                "Get a UT Austin dining hall menu for one day and meal, with per-serving nutrition: " +
+                "calories, protein, carbs, fat, fiber, sugar and sodium, plus allergens and dietary tags. " +
+                "UT publishes nutrition one item at a time, so a call reads at most 36 of them: a whole " +
+                "lunch or dinner usually comes back with nutrition on about a third of its items. Pass " +
+                "station to get every item covered, and the reply lists the stations it saw. " +
                 "Built for meal planning: one call returns what is needed to assemble meals against calorie or " +
                 "macro targets and dietary restrictions. Menus cover the current week only, and only the dining " +
                 "halls (J2, Kins, JCL). Prefer the structured output when totalling macros. " +
@@ -323,6 +343,11 @@ export function registerDiningTools(server: McpServer): void {
                         station ? `at station "${station}"` : "",
                         want.length ? `tagged ${want.join(", ")}` : "",
                         avoid.length ? `without ${avoid.join(", ")}` : "",
+                        skip.length
+                            ? `avoiding ${skip
+                                  .map((key) => AVOID_INGREDIENTS[key]?.label ?? key)
+                                  .join(", ")}`
+                            : "",
                     ]
                         .filter(Boolean)
                         .join(" ");
@@ -401,16 +426,31 @@ export function registerDiningTools(server: McpServer): void {
                               n.protein !== undefined ? `P ${n.protein}g` : "",
                               n.carbs !== undefined ? `C ${n.carbs}g` : "",
                               n.fat !== undefined ? `F ${n.fat}g` : "",
-                              n.fiber ? `fib ${n.fiber}g` : "",
-                              n.sodium ? `Na ${Math.round(n.sodium)}mg` : "",
+                              n.fiber !== undefined ? `fib ${n.fiber}g` : "",
+                              n.sugar !== undefined ? `sug ${n.sugar}g` : "",
+                              n.sodium !== undefined ? `Na ${Math.round(n.sodium)}mg` : "",
                           ]
                               .filter(Boolean)
                               .join(" ")
                         : "nutrition unavailable";
                     const allergenList = mergedAllergens(item);
+                    // Past the label budget there is nothing behind an item but the
+                    // menu tags, and 35 of this week's recipes carry none at all.
+                    // Printing nothing there put a cake whose label reads "Milk,
+                    // Eggs, Tree Nuts, Wheat, Soybeans" on the page looking exactly
+                    // like a dish with no allergens, in a list where every other row
+                    // says what it contains. The structured copy has said "unknown"
+                    // all along; this is the same distinction in the prose.
                     const notes = [
                         ...dietTags(item.legends),
-                        ...(allergenList.length ? [`contains ${allergenList.join("/")}`] : []),
+                        ...(allergenList.length
+                            ? [
+                                  `contains ${allergenList.join("/")}` +
+                                      (item.labelChecked ? "" : " (menu tags only)"),
+                              ]
+                            : item.labelChecked
+                              ? []
+                              : ["allergens unchecked"]),
                     ].join(", ");
                     const ref = item.serving ? `${item.number}*${item.serving}` : item.number;
                     // serving is a multiplier on the recipe's base portion, so "(3)"
@@ -450,6 +490,16 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                               .join(", ")
                         : "";
 
+                // Rows nobody read a label for. Their allergens come from the menu
+                // tags, which miss things, so neither a short list nor an empty one
+                // on those rows can be read as the whole story.
+                const uncheckedRows = shownItems.filter((item) => !item.labelChecked).length;
+                const unchecked = uncheckedRows
+                    ? `\n${uncheckedRows} of the ${shownItems.length} items listed are marked "menu tags only" or ` +
+                      `"allergens unchecked": UT's labels could not all be read in one request, and the tags ` +
+                      `alone miss allergens the label declares. Do not read those rows as allergen-free. ` +
+                      `Ask for one meal or station, or call menu_item_nutrition for an item.`
+                    : "";
                 const considered = shownItems.length + withheld + caughtByLabel;
                 const lead = withheld
                     ? `WITHHELD: ${withheld} of ${considered} items are not listed ` +
@@ -473,7 +523,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                     .join("\n"),
                         )
                         .join("\n\n") +
-                    `\n\nFigures are per serving; the size in brackets is what the label prints. Menu data cached by UT at ${menu.lastCached}.${coverage}${caught}${unverified}`;
+                    `\n\nFigures are per serving; the size in brackets is what the label prints. Menu data cached by UT at ${menu.lastCached}.${unchecked}${coverage}${caught}${unverified}`;
 
                 const structuredContent = {
                     location: menu.location,
@@ -499,9 +549,16 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                 name: item.name,
                                 serving: item.serving ?? null,
                                 dietary: dietTags(item.legends),
-                                // null, not [], when nobody read the label: an empty list there is
-                                // unknown, and [] reads as a positive claim of allergen-free.
-                                allergens: item.labelChecked ? mergedAllergens(item) : null,
+                                // null, not [], when nothing is known: an empty list reads
+                                // as a positive claim of allergen-free. Tags without a
+                                // label are still worth reporting though -- the text
+                                // line prints them -- and allergenSource says which
+                                // this is, so only a genuinely empty list becomes null.
+                                allergens: item.labelChecked
+                                    ? mergedAllergens(item)
+                                    : allergens(item.legends).length
+                                      ? allergens(item.legends)
+                                      : null,
                                 // Both sources miss things the other catches, so
                                 // the list is the union. "menu-tags" means nobody
                                 // read the label, and an empty list there is
@@ -538,7 +595,8 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
             title: "Dining hours",
             description:
                 "Get UT Austin dining hours, including which locations are open right now in Austin time and when " +
-                "they close. Defaults to today. Handles special schedules such as finals, breaks and holidays.",
+                "they close. Defaults to today, and to noon for any other date unless at says otherwise. " +
+                "Handles special schedules such as finals, breaks and holidays.",
             outputSchema: HOURS_OUTPUT,
             inputSchema: z.object({
                 date: z
@@ -698,7 +756,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                             address: row.address ?? null,
                             latitude: row.lat ?? null,
                             longitude: row.lon ?? null,
-                            payment: row.payment ?? [],
+                            payment: row.payment ?? null,
                         })),
                     },
                 );
@@ -741,7 +799,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         address: row.address ?? null,
                         latitude: row.lat ?? null,
                         longitude: row.lon ?? null,
-                        payment: row.payment ?? [],
+                        payment: row.payment ?? null,
                     })),
                 },
             );
@@ -794,8 +852,13 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         { query, matched: 0, shown: 0, lastCached: "", hits: [] },
                     );
                 }
-                // Whole-word matches first; searchMenuItems already put today first.
-                hits.sort((x, y) => x.tier - y.tier);
+                // Today first, then whole-word matches, because that is the order the
+                // header claims and the question is usually about today. Sorting on
+                // tier alone buried today's two rows under four days of future ones
+                // under a header that said "today first".
+                hits.sort(
+                    (x, y) => Number(y.isToday) - Number(x.isToday) || x.tier - y.tier,
+                );
                 // Count only the rows that survive the cap. Loose matches sort last,
                 // so a query with MAX_ROWS exact hits shows none of them, and saying
                 // otherwise points at rows that are not in the response.

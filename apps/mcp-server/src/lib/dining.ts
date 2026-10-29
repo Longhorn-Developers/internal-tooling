@@ -353,6 +353,12 @@ export function getLocations(): Promise<DiningLocation[]> {
                 const blurb = card.match(
                     /field--name-field-uhd-dl-short-desc[\s\S]*?<div class="field__item[^"]*">([\s\S]*?)<\/div>/,
                 )?.[1];
+                // Cypress Bend Cafe and Littlefield Patio Cafe are on both the
+                // Restaurants and the Coffee Shops page, and Restaurants is walked
+                // first, which is also how the hours feed categorises them. A plain
+                // set here let the second page relabel them and they stopped coming
+                // back under Restaurants at all.
+                if (found.has(norm(name))) continue;
                 found.set(norm(name), {
                     name,
                     category,
@@ -367,7 +373,13 @@ export function getLocations(): Promise<DiningLocation[]> {
         for (const loc of period.locations) {
             const key = norm(loc.name);
             const hit = found.get(key);
-            if (hit) hit.category = hit.category || loc.category;
+            // The feed is what dining_hours prints, so it has to be what
+            // list_dining_locations answers to. The housing site files Jester
+            // City Market and Kin's Market under convenience-stores while the
+            // feed calls them Markets, and keeping the housing value meant
+            // asking for a category the other tool had just shown you came back
+            // "no locations in that category".
+            if (hit) hit.category = loc.category || hit.category;
             else found.set(key, { name: loc.name, category: loc.category });
         }
 
@@ -387,7 +399,22 @@ export function getLocations(): Promise<DiningLocation[]> {
 export async function getLocationDetail(name: string): Promise<DiningLocation | null> {
     const locs = await getLocations();
     const q = norm(name);
-    const loc = locs.find((l) => norm(l.name) === q) ?? locs.find((l) => norm(l.name).includes(q));
+    // The hours feed and the housing pages spell some places differently --
+    // "Tower Burger" against "Tower Burgers and Fries", "Prufrock's" against
+    // "Prufrock's Coffee" -- so both end up in the list, and only the housing
+    // one has a detail page behind it. The feed spelling is the one dining_hours
+    // prints, so looking a place up by the name you were just shown used to
+    // return coordinates and nothing else. Among equally good name matches,
+    // prefer the row that can actually be filled in.
+    const byName = [
+        locs.filter((l) => norm(l.name) === q),
+        locs.filter((l) => norm(l.name).startsWith(q) || q.startsWith(norm(l.name))),
+        locs.filter((l) => norm(l.name).includes(q)),
+    ];
+    // A row with a slug can be filled in; one without is all there will ever be.
+    // Exact-but-empty used to win outright, which is the case that matters here:
+    // "Tower Burger" is exactly the feed's spelling and exactly the stub.
+    const loc = byName.flatMap((list) => list.filter((l) => l.slug))[0] ?? byName.flat()[0];
     if (!loc) return null;
     if (!loc.slug) return loc;
 
@@ -596,6 +623,36 @@ export const implausible = (m: Macros): string | undefined => {
         const g = m.servingSize?.match(/([\d.]+)\s*g\b/i);
         return g ? Number(g[1]) : undefined;
     })();
+    // Fat alone cannot supply more energy than the label's own calorie figure.
+    // This needs no serving weight, so it reaches the labels the weight rule
+    // cannot see: seven references this week print a dessert at 140 calories
+    // with 22 g of fat, which is 199 calories of fat. The margin leaves room
+    // for the rounding UT prints at; at 1.15 it fires on those seven and on
+    // nothing else across the 1039 labels that parse.
+    if (
+        m.fat !== undefined &&
+        m.fat > 1 &&
+        m.calories !== undefined &&
+        m.fat * 9 > m.calories * 1.15
+    )
+        return "more fat than the calorie figure allows";
+    // The panel's own protein, carbs and fat imply a calorie figure. When that
+    // disagrees with the printed one by more than rounding can explain, one of
+    // the two is wrong, and this needs no serving weight either. Parslied
+    // Noodles prints 18 calories over 7.3 g protein, 40.8 g carbs and 4.5 g fat,
+    // which is 233. Across the 1039 labels that parse it fires on eight, and on
+    // the same eight at a 40% tolerance, so it is not sitting on a knife edge.
+    if (
+        m.protein !== undefined &&
+        m.carbs !== undefined &&
+        m.fat !== undefined &&
+        m.calories !== undefined
+    ) {
+        const implied = 4 * m.protein + 4 * m.carbs + 9 * m.fat;
+        const gap = Math.abs(implied - m.calories);
+        if (gap > 50 && gap / Math.max(m.calories, 1) > 0.3)
+            return `its own protein, carbs and fat come to ${Math.round(implied)} cal, not ${m.calories}`;
+    }
     if (!grams || !Number.isFinite(grams) || grams <= 0) return undefined;
     if (m.fat !== undefined && m.fat > grams) return "more fat than the serving weighs";
     if (m.calories !== undefined && m.calories / grams > 9.5)

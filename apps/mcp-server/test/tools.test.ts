@@ -302,6 +302,7 @@ describe("gaps found in review", () => {
             number: "211004",
             name: '6" Flour Tortilla',
             legends: ["SOY", "WHT", "VGN"],
+            avoid: [],
             labelAllergens: ["Wheat"],
             labelChecked: true,
         });
@@ -329,6 +330,7 @@ describe("gaps found in review", () => {
                 number: "1",
                 name: "x",
                 legends,
+                avoid: [],
                 labelAllergens,
                 labelChecked: true,
             }),

@@ -1,0 +1,1157 @@
+import type { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
+
+import {
+    AVOID_INGREDIENTS,
+    DIET_LEGENDS,
+    allergens,
+    austinNow,
+    dietTags,
+    getLocationDetail,
+    getLocations,
+    getMenu,
+    getMenuWindow,
+    getNutrition,
+    implausible,
+    macrosFromLabel,
+    recipeLegends,
+    requireLocation,
+    spellCode,
+    splitAllergens,
+    isAllergenCode,
+    hoursForDate,
+    labelHasAllergen,
+    matchesLocation,
+    mergedAllergens,
+    parseDate,
+    searchMenuItems,
+    statusAt,
+    withNutrition,
+    type MenuItem,
+} from "../lib/dining";
+
+const MAX_ROWS = 60;
+
+/** A code that isn't recognised would silently filter nothing, so reject it. */
+const codes = (list: string[] | undefined, field: string) => {
+    const out = (list ?? []).map((code) => code.trim().toUpperCase());
+    const bad = out.filter((code) => !DIET_LEGENDS[code]);
+    if (bad.length) {
+        throw new Error(
+            `Unknown ${field} code(s): ${bad.join(", ")}. Valid codes are ` +
+                `${Object.entries(DIET_LEGENDS)
+                    .map(([code, label]) => `${code} (${label})`)
+                    .join(", ")}.`,
+        );
+    }
+    return out;
+};
+
+const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });
+
+/** Text plus the same answer as data, for clients that would rather not parse prose. */
+const textWith = <T>(body: string, structuredContent: T) => ({
+    content: [{ type: "text" as const, text: body }],
+    structuredContent,
+});
+
+/** Tool handlers answer with a readable message instead of throwing at the client. */
+const guard =
+    <A>(
+        run: (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>,
+    ) =>
+    async (args: A) => {
+        try {
+            return await run(args);
+        } catch (error) {
+            return {
+                content: [{ type: "text" as const, text: (error as Error).message }],
+                isError: true,
+            };
+        }
+    };
+
+function cap<T>(rows: T[], limit: number, render: (row: T) => string): string {
+    const shown = rows.slice(0, limit).map(render).join("\n");
+    return rows.length > limit
+        ? `${shown}\n\n(${rows.length - limit} of ${rows.length} not shown; narrow the search)`
+        : shown;
+}
+
+const minutes = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}h ${n % 60}m` : `${n}m`);
+
+const CODES = Object.entries(DIET_LEGENDS)
+    .map(([code, label]) => `${code} (${label})`)
+    .join(", ");
+
+/**
+ * What UT groups locations under. The hours feed and the housing site disagree
+ * -- the feed says Markets where the site says convenience-stores -- and the
+ * feed wins, because it is what dining_hours prints and a category a caller was
+ * just shown has to be one they can ask for. A test holds this list to what
+ * list_dining_locations can actually return.
+ */
+export const CATEGORY_LIST = [
+    "Dining Halls",
+    "Restaurants",
+    "Coffee Shops",
+    "Markets",
+    "Food Trucks",
+] as const;
+
+const AVOID_KEYS = Object.entries(AVOID_INGREDIENTS)
+    .map(([key, v]) => `${key} (${v.label})`)
+    .join(", ");
+
+const CATEGORIES = CATEGORY_LIST.join(", ");
+
+const NUTRITION_SHAPE = z
+    .object({
+        servingSize: z.string().nullable(),
+        calories: z.number().nullable(),
+        protein: z.number().nullable(),
+        carbs: z.number().nullable(),
+        fat: z.number().nullable(),
+        fiber: z.number().nullable(),
+        sugar: z.number().nullable(),
+        sodium: z.number().nullable(),
+        // Set when the figure contradicts itself, e.g. more fat than the serving
+        // weighs. Anything totalling macros from here needs to see it.
+        warning: z.string().nullable(),
+    })
+    .nullable();
+
+const HOURS_OUTPUT = z.object({
+    date: z.string(),
+    at: z.string(),
+    timezone: z.string(),
+    schedule: z.string(),
+    locations: z.array(
+        z.object({
+            name: z.string(),
+            category: z.string(),
+            hours: z.string(),
+            open: z.boolean(),
+            minutesToClose: z.number().nullable(),
+            minutesToOpen: z.number().nullable(),
+        }),
+    ),
+});
+
+const SEARCH_OUTPUT = z.object({
+    query: z.string(),
+    matched: z.number(),
+    shown: z.number(),
+    lastCached: z.string(),
+    hits: z.array(
+        z.object({
+            id: z.string(),
+            name: z.string(),
+            date: z.string(),
+            isToday: z.boolean(),
+            meal: z.string(),
+            location: z.string(),
+            station: z.string(),
+            dietary: z.array(z.string()),
+            // Search never reads a label, so [] here would be indistinguishable
+            // from "checked, none". null says nobody checked.
+            allergens: z.array(z.string()).nullable(),
+            allergenSource: z.literal("menu-tags"),
+            exact: z.boolean(),
+        }),
+    ),
+});
+
+const LOCATIONS_OUTPUT = z.object({
+    locations: z.array(
+        z.object({
+            name: z.string(),
+            category: z.string(),
+            building: z.string().nullable(),
+            address: z.string().nullable(),
+            latitude: z.number().nullable(),
+            longitude: z.number().nullable(),
+            // null, not [], when nobody looked: the detail page that carries
+            // payment methods is only fetched for a named location, and []
+            // reads as "accepts no payment methods".
+            payment: z.array(z.string()).nullable(),
+        }),
+    ),
+});
+
+const MENU_OUTPUT = z.object({
+    location: z.string(),
+    date: z.string(),
+    lastCached: z.string(),
+    // All four figures describe the rows in `meals` below and nothing else.
+    // withNutrition/items count rows; the distinct pair counts recipe references
+    // among those same rows, since one recipe can appear at several stations and
+    // the label budget is spent per reference.
+    nutritionCoverage: z.object({
+        withNutrition: z.number(),
+        items: z.number(),
+        distinctWithNutrition: z.number(),
+        distinctItems: z.number(),
+    }),
+    // Items that were on the menu and are not in `meals`: `count` could not be
+    // cleared because their label went unread, `droppedByLabel` were dropped
+    // because their label named an excluded allergen. `of` is everything that was
+    // considered, so count > 0 means this is not the full menu.
+    withheld: z.object({ count: z.number(), droppedByLabel: z.number(), of: z.number() }),
+    meals: z.array(
+        z.object({
+            meal: z.string(),
+            sections: z.array(
+                z.object({
+                    station: z.string(),
+                    items: z.array(
+                        z.object({
+                            id: z.string(),
+                            name: z.string(),
+                            serving: z.string().nullable(),
+                            dietary: z.array(z.string()),
+                            allergens: z.array(z.string()).nullable(),
+                            allergenSource: z.enum(["label+menu-tags", "menu-tags"]),
+                            // False when UT published no ingredient statement, so an
+                            // `avoid` preference could not be applied to this item.
+                            // It is kept rather than dropped, because unknown is not
+                            // the same as clear.
+                            ingredientsKnown: z.boolean(),
+                            nutrition: NUTRITION_SHAPE,
+                        }),
+                    ),
+                }),
+            ),
+        }),
+    ),
+});
+
+export function registerDiningTools(server: McpServer): void {
+    server.registerTool(
+        "get_dining_menu",
+        {
+            title: "Get dining menu",
+            description:
+                "Get a UT Austin dining hall menu for one day and meal, with per-serving nutrition: " +
+                "calories, protein, carbs, fat, fiber, sugar and sodium, plus allergens and dietary tags. " +
+                "UT publishes nutrition one item at a time, so a call reads at most 36 of them: a whole " +
+                "lunch or dinner usually comes back with nutrition on about a third of its items. Pass " +
+                "station to get every item covered, and the reply lists the stations it saw. " +
+                "Built for meal planning: one call returns what is needed to assemble meals against calorie or " +
+                "macro targets and dietary restrictions. Menus cover the current week only, and only the dining " +
+                "halls (J2, Kins, JCL). Prefer the structured output when totalling macros. " +
+                "Each line ends with a reference like #081906*3, which is the recipe and its serving. " +
+                "Pass it to menu_item_nutrition for an item this call could not cover, or for the " +
+                "ingredient statement. Keep the serving: the same recipe is different nutrition at a " +
+                "different portion. It is for calling the other tools, not for showing to the person " +
+                "asking, who wants the dish name.",
+            inputSchema: z
+                .object({
+                    location: z.string().describe('Dining hall: "J2", "Kins" or "JCL"'),
+                    date: z
+                        .string()
+                        .optional()
+                        .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
+                    meal: z
+                        .string()
+                        .optional()
+                        .describe('"Breakfast", "Lunch" or "Dinner". Omit for all three.'),
+                    diet: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items carrying every one of these. Usually a dietary tag: ` +
+                                `VGN (Vegan), VGT (Vegetarian), HAL (Halal Friendly). All codes: ${CODES}`,
+                        ),
+                    exclude: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items carrying any of these, for allergies and restrictions, ` +
+                                `e.g. ["PNTS","NTS"] for a nut allergy. All codes: ${CODES}`,
+                        ),
+                    avoid: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items whose ingredient list contains one of these. Preference, not ` +
+                                `allergy -- use exclude for allergens, which reads the label. One of: ` +
+                                `${AVOID_KEYS}.`,
+                        ),
+                    station: z
+                        .string()
+                        .optional()
+                        .describe(
+                            'Only this serving station, e.g. "Garden Bar" or "Comfort Table". ' +
+                                "A station is small enough that every item comes back with nutrition.",
+                        ),
+                })
+                // Strict for the same reason search_menu_items is, and this is
+                // the tool that reads labels for allergies: `excludes` instead
+                // of `exclude` was stripped before the handler saw it and
+                // returned the unfiltered menu, six tree-nut items included,
+                // with withheld.count 0 and no hedge anywhere.
+                .strict(),
+            outputSchema: MENU_OUTPUT,
+        },
+        guard(
+            async ({
+                location,
+                date,
+                meal,
+                diet,
+                exclude,
+                avoid: avoidIngredients,
+                station,
+            }: {
+                location: string;
+                date?: string;
+                meal?: string;
+                diet?: string[];
+                exclude?: string[];
+                avoid?: string[];
+                station?: string;
+            }) => {
+                requireLocation(location);
+                const mdy = parseDate(date);
+
+                // An unrecognised code must never pass silently: a dietary
+                // restriction that fails open hands someone an allergen.
+                const want = codes(diet, "diet");
+                const avoid = codes(exclude, "exclude");
+
+                // Preference, not safety: these come from the feed's ingredient text, which
+                // is not the allergen label. An unknown key is rejected the same way a bad
+                // diet code is, so a filter never silently does nothing.
+                const unknownAvoid = (avoidIngredients ?? []).filter((k) => !AVOID_INGREDIENTS[k]);
+                if (unknownAvoid.length) {
+                    throw new Error(
+                        `Unknown avoid key(s): ${unknownAvoid.join(", ")}. Valid keys are ${AVOID_KEYS}.`,
+                    );
+                }
+                const skip = avoidIngredients ?? [];
+
+                const menu = await getMenu(location, mdy, meal);
+                const keep = (item: MenuItem) =>
+                    (!want.length || want.every((tag) => item.legends.includes(tag))) &&
+                    (!avoid.length || !avoid.some((tag) => item.legends.includes(tag))) &&
+                    (!skip.length || !skip.some((k) => item.avoid.includes(k)));
+
+                let meals = menu.meals
+                    .map((entry) => ({
+                        meal: entry.meal,
+                        sections: entry.sections
+                            .filter(
+                                (section) =>
+                                    !station?.trim() ||
+                                    section.section
+                                        .toLowerCase()
+                                        .includes(station.trim().toLowerCase()),
+                            )
+                            .map((section) => ({ ...section, items: section.items.filter(keep) }))
+                            .filter((section) => section.items.length),
+                    }))
+                    .filter((entry) => entry.sections.length);
+
+                if (!meals.length) {
+                    const why = [
+                        meal ? `for ${meal}` : "",
+                        station ? `at station "${station}"` : "",
+                        // Spelled out, as every other line of output is: the
+                        // codes are the caller's input, not a reply.
+                        want.length ? `tagged ${want.map(spellCode).join(", ")}` : "",
+                        avoid.length ? `without ${avoid.map(spellCode).join(", ")}` : "",
+                        skip.length
+                            ? `avoiding ${skip
+                                  .map((key) => AVOID_INGREDIENTS[key]?.label ?? key)
+                                  .join(", ")}`
+                            : "",
+                    ]
+                        .filter(Boolean)
+                        .join(" ");
+                    const served = meal
+                        ? (await getMenu(location, mdy)).meals
+                              .filter((entry) => entry.sections.some((s) => s.items.length))
+                              .map((entry) => entry.meal)
+                        : [];
+                    // An empty result still has to satisfy outputSchema, or the
+                    // client rejects the whole response instead of showing this.
+                    return {
+                        content: [
+                            {
+                                type: "text" as const,
+                                text:
+                                    `Nothing at ${menu.location} on ${mdy} ${why || "matched"}.` +
+                                    (served.length
+                                        ? ` Meals served that day: ${served.join(", ")}.`
+                                        : ""),
+                            },
+                        ],
+                        structuredContent: {
+                            location: menu.location,
+                            date: mdy,
+                            lastCached: menu.lastCached,
+                            nutritionCoverage: {
+                                withNutrition: 0,
+                                items: 0,
+                                distinctWithNutrition: 0,
+                                distinctItems: 0,
+                            },
+                            withheld: { count: 0, droppedByLabel: 0, of: 0 },
+                            meals: [],
+                        },
+                    };
+                }
+
+                // Only now, once filters have cut the list, spend the label budget.
+                const shown = meals.flatMap((entry) =>
+                    entry.sections.flatMap((section) => section.items),
+                );
+                await withNutrition(shown);
+
+                // Menu tags under-report: 450257 is tagged vegan with wheat and
+                // soy, but its label also lists tree nuts. Now that the labels
+                // are here, drop anything they reveal.
+                //
+                // An item whose label went unread has nothing behind it but the
+                // tags, and 35 of this week's recipes carry none at all. Chocolate
+                // Pistacio Cloud Cake is untagged and its label lists peanuts, so
+                // unverified items are held back rather than shown as safe.
+                let caughtByLabel = 0;
+                let withheld = 0;
+                // Only allergens need the label. Excluding VGT is a menu-tag
+                // question and already settled, so it shouldn't withhold anything.
+                const needsLabel = avoid.filter(isAllergenCode);
+                if (needsLabel.length) {
+                    for (const entry of meals) {
+                        for (const section of entry.sections) {
+                            const kept: MenuItem[] = [];
+                            for (const item of section.items) {
+                                if (needsLabel.some((code) => labelHasAllergen(item, code)))
+                                    caughtByLabel++;
+                                else if (!item.labelChecked) withheld++;
+                                else kept.push(item);
+                            }
+                            section.items = kept;
+                        }
+                        entry.sections = entry.sections.filter((section) => section.items.length);
+                    }
+                    // A meal with every item withheld is not a meal with no
+                    // food in it. The lead says how many were held back; an
+                    // empty heading under it says the opposite.
+                    meals = meals.filter((entry) => entry.sections.length);
+                }
+
+                const line = (item: MenuItem) => {
+                    const n = item.nutrition;
+                    const macro = n
+                        ? [
+                              n.calories !== undefined ? `${Math.round(n.calories)} cal` : "",
+                              n.protein !== undefined ? `P ${n.protein}g` : "",
+                              n.carbs !== undefined ? `C ${n.carbs}g` : "",
+                              n.fat !== undefined ? `F ${n.fat}g` : "",
+                              n.fiber !== undefined ? `fib ${n.fiber}g` : "",
+                              n.sugar !== undefined ? `sug ${n.sugar}g` : "",
+                              n.sodium !== undefined ? `Na ${Math.round(n.sodium)}mg` : "",
+                          ]
+                              .filter(Boolean)
+                              .join(" ")
+                        : "nutrition unavailable";
+                    const allergenList = mergedAllergens(item);
+                    // Past the label budget there is nothing behind an item but the
+                    // menu tags, and 35 of this week's recipes carry none at all.
+                    // Printing nothing there put a cake whose label reads "Milk,
+                    // Eggs, Tree Nuts, Wheat, Soybeans" on the page looking exactly
+                    // like a dish with no allergens, in a list where every other row
+                    // says what it contains. The structured copy has said "unknown"
+                    // all along; this is the same distinction in the prose.
+                    const notes = [
+                        ...dietTags(item.legends),
+                        // A preference can only speak for a recipe UT published
+                        // ingredients for. Two of this week's 997 have none at all.
+                        ...(skip.length && !item.ingredientsKnown
+                            ? ["ingredients unpublished, preference unchecked"]
+                            : []),
+                        ...(allergenList.length
+                            ? [
+                                  `contains ${allergenList.join("/")}` +
+                                      (item.labelChecked ? "" : " (menu tags only)"),
+                              ]
+                            : item.labelChecked
+                              ? []
+                              : ["allergens unchecked"]),
+                    ].join(", ");
+                    const ref = item.serving ? `${item.number}*${item.serving}` : item.number;
+                    // serving is a multiplier on the recipe's base portion, so "(3)"
+                    // means nothing on its own. The label prints "3 oz"; use that.
+                    const portion = n?.servingSize ?? (item.serving ? `${item.serving}x` : "");
+                    const odd = n ? implausible(n) : undefined;
+                    return `    ${item.name}${portion ? ` (${portion})` : ""} · ${macro}${notes ? ` · ${notes}` : ""}${odd ? ` · FIGURE LOOKS WRONG: ${odd}, treat as unverified` : ""} · #${ref}`;
+                };
+
+                // A warning under four thousand characters of menu is one nobody reads.
+                // Anything that withholds items belongs above them.
+                const shownItems = meals.flatMap((entry) =>
+                    entry.sections.flatMap((section) => section.items),
+                );
+                const coveredRows = shownItems.filter((item) => item.nutrition).length;
+                const refOf = (item: MenuItem) =>
+                    item.serving ? `${item.number}*${item.serving}` : item.number;
+                const total = new Set(shownItems.map(refOf)).size;
+                const covered = new Set(shownItems.filter((item) => item.nutrition).map(refOf))
+                    .size;
+                const caught = caughtByLabel
+                    ? `
+${caughtByLabel} item(s) were dropped because their label lists an allergen the menu tags omit.`
+                    : "";
+                const unverified = withheld
+                    ? `
+${withheld} item(s) are not listed: their labels could not all be read in one request, and the menu tags alone are not enough to call an item safe. Narrow by meal or station to have those checked too.`
+                    : "";
+                const coverage =
+                    coveredRows < shownItems.length
+                        ? `\nNutrition shown for ${coveredRows} of ${shownItems.length} items listed (${covered} of ${total} distinct recipes); UT publishes it one item at a time, ` +
+                          "so these are spread evenly across the meals and stations below rather " +
+                          "than being the first items of the day. Ranking by a nutrient over this " +
+                          "partial set will miss items. " +
+                          "Ask for a single station to get every item covered, or call " +
+                          "menu_item_nutrition for one item. Stations here: " +
+                          meals
+                              .flatMap((entry) => entry.sections.map((section) => section.section))
+                              .join(", ")
+                        : "";
+
+                // Rows nobody read a label for. Their allergens come from the menu
+                // tags, which miss things, so neither a short list nor an empty one
+                // on those rows can be read as the whole story.
+                const uncheckedRows = shownItems.filter((item) => !item.labelChecked).length;
+                const unchecked = uncheckedRows
+                    ? `\n${uncheckedRows} of the ${shownItems.length} items listed are marked "menu tags only" or ` +
+                      `"allergens unchecked": UT's labels could not all be read in one request, and the tags ` +
+                      `alone miss allergens the label declares. Do not read those rows as allergen-free. ` +
+                      `Ask for one meal or station, or call menu_item_nutrition for an item.`
+                    : "";
+                const considered = shownItems.length + withheld + caughtByLabel;
+                const lead = withheld
+                    ? `WITHHELD: ${withheld} of ${considered} items are not listed ` +
+                      `below. Their allergen labels could not all be read in one request, and the menu ` +
+                      `tags alone cannot clear them, so this is not the full menu. Ask for one meal or ` +
+                      `station to have the rest checked.\n\n`
+                    : "";
+                const body =
+                    lead +
+                    `${menu.location} — ${mdy}\n\n` +
+                    meals
+                        .map(
+                            (entry) =>
+                                `${entry.meal}\n` +
+                                entry.sections
+                                    .map(
+                                        (section) =>
+                                            `  ${section.section}\n` +
+                                            section.items.map(line).join("\n"),
+                                    )
+                                    .join("\n"),
+                        )
+                        .join("\n\n") +
+                    `\n\nFigures are per serving; the size in brackets is what the label prints. Menu data cached by UT at ${menu.lastCached}.${unchecked}${coverage}${caught}${unverified}`;
+
+                const structuredContent = {
+                    location: menu.location,
+                    date: mdy,
+                    lastCached: menu.lastCached,
+                    nutritionCoverage: {
+                        withNutrition: coveredRows,
+                        items: shownItems.length,
+                        distinctWithNutrition: covered,
+                        distinctItems: total,
+                    },
+                    withheld: {
+                        count: withheld,
+                        droppedByLabel: caughtByLabel,
+                        of: considered,
+                    },
+                    meals: meals.map((entry) => ({
+                        meal: entry.meal,
+                        sections: entry.sections.map((section) => ({
+                            station: section.section,
+                            items: section.items.map((item) => ({
+                                id: item.serving ? `${item.number}*${item.serving}` : item.number,
+                                name: item.name,
+                                serving: item.serving ?? null,
+                                dietary: dietTags(item.legends),
+                                // null, not [], when nothing is known: an empty list reads
+                                // as a positive claim of allergen-free. Tags without a
+                                // label are still worth reporting though -- the text
+                                // line prints them -- and allergenSource says which
+                                // this is, so only a genuinely empty list becomes null.
+                                allergens: item.labelChecked
+                                    ? mergedAllergens(item)
+                                    : allergens(item.legends).length
+                                      ? allergens(item.legends)
+                                      : null,
+                                // Both sources miss things the other catches, so
+                                // the list is the union. "menu-tags" means nobody
+                                // read the label, and an empty list there is
+                                // unknown rather than allergen-free.
+                                allergenSource: item.labelChecked ? "label+menu-tags" : "menu-tags",
+                                ingredientsKnown: item.ingredientsKnown ?? false,
+                                nutrition: item.nutrition
+                                    ? {
+                                          servingSize: item.nutrition.servingSize ?? null,
+                                          calories: item.nutrition.calories ?? null,
+                                          protein: item.nutrition.protein ?? null,
+                                          carbs: item.nutrition.carbs ?? null,
+                                          fat: item.nutrition.fat ?? null,
+                                          fiber: item.nutrition.fiber ?? null,
+                                          sugar: item.nutrition.sugar ?? null,
+                                          sodium: item.nutrition.sodium ?? null,
+                                          // The text line says this too, but a client
+                                          // totalling from here would never see that.
+                                          warning: implausible(item.nutrition) ?? null,
+                                      }
+                                    : null,
+                            })),
+                        })),
+                    })),
+                };
+
+                return { content: [{ type: "text" as const, text: body }], structuredContent };
+            },
+        ),
+    );
+
+    server.registerTool(
+        "dining_hours",
+        {
+            title: "Dining hours",
+            description:
+                "Get UT Austin dining hours, including which locations are open right now in Austin time and when " +
+                "they close. Defaults to today, and to noon for any other date unless at says otherwise. " +
+                "Handles special schedules such as finals, breaks and holidays.",
+            outputSchema: HOURS_OUTPUT,
+            inputSchema: z
+                .object({
+                    date: z
+                        .string()
+                        .optional()
+                        .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
+                    location: z.string().optional().describe('Only this location, e.g. "J2"'),
+                    openOnly: z
+                        .boolean()
+                        .optional()
+                        .describe("Only locations open at the given time"),
+                    at: z
+                        .string()
+                        .optional()
+                        .describe('Time to check, e.g. "19:30". Defaults to now for today.'),
+                })
+                // `time` instead of `at` was dropped silently, so "is J2 open
+                // at 22:30" was answered about now -- OPEN, when it is closed.
+                .strict(),
+        },
+        guard(
+            async ({
+                date,
+                location,
+                openOnly,
+                at,
+            }: {
+                date?: string;
+                location?: string;
+                openOnly?: boolean;
+                at?: string;
+            }) => {
+                // Not the menu's published week: this tool answers for any date UT
+                // has a schedule for, so a bare weekday must not resolve backwards.
+                const mdy = parseDate(date, { publishedWeek: false });
+                const now = austinNow();
+                const isToday = mdy === now.mdy;
+
+                // Declaring an outputSchema makes every non-error return answer to it, so the
+                // explanatory paths carry an empty payload rather than text on its own.
+                const nothing = (why: string) =>
+                    textWith(why, {
+                        date: mdy,
+                        at: "",
+                        timezone: "America/Chicago",
+                        schedule: "",
+                        locations: [],
+                    });
+
+                const DEFAULT_HOUR = 12;
+                let when = isToday ? now.minutes : DEFAULT_HOUR * 60;
+                if (at) {
+                    // A time with spaces round it is still a time.
+                    const parsed = at.trim().match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i);
+                    if (!parsed)
+                        return nothing(`Couldn't read time "${at}". Try "19:30" or "7:30pm".`);
+                    let hour = Number(parsed[1]);
+                    const minute = Number(parsed[2] ?? 0);
+                    const suffix = (parsed[3] ?? "").toLowerCase();
+                    if (suffix && (hour < 1 || hour > 12))
+                        return nothing(`"${at}" is not a valid 12-hour time.`);
+                    if (!suffix && hour > 23) return nothing(`"${at}" is not a valid time of day.`);
+                    if (minute > 59) return nothing(`"${at}" is not a valid time of day.`);
+                    if (suffix === "pm" && hour < 12) hour += 12;
+                    if (suffix === "am" && hour === 12) hour = 0;
+                    when = hour * 60 + minute;
+                }
+
+                const period = await hoursForDate(mdy);
+                let rows = await statusAt(mdy, when);
+                if (location) {
+                    rows = rows.filter((row) => matchesLocation(row.name, location));
+                    if (!rows.length) return nothing(`No dining location matching "${location}".`);
+                }
+                if (openOnly) rows = rows.filter((row) => row.open);
+                if (!rows.length)
+                    return nothing(
+                        location
+                            ? `Nothing matching "${location}" is open at that time on ${mdy}. ` +
+                                  `Other locations were not considered; ask without a location to see them.`
+                            : `Nothing is open at that time on ${mdy}.`,
+                    );
+
+                const clock = `${String(Math.floor(when / 60)).padStart(2, "0")}:${String(when % 60).padStart(2, "0")}`;
+                const groups = new Map<string, typeof rows>();
+                for (const row of rows)
+                    groups.set(row.category, [...(groups.get(row.category) ?? []), row]);
+
+                const body = [...groups]
+                    .map(
+                        ([category, items]) =>
+                            `${category}\n` +
+                            items
+                                .map((row) => {
+                                    const state = row.open
+                                        ? `OPEN  (closes in ${minutes(row.closesIn!)})`
+                                        : row.opensIn
+                                          ? `closed (opens in ${minutes(row.opensIn)})`
+                                          : "closed";
+                                    return `  ${row.name.padEnd(28)} ${row.hours.padEnd(34)} ${state}`;
+                                })
+                                .join("\n"),
+                    )
+                    .join("\n\n");
+
+                return textWith(
+                    `Dining hours for ${mdy} at ${clock} Austin time${isToday && !at ? " (now)" : ""}\n` +
+                        `Schedule: ${period.label}\n\n${body}`,
+                    {
+                        date: mdy,
+                        at: clock,
+                        timezone: "America/Chicago",
+                        schedule: period.label,
+                        locations: rows.map((row) => ({
+                            name: row.name,
+                            category: row.category,
+                            hours: row.hours,
+                            open: row.open,
+                            minutesToClose: row.closesIn ?? null,
+                            minutesToOpen: row.opensIn ?? null,
+                        })),
+                    },
+                );
+            },
+        ),
+    );
+
+    server.registerTool(
+        "list_dining_locations",
+        {
+            title: "List dining locations",
+            description:
+                "List UT Austin campus dining locations: dining halls, restaurants, coffee shops, markets " +
+                "and food trucks. Pass a name for one location's detail: description, street address, " +
+                "building and accepted payment methods.",
+            outputSchema: LOCATIONS_OUTPUT,
+            inputSchema: z
+                .object({
+                    name: z
+                        .string()
+                        .optional()
+                        .describe('A specific location, e.g. "J2" or "Noodle Lab"'),
+                    category: z
+                        .string()
+                        .optional()
+                        .describe(`Filter by type. One of: ${CATEGORIES}`),
+                })
+                // `type` instead of `category` listed all 25 locations under a
+                // "Coffee Shops" heading, so a model summarising it called the
+                // dining halls coffee shops.
+                .strict(),
+        },
+        guard(async ({ name, category }: { name?: string; category?: string }) => {
+            if (name) {
+                const location = await getLocationDetail(name);
+                if (!location) {
+                    return textWith(
+                        `No dining location matching "${name}". Call this tool with no arguments to list them.`,
+                        { locations: [] },
+                    );
+                }
+                return textWith(
+                    [
+                        `${location.name} (${location.category})`,
+                        "",
+                        location.description ?? "",
+                        location.address ? `\nAddress: ${location.address}` : "",
+                        location.building ? `Building: ${location.building}` : "",
+                        location.payment?.length ? `Payment: ${location.payment.join(", ")}` : "",
+                        location.lat ? `Coordinates: ${location.lat}, ${location.lon}` : "",
+                        location.url ? `\nSource: ${location.url}` : "",
+                    ]
+                        .filter(Boolean)
+                        .join("\n"),
+                    {
+                        locations: [location].map((row) => ({
+                            name: row.name,
+                            category: row.category,
+                            building: row.building ?? null,
+                            address: row.address ?? null,
+                            latitude: row.lat ?? null,
+                            longitude: row.lon ?? null,
+                            payment: row.payment ?? null,
+                        })),
+                    },
+                );
+            }
+
+            const all = await getLocations();
+            const query = (category ?? "").toLowerCase();
+            const rows = all.filter((row) => !query || row.category.toLowerCase().includes(query));
+            if (!rows.length) {
+                const real = [...new Set(all.map((row) => row.category))].sort((a, b) =>
+                    a.localeCompare(b),
+                );
+                return textWith(
+                    `No locations in category "${category}". Categories are: ${real.join(", ")}.`,
+                    { locations: [] },
+                );
+            }
+
+            const groups = new Map<string, typeof rows>();
+            for (const row of rows)
+                groups.set(row.category, [...(groups.get(row.category) ?? []), row]);
+            return textWith(
+                [...groups]
+                    .map(
+                        ([name_, items]) =>
+                            `${name_}\n` +
+                            items
+                                .map(
+                                    (item) =>
+                                        `  ${item.name.padEnd(30)}${item.building ?? item.address ?? ""}`,
+                                )
+                                .join("\n"),
+                    )
+                    .join("\n\n"),
+                {
+                    locations: rows.map((row) => ({
+                        name: row.name,
+                        category: row.category,
+                        building: row.building ?? null,
+                        address: row.address ?? null,
+                        latitude: row.lat ?? null,
+                        longitude: row.lon ?? null,
+                        payment: row.payment ?? null,
+                    })),
+                },
+            );
+        }),
+    );
+
+    server.registerTool(
+        "search_menu_items",
+        {
+            title: "Search menu items",
+            description:
+                "Search the UT Austin dining hall menus from today to the end of the published week for a dish, to find where and when " +
+                "it is served. Use when the hall is not known yet; use get_dining_menu when it is.",
+            outputSchema: SEARCH_OUTPUT,
+            inputSchema: z
+                .object({
+                    query: z.string().describe('Words in the item name, e.g. "chicken tikka"'),
+                    date: z.string().optional().describe('Restrict to one day, e.g. "friday"'),
+                    location: z.string().optional().describe("Restrict to one dining hall"),
+                    diet: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items carrying every one of these. All codes: ${CODES}`,
+                        ),
+                    exclude: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items whose menu tags carry any of these, e.g. ["PNTS","NTS"] ` +
+                                `for a nut allergy. Menu tags only -- unlike get_dining_menu this ` +
+                                `does not read labels, so it is a filter, not a safety check. ` +
+                                `All codes: ${CODES}`,
+                        ),
+                    contains: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items whose ingredient statement contains every one of ` +
+                                `these, e.g. ["seed-oils"]. One of: ${AVOID_KEYS}.`,
+                        ),
+                })
+                // An unknown key used to be stripped before the handler saw it,
+                // so search_menu_items took exclude: ["PNTS","NTS"] from a model
+                // that had read get_dining_menu's schema and returned the
+                // peanut cookies anyway, silently. A filter that fails open is
+                // worse than one that is absent.
+                .strict(),
+        },
+        guard(
+            async ({
+                query,
+                date,
+                location,
+                diet,
+                exclude,
+                contains,
+            }: {
+                query: string;
+                date?: string;
+                location?: string;
+                diet?: string[];
+                exclude?: string[];
+                contains?: string[];
+            }) => {
+                const asked = date ? parseDate(date) : undefined;
+                const unknown = (contains ?? []).filter((k) => !AVOID_INGREDIENTS[k]);
+                if (unknown.length)
+                    throw new Error(
+                        `Unknown contains key(s): ${unknown.join(", ")}. Valid keys are ${AVOID_KEYS}.`,
+                    );
+                const { hits, lastCached } = await searchMenuItems(query, {
+                    date: asked,
+                    location,
+                    diet: diet ? codes(diet, "diet") : undefined,
+                    exclude: exclude ? codes(exclude, "exclude") : undefined,
+                    contains,
+                });
+                if (!hits.length) {
+                    const window = await getMenuWindow();
+                    // Saying "nothing matches" about a day or a hall there is no
+                    // menu for is a statement about what UT serves, made without
+                    // looking. get_dining_menu already refuses both.
+                    if (asked && !window.dates.includes(asked))
+                        throw new Error(
+                            `No menu published for ${asked}. Menus cover ${window.dates[0]} to ` +
+                                `${window.dates[window.dates.length - 1]}.`,
+                        );
+                    if (location && !window.locations.some((l) => matchesLocation(l, location)))
+                        throw new Error(
+                            `"${location}" has no published menu. Menus exist for: ` +
+                                `${window.locations.join(", ")}.`,
+                        );
+                    return textWith(
+                        `Nothing ${asked ? `on ${asked}` : `from today through ${window.dates[window.dates.length - 1]}`} ` +
+                            `(at ${location ?? window.locations.join(", ")}` +
+                            `${diet?.length ? `, tagged ${diet.join(", ")}` : ""}` +
+                            `${exclude?.length ? `, without ${exclude.map(spellCode).join(", ")}` : ""}` +
+                            `${contains?.length ? `, containing ${contains.map((k) => AVOID_INGREDIENTS[k]?.label ?? k).join(", ")}` : ""}` +
+                            `) matches "${query}".` +
+                            `${date ? "" : " Days earlier in the published week are not searched unless you ask for one by date."}` +
+                            `${location ? " Only that location was searched." : ""}` +
+                            `${diet?.length ? " The dietary filter may be what emptied this; try without it." : ""}` +
+                            // Saying nothing matches the query when a filter did
+                            // the emptying is a false statement about the menu:
+                            // "cookies without nuts, milk or wheat" reported no
+                            // cookies at all, with ten on the week's menu.
+                            `${
+                                exclude?.length || contains?.length
+                                    ? ` The name may match items that the ${exclude?.length ? "exclusion" : "ingredient filter"} then removed; try the query on its own.`
+                                    : ""
+                            }` +
+                            ` This matches item and station names; for what is in a dish, ` +
+                            `pass contains (${AVOID_KEYS}). The feed carries no drinks at all, so a ` +
+                            `miss here does not mean UT never serves it.`,
+                        { query, matched: 0, shown: 0, lastCached: window.lastCached, hits: [] },
+                    );
+                }
+                // Today first, then whole-word matches, because that is the order the
+                // header claims and the question is usually about today. Sorting on
+                // tier alone buried today's two rows under four days of future ones
+                // under a header that said "today first".
+                hits.sort((x, y) => Number(y.isToday) - Number(x.isToday) || x.tier - y.tier);
+                // Count only the rows that survive the cap. Loose matches sort last,
+                // so a query with MAX_ROWS exact hits shows none of them, and saying
+                // otherwise points at rows that are not in the response.
+                const loose = hits.slice(0, MAX_ROWS).filter((h) => h.tier === 2).length;
+                const body = cap(hits, MAX_ROWS, (hit) => {
+                    const allergenList = allergens(hit.item.legends);
+                    const notes = [
+                        ...dietTags(hit.item.legends),
+                        ...(allergenList.length ? [`contains ${allergenList.join("/")}`] : []),
+                    ].join(", ");
+                    const ref = hit.item.serving
+                        ? `#${hit.item.number}*${hit.item.serving}`
+                        : `#${hit.item.number}`;
+                    // Saying "today" spares the model dating the row itself.
+                    const when = (hit.isToday ? "today" : hit.date).padEnd(10);
+                    return `  ${when}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})${hit.tier === 2 ? "  [loose]" : ""}`;
+                });
+                return textWith(
+                    `${hits.length} match(es) for "${query}"` +
+                        `${date ? "" : " from today onwards (earlier days in the published week are not searched)"}` +
+                        `, today first:\n\n${body}\n\n` +
+                        (loose
+                            ? `${loose} of the rows shown are marked [loose]: the query appears inside ` +
+                              `a longer word rather than as a word of its own. Treat them as weak matches.\n\n`
+                            : "") +
+                        `Menu data cached by UT at ${lastCached}. ` +
+                        "Allergens here come from the menu tags only, which miss allergens the label " +
+                        "declares; no allergen list means the tags named none, which is unknown rather " +
+                        "than allergen-free. " +
+                        "For nutrition, call menu_item_nutrition with an item reference, or get_dining_menu for a meal.",
+                    {
+                        query,
+                        matched: hits.length,
+                        shown: Math.min(hits.length, MAX_ROWS),
+                        lastCached,
+                        hits: hits.slice(0, MAX_ROWS).map((hit) => {
+                            const tagged = allergens(hit.item.legends);
+                            return {
+                                id: hit.item.serving
+                                    ? `${hit.item.number}*${hit.item.serving}`
+                                    : hit.item.number,
+                                name: hit.item.name,
+                                date: hit.date,
+                                isToday: hit.isToday,
+                                meal: hit.meal,
+                                location: hit.location,
+                                station: hit.section,
+                                dietary: dietTags(hit.item.legends),
+                                // Tags only, so [] cannot be told apart from
+                                // "checked, none": null says nobody checked.
+                                allergens: tagged.length ? tagged : null,
+                                allergenSource: "menu-tags" as const,
+                                exact: hit.tier === 1,
+                            };
+                        }),
+                    },
+                );
+            },
+        ),
+    );
+
+    server.registerTool(
+        "menu_item_nutrition",
+        {
+            title: "Menu item nutrition",
+            description:
+                "Get the full nutrition label and ingredient list for one UT Austin dining item, by the reference " +
+                "shown in get_dining_menu or search_menu_items. Returns every nutrient plus the complete " +
+                "ingredient statement, which the menu does not carry. Useful for allergen checks.",
+            inputSchema: z
+                .object({
+                    itemNumber: z
+                        .string()
+                        .describe(
+                            'The item reference exactly as the menu printed it, e.g. "450178*4" or "450178"',
+                        ),
+                    serving: z
+                        .string()
+                        .optional()
+                        .describe(
+                            "Serving size, if not already part of itemNumber. Nutrition is per serving.",
+                        ),
+                })
+                .strict(),
+        },
+        guard(async ({ itemNumber, serving }: { itemNumber: string; serving?: string }) => {
+            const [number, embedded] = itemNumber.split("*");
+            const digits = (number ?? "").replace(/\D/g, "");
+            // The reference is stripped to digits before it reaches the fetch, so
+            // a reference with none in it used to come back as "no nutrition label
+            // could be read for item " -- a trailing space and nothing to act on.
+            if (!digits)
+                throw new Error(
+                    `"${itemNumber}" is not an item reference. They look like 081906*3: the ` +
+                        `recipe number, then its serving. get_dining_menu and search_menu_items ` +
+                        `print one at the end of every line.`,
+                );
+            // Servings are what get_dining_menu prints: a count, or a fraction
+            // like 1/12. Anything else goes into UT's URL and comes back as
+            // arithmetic we would be reporting as fact.
+            const portion = serving ?? embedded;
+            if (portion !== undefined && !/^\d+(?:\/\d+)?$/.test(portion.trim()))
+                throw new Error(
+                    `"${portion}" is not a serving. They are a count like 3, or a fraction ` +
+                        `like 1/12, exactly as get_dining_menu prints them after the *.`,
+                );
+            // Syntax is not enough: *999999 parses and UT answers it with
+            // 4,145,227,855 calories. The feed's own servings are small counts
+            // and fractions down to 1/96.
+            const [num, den] = (portion ?? "1").trim().split("/").map(Number);
+            if (
+                portion !== undefined &&
+                (!num || num > 200 || (den !== undefined && (!den || den > 1000)))
+            )
+                throw new Error(
+                    `A serving of "${portion}" is not a portion of anything UT serves. ` +
+                        `They run from 1 to a few dozen, with fractions as small as 1/96.`,
+                );
+            const label = await getNutrition(digits, portion);
+            const odd = implausible(macrosFromLabel(label));
+            // The label and the menu tags each miss things the other catches, so
+            // reporting the label alone turned its silence into a denial: Honey
+            // Chipotle Chicken Taco is tagged Pork and its label declares
+            // nothing. Say what each source holds rather than merging them into
+            // one sentence that hides which is which.
+            const labelNames = splitAllergens(label.allergens ?? "");
+            const merged = mergedAllergens({
+                number: digits,
+                name: label.name,
+                legends: await recipeLegends(digits),
+                avoid: [],
+                labelAllergens: labelNames,
+            });
+            const missedByLabel = merged.filter((name) => !labelNames.includes(name));
+            const allergenLine = label.allergens
+                ? `\nContains: ${label.allergens}` +
+                  (missedByLabel.length
+                      ? `; the menu tags also list ${missedByLabel.join(", ")}`
+                      : "")
+                : missedByLabel.length
+                  ? `\nContains: UT's label declares none, but the menu tags for this item list ` +
+                    `${missedByLabel.join(", ")}. Treat the tags as the answer.`
+                  : "\nContains: UT's label declares no allergens, and its menu tags name none.";
+            return text(
+                [
+                    label.name,
+                    label.servingSize ? `Serving size: ${label.servingSize}` : "",
+                    // Without a serving this reads the recipe's base portion,
+                    // which for a pizza is the whole pizza: #140915 came back
+                    // 2961 cal where the menu's own #140915*1/12 is 247. A
+                    // twelvefold error with nothing in the reply to catch it.
+                    portion === undefined
+                        ? `NOTE: no serving was given, so this is the recipe's base portion` +
+                          ` shown above, which may be a whole tray or pizza rather than a` +
+                          ` helping. Pass the reference as get_dining_menu printed it, e.g.` +
+                          ` "${number}*1/12", for one serving.`
+                        : "",
+                    odd
+                        ? `NOTE: this figure looks wrong -- ${odd}. It is what UT publishes;` +
+                          ` treat it as unverified.`
+                        : "",
+                    label.calories ? `Calories: ${label.calories} per serving` : "",
+                    "",
+                    ...label.nutrients.map(
+                        (row) =>
+                            `  ${row.name.padEnd(22)} ${row.amount.padEnd(10)}${row.dv ? ` ${row.dv} DV` : ""}`,
+                    ),
+                    allergenLine,
+                    label.ingredients ? `\nIngredients: ${label.ingredients}` : "",
+                ]
+                    .filter(Boolean)
+                    .join("\n"),
+            );
+        }),
+    );
+}

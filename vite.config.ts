@@ -1,11 +1,16 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+    test: {
+        include: ["apps/*/test/**/*.test.ts", "apps/*/src/**/*.test.ts"],
+    },
     fmt: {
         printWidth: 100,
         tabWidth: 4,
         useTabs: false,
         ignorePatterns: [
+            // Responses captured from UT, kept exactly as served.
+            "**/test/fixtures/**",
             "**/worker-configuration.d.ts",
             "**/dist/**",
             "**/*.md",

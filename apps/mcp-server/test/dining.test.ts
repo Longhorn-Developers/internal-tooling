@@ -55,6 +55,19 @@ describe("austinNow", () => {
     });
 });
 
+describe("parseDate and the word next", () => {
+    // FIXED_NOW is Thursday 10/15/2026.
+    it("never reads next <today's weekday> as today", () => {
+        expect(parseDate("thursday")).toBe("10/15/2026");
+        expect(parseDate("next thursday")).toBe("10/22/2026");
+    });
+
+    it("leaves the other weekdays where they are", () => {
+        expect(parseDate("friday")).toBe("10/16/2026");
+        expect(parseDate("next friday")).toBe("10/16/2026");
+    });
+});
+
 describe("parseDate rejects a date it would have to guess at", () => {
     it.each([
         ["saturday nov 7"],
@@ -295,6 +308,49 @@ describe("menus", () => {
         expect(bacon.nutrition?.source).toBe("label");
         expect(Math.round(bacon.nutrition!.calories!)).toBe(897); // not the feed's 299
         expect(Math.round(bacon.nutrition!.protein!)).toBe(22);
+    });
+
+    // A label that failed is stored as null, and pinning that for a day would
+    // blank the item colo-wide off one blip. The generic mechanism is tested in
+    // cache.test.ts; this is the dining callback that chooses the short TTL.
+    it("re-reads a bundle that had a failure, and keeps a clean one", async () => {
+        const store = new Map<string, string>();
+        vi.stubGlobal("caches", {
+            default: {
+                async match(req: Request) {
+                    const body = store.get(req.url);
+                    return body === undefined ? undefined : new Response(body);
+                },
+                async put(req: Request, res: Response) {
+                    store.set(req.url, await res.text());
+                },
+            },
+        });
+
+        const labelsRead = async (overrides: Record<string, string | number>) => {
+            const log = stubFetch(overrides);
+            const menu = await getMenu("J2", "10/14/2026", "Dinner");
+            const items = menu.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
+            await withNutrition(items);
+            return log.filter((c) => c.url.includes("RecNumAndPort=")).length;
+        };
+
+        // One reference 500s, so the stored bundle has a hole in it.
+        expect(await labelsRead({ "RecNumAndPort=081906": 500 })).toBeGreaterThan(0);
+        vi.setSystemTime(Date.now() + 301_000);
+        resetCache(); // fresh isolate: the edge entry is what is under test
+        expect(
+            await labelsRead({ "RecNumAndPort=081906": 500 }),
+            "a bundle with a failure in it was kept past its short deadline",
+        ).toBeGreaterThan(0);
+
+        // A complete bundle is good for the day.
+        store.clear();
+        resetCache();
+        expect(await labelsRead({})).toBeGreaterThan(0);
+        vi.setSystemTime(Date.now() + 301_000);
+        resetCache();
+        expect(await labelsRead({}), "a clean bundle was thrown away early").toBe(0);
     });
 
     it("reuses one label for items repeated across stations", async () => {

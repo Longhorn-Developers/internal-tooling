@@ -302,6 +302,29 @@ describe("get_dining_menu", () => {
         expect(text).toMatch(/Do not read those rows as allergen-free/);
     });
 
+    // The label budget is spent in menu order, so a later meal can have every
+    // one of its items withheld. Printing the heading with nothing under it
+    // reads as "there is no peanut-free dinner here", which is the opposite of
+    // what happened.
+    it("does not print a meal whose every item was withheld", async () => {
+        // On 10/16 the label budget is spent entirely on JCL's lunch, so every
+        // dinner item is unverified and withheld. On other days the two meals
+        // share recipes and both survive, which is why the date matters here.
+        const res = await call("get_dining_menu", {
+            location: "JCL",
+            exclude: ["PNTS"],
+            date: "10/16/2026",
+        });
+        const structured = res.structuredContent!;
+        expect(structured.meals.map((m) => m.meal)).toEqual(["Lunch"]);
+        expect(structured.withheld.count).toBeGreaterThan(0);
+        for (const entry of structured.meals)
+            expect(entry.sections.length, `${entry.meal} has no sections`).toBeGreaterThan(0);
+        const text = res.content.map((c) => c.text).join("\n");
+        // No heading immediately followed by another heading or the footer.
+        expect(text).not.toMatch(/\n(Breakfast|Lunch|Dinner)\n\s*\n\s*(\n|Figures are)/);
+    });
+
     it("says how many items it could cover when the label budget binds", async () => {
         const out = await textOf("get_dining_menu", { location: "J2", meal: "Dinner" });
         expect(out).toMatch(/Nutrition shown for \d+ of \d+ items/);
@@ -316,9 +339,17 @@ describe("get_dining_menu", () => {
             location: "J2",
             meal: "Lunch",
             station: "Baked Potato Bar",
+            diet: ["HAL"],
             avoid: ["seed-oils", "gelatin"],
         });
-        if (/^Nothing at/.test(out)) expect(out).toMatch(/avoiding seed oils, gelatin/);
+        // Unconditional: the guarded version never ran, so deleting the whole
+        // "avoiding ..." clause left the suite green. Whatever emptied it, a
+        // reply that lists some filters and not others reads as a statement
+        // about what UT served.
+        expect(out).toMatch(/^Nothing at/);
+        expect(out).toMatch(/at station "Baked Potato Bar"/);
+        expect(out).toMatch(/tagged Halal Friendly/);
+        expect(out).toMatch(/avoiding seed oils, gelatin/);
     });
 
     // Live, J2 lunch drops from 101 items to 49 with every avoid key set. The
@@ -393,6 +424,46 @@ describe("get_dining_menu", () => {
             m.sections.flatMap((x) => x.items),
         );
         for (const item of items) expect(item.dietary, item.name).toContain("Vegan");
+    });
+
+    it("rejects an unrecognised avoid key instead of filtering nothing", async () => {
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            avoid: ["not-an-ingredient"],
+        });
+        expect(res.isError).toBe(true);
+        expect(res.content.map((c) => c.text).join("")).toMatch(/not-an-ingredient/);
+    });
+
+    // Several diet tags mean all of them, not any of them.
+    it("treats several dietary tags as every one of them", async () => {
+        const names = async (diet: string[]) => {
+            const res = await call("get_dining_menu", { location: "J2", meal: "Lunch", diet });
+            return res
+                .structuredContent!.meals.flatMap((m) => m.sections.flatMap((x) => x.items))
+                .map((i) => i.dietary);
+        };
+        const both = await names(["VGN", "HAL"]);
+        for (const tags of both) {
+            expect(tags).toContain("Vegan");
+            expect(tags).toContain("Halal Friendly");
+        }
+        const vegan = await names(["VGN"]);
+        expect(both.length).toBeLessThan(vegan.length);
+    });
+
+    // UT publishes an empty ingredient statement for a couple of recipes, and
+    // an empty avoid list on those is unknown rather than clear.
+    it("says when a preference could not be checked against the ingredients", async () => {
+        const out = await textOf("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            avoid: ["seed-oils"],
+        });
+        expect(out).toMatch(/Sour Cream[^\n]*ingredients unpublished, preference unchecked/);
+        // An item UT does publish ingredients for carries no such caveat.
+        expect(out).toMatch(/Sliced Green Onion(?![^\n]*preference unchecked)/);
     });
 
     it("rejects an unrecognised exclude code instead of ignoring it", async () => {
@@ -553,12 +624,13 @@ describe("search_menu_items argument handling", () => {
         expect(structured.hits.length).toBe(structured.shown);
         const text = res.content.map((c) => c.text).join("\n");
         expect(text).toContain(`${structured.matched} match(es)`);
-        // cap() says how many it left out, and that has to add up.
-        const hidden = text.match(/\((\d+) of (\d+) not shown\)/);
-        if (hidden) {
-            expect(Number(hidden[2])).toBe(structured.matched);
-            expect(Number(hidden[1])).toBe(structured.matched - structured.shown);
-        }
+        // cap() says how many it left out, and that has to add up. This query
+        // always overflows the row cap, so the line is not optional: guarded
+        // behind an if, deleting the whole line left the suite green.
+        const hidden = text.match(/\((\d+) of (\d+) not shown; narrow the search\)/);
+        expect(hidden, "cap() did not say how many rows it hid").toBeTruthy();
+        expect(Number(hidden![2])).toBe(structured.matched);
+        expect(Number(hidden![1])).toBe(structured.matched - structured.shown);
     });
 
     // The header is the only place a partial window is disclosed on a hit.
@@ -568,12 +640,59 @@ describe("search_menu_items argument handling", () => {
         expect(out).toMatch(/earlier days in the published week are not searched/);
     });
 
+    // Asked for one day, it searched that day, and saying "from today onwards"
+    // over rows that are all dated earlier is simply false.
+    it("does not claim to have searched from today when asked for one past day", async () => {
+        const out = await textOf("search_menu_items", {
+            query: "matchstick",
+            date: "10/14/2026",
+        });
+        expect(out).not.toMatch(/from today onwards/);
+        expect(out).toContain("10/14/2026");
+    });
+
     // The allergens on a search row are menu tags only, and the prose has to
     // say so: the whole sentence could be deleted with the suite still green.
     it("says its allergens come from the menu tags only", async () => {
         const out = await textOf("search_menu_items", { query: "chicken" });
         expect(out).toMatch(/menu tags only/);
         expect(out).toMatch(/unknown rather than allergen-free/);
+    });
+
+    // The empty-result message was built from the whole published window and all
+    // three halls whatever was asked for, so a filtered miss read as a
+    // statement that UT does not serve the thing at all.
+    it("says which location it actually searched when it finds nothing", async () => {
+        const out = await textOf("search_menu_items", { query: "zzzznothing", location: "JCL" });
+        expect(out).toMatch(/JCL/);
+        expect(out).not.toMatch(/J2 Dining, Kins Dining/);
+        expect(out).toMatch(/Only that location was searched/);
+    });
+
+    it("blames the dietary filter when that is what emptied the search", async () => {
+        const plain = await textOf("search_menu_items", { query: "bacon" });
+        expect(plain).not.toMatch(/^Nothing/);
+        const filtered = await textOf("search_menu_items", { query: "bacon", diet: ["VGN"] });
+        expect(filtered).toMatch(/^Nothing/);
+        expect(filtered).toMatch(/tagged VGN/);
+        expect(filtered).toMatch(/may be what emptied this/);
+    });
+
+    it("does not claim to have searched the week when asked for one day", async () => {
+        const out = await textOf("search_menu_items", {
+            query: "zzzznothing",
+            date: "10/16/2026",
+        });
+        expect(out).toMatch(/Nothing on 10\/16\/2026/);
+        expect(out).not.toMatch(/Days earlier in the published week/);
+    });
+
+    it("gives the feed timestamp even when nothing matched", async () => {
+        const res = await call("search_menu_items", { query: "zzzznothing" });
+        const structured = res.structuredContent as unknown as SearchStructured & {
+            lastCached: string;
+        };
+        expect(structured.lastCached).not.toBe("");
     });
 
     it("rejects an unknown diet code instead of matching nothing", async () => {
@@ -608,6 +727,31 @@ describe("search_menu_items argument handling", () => {
     });
 });
 
+describe("dining_hours at", () => {
+    // Both existing tests that pass `at` only check the shape of the echoed
+    // time, so the argument could be ignored entirely and stay green.
+    it("answers about the time it was given, not the time now", async () => {
+        const open = async (at: string) =>
+            (
+                (await call("dining_hours", { at })).structuredContent as unknown as {
+                    locations: { name: string; open: boolean }[];
+                }
+            ).locations;
+        const morning = await open("09:00");
+        const afterMidnight = await open("03:00");
+        expect(morning.some((r) => r.open)).toBe(true);
+        expect(afterMidnight.every((r) => !r.open)).toBe(true);
+        const out = await textOf("dining_hours", { at: "09:00" });
+        expect(out).toMatch(/at 09:00/);
+    });
+
+    // The description promises noon for a date that is not today.
+    it("uses noon for another day rather than the current time", async () => {
+        const out = await textOf("dining_hours", { date: "10/17/2026" });
+        expect(out).toMatch(/at 12:00/);
+    });
+});
+
 describe("dining_hours filtering", () => {
     it("openOnly actually removes the closed locations", async () => {
         const rows = async (args: Record<string, unknown>) =>
@@ -628,7 +772,46 @@ describe("menu_item_nutrition", () => {
     it("accepts the reference exactly as the menu printed it", async () => {
         const log = stubFetch();
         await call("menu_item_nutrition", { itemNumber: "450231*3" });
-        expect(log.at(-1)!.url).toContain("RecNumAndPort=450231*3");
+        // The tool also reads the menu feed, for the tags the label can miss,
+        // so the label fetch is not necessarily the last one.
+        expect(log.some((entry) => entry.url.includes("RecNumAndPort=450231*3"))).toBe(true);
+    });
+});
+
+describe("a location name that cannot be read", () => {
+    // norm() strips to [a-z0-9], so a name the caller did give can come out
+    // empty -- which was the same sentinel as no name at all. The result was a
+    // full address card for a location the query never matched.
+    it.each([["\u4E2D\u6587"], ["???"], ["\uD83C\uDF55"], ["..."], ["---"]])(
+        "does not answer %s with the first location on the list",
+        async (name) => {
+            const out = await textOf("list_dining_locations", { name });
+            expect(out, name).toMatch(/No dining location matching/);
+        },
+    );
+
+    it.each([["\u4E2D\u6587"], ["???"]])("does not silently drop the filter in hours: %s", async (location) => {
+        const out = await textOf("dining_hours", { location });
+        expect(out, location).toMatch(/No dining location matching/);
+    });
+
+    it.each([["\u4E2D\u6587"], ["***"]])("does not hand back a menu for %s", async (location) => {
+        const res = await call("get_dining_menu", { location, meal: "Lunch" });
+        expect(res.isError, location).toBe(true);
+    });
+
+    it("will not answer a menu question with no hall named", async () => {
+        for (const location of ["", "   "]) {
+            const res = await call("get_dining_menu", { location, meal: "Lunch" });
+            expect(res.isError, JSON.stringify(location)).toBe(true);
+            expect(res.content.map((c) => c.text).join("")).toMatch(/Which dining hall/);
+        }
+    });
+
+    // An absent name is still no filter.
+    it("still lists everything when no name is given", async () => {
+        const out = await textOf("list_dining_locations", {});
+        expect(out).not.toMatch(/No dining location matching/);
     });
 });
 
@@ -652,8 +835,36 @@ describe("menu_item_nutrition output", () => {
                 "$1$2",
             ),
         });
+        // Pear Crisp is tagged SOY and WHT, so a silent label is not a clean
+        // one: the tags are the answer and the reply has to say so.
+        const tagged = await textOf("menu_item_nutrition", { itemNumber: "450231*1" });
+        expect(tagged).toMatch(/label declares none, but the menu tags/);
+        // The tag spells it "Soy" where the label would say "Soybeans".
+        expect(tagged).toMatch(/Soy/);
+        expect(tagged).toMatch(/Wheat/);
+
+        // Banana is tagged vegan and nothing else, so both sources are silent
+        // and the reply can say so outright.
+        const clean = await textOf("menu_item_nutrition", { itemNumber: "201002*1" });
+        expect(clean).toMatch(/label declares no allergens, and its menu tags name none/);
+    });
+
+    // Every UT label says "Sesame" where the menu tag says "Sesame Seeds", so
+    // comparing the two as substrings re-announced the tag on 67 references
+    // this week. "Crustacean Shellfish" contains "Fish" the same way, which
+    // would swallow a Fish tag instead of duplicating it.
+    it("does not re-announce a tag the label already covers", async () => {
         const out = await textOf("menu_item_nutrition", { itemNumber: "450231*1" });
-        expect(out).toMatch(/Contains: UT's label declares no allergens/);
+        const contains = out.split("\n").find((l) => l.startsWith("Contains:")) ?? "";
+        expect(contains).toBeTruthy();
+        // Whatever it lists, it must not list the same allergen twice under two
+        // spellings, which is what "also list" did.
+        for (const name of ["Sesame", "Soy", "Wheat", "Milk", "Fish"]) {
+            const spellings = (contains.match(new RegExp(name, "gi")) ?? []).length;
+            expect(spellings, `${name} appears ${spellings} times in "${contains}"`).toBeLessThan(
+                2,
+            );
+        }
     });
 
     it("says what it could not read rather than echoing an empty reference", async () => {
@@ -662,6 +873,26 @@ describe("menu_item_nutrition output", () => {
         const out = res.content.map((c) => c.text).join("\n");
         expect(out).toContain("not-a-number");
         expect(out).not.toMatch(/for item\s*$/);
+    });
+
+    // *999999 came back as 4,145,227,855 calories and *-1 made the nutrient-row
+    // regex re-anchor on a decimal point, printing 5g where UT said -151.6g.
+    it.each([["140925*abc"], ["140925*999999"], ["140925*-1"], ["170985*0"], ["450231*1/0"]])(
+        "refuses the serving %s rather than reporting UT's arithmetic",
+        async (itemNumber) => {
+            const res = await call("menu_item_nutrition", { itemNumber });
+            expect(res.isError, itemNumber).toBe(true);
+            expect(res.content.map((c) => c.text).join("\n")).toMatch(
+                /is not a serving|not a portion of anything/,
+            );
+        },
+    );
+
+    it("still takes the servings the menu actually prints", async () => {
+        for (const itemNumber of ["450231*1", "450231*3", "140925*1/12"]) {
+            const res = await call("menu_item_nutrition", { itemNumber });
+            expect(res.isError, itemNumber).toBeFalsy();
+        }
     });
 
     it("flags a figure that contradicts itself", async () => {
@@ -950,6 +1181,22 @@ describe("gaps found in review", () => {
         expect(out).toMatch(/La Fonda/);
         // Something beyond the coordinates the feed row carries on its own.
         expect(out, "resolved to the bare feed row").toMatch(/Address|Payment|Source/);
+    });
+
+    // FoodPro keys its coordinates by the feed's spelling, and the roster row
+    // now carries that spelling while the map key kept the housing one, so the
+    // three renamed places silently lost their coordinates.
+    it("keeps coordinates for a location the two sources name differently", async () => {
+        const list = await call("list_dining_locations", {});
+        const rows = (
+            list.structuredContent as unknown as {
+                locations: { name: string; latitude: number | null }[];
+            }
+        ).locations;
+        const fonda = rows.find((r) => /La Fonda/.test(r.name));
+        expect(fonda, "La Fonda is missing from the roster").toBeTruthy();
+        expect(fonda!.name).toBe("La Fonda Food Trailer");
+        expect(fonda!.latitude, "lost its coordinates in the merge").not.toBeNull();
     });
 
     it("leaves payment unknown in the list and fills it in for one location", async () => {

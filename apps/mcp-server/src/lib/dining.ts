@@ -94,7 +94,12 @@ export function parseDate(input?: string): string {
               (d) => d.toLowerCase() === asWeekday || d.toLowerCase().slice(0, 3) === asWeekday,
           )
         : -1;
-    if (wd >= 0) return fromOffset((wd - now.dayIndex + 7) % 7);
+    if (wd >= 0) {
+        const offset = (wd - now.dayIndex + 7) % 7;
+        // "next thursday" can never mean today, and plain "thursday" on a
+        // Thursday does.
+        return fromOffset(offset === 0 && /^next\s/.test(s) ? 7 : offset);
+    }
 
     throw new Error(`Couldn't read date "${input}". Try "today", "friday", or "2026-10-16".`);
 }
@@ -409,7 +414,9 @@ export function getLocations(): Promise<DiningLocation[]> {
         }
 
         for (const [key, loc] of found) {
-            const c = coords[key];
+            // Keyed by the housing name, but the row now carries the feed's,
+            // and FoodPro keys its coordinates the same way the feed does.
+            const c = coords[key] ?? coords[norm(loc.name)];
             if (c) {
                 loc.lat = c.lat;
                 loc.lon = c.lon;
@@ -424,6 +431,10 @@ export function getLocations(): Promise<DiningLocation[]> {
 export async function getLocationDetail(name: string): Promise<DiningLocation | null> {
     const locs = await getLocations();
     const q = norm(name);
+    // A name given but unreadable is not the same as no name: norm() strips to
+    // [a-z0-9], and an empty q makes every prefix test below true, so the first
+    // row on the list came back as a confident answer complete with address.
+    if (!q) return null;
     // The hours feed and the housing pages spell some places differently --
     // "Tower Burger" against "Tower Burgers and Fries", "Prufrock's" against
     // "Prufrock's Coffee" -- so both end up in the list, and only the housing
@@ -541,10 +552,21 @@ const LOCATION_ALIASES: Record<string, string[]> = {
 };
 
 /** Does `candidate` name the location the caller asked for? */
+/** The menu is always about one hall, so there is no "all of them" here. */
+export const requireLocation = (query: string): string => {
+    if (!query.trim())
+        throw new Error(
+            "Which dining hall? get_dining_menu covers one at a time: J2, Kins or JCL.",
+        );
+    return query;
+};
+
 export const matchesLocation = (candidate: string, query: string): boolean => {
     const c = norm(candidate);
     const q = norm(query);
-    if (!q) return true;
+    // No query at all is no filter. A query that survives normalisation as
+    // nothing is a query that matched nothing, not a missing one.
+    if (!q) return !query.trim();
     if (c === q || c.includes(q)) return true;
     return (LOCATION_ALIASES[q] ?? []).some((alias) => c === alias || c.includes(alias));
 };
@@ -700,6 +722,18 @@ export const mergedAllergens = (item: MenuItem): string[] => {
     return out;
 };
 
+/**
+ * The menu tags for one recipe, for a caller that has a recipe number and no
+ * menu row. menu_item_nutrition needs them: UT's label and UT's menu tags each
+ * miss things the other catches, and 2 of this week's 1039 labels declare
+ * nothing while the tags name an allergen -- Hot Hearty Oatmeal (Wheat), on J2
+ * breakfast six days in seven, and Honey Chipotle Chicken Taco (Pork).
+ */
+export async function recipeLegends(number: string): Promise<string[]> {
+    const feed = await getMenuFeed();
+    return feed.recipes[number]?.legends ?? [];
+}
+
 export const allergens = (legends: string[]): string[] =>
     legends
         .filter((l) => !DIET_TAGS.has(l))
@@ -712,6 +746,12 @@ export type MenuItem = {
     legends: string[];
     /** Keys from AVOID_INGREDIENTS found in the feed's ingredient text. */
     avoid: string[];
+    /**
+     * False when UT published no ingredient statement for the recipe, which
+     * makes an empty `avoid` unknown rather than clear. Two of this week's 997
+     * recipes are in that state.
+     */
+    ingredientsKnown?: boolean;
     /** Per serving, from the item's label. Missing if the label wouldn't parse. */
     nutrition?: Macros & { source: "label" };
     /** From the label's CONTAINS line. More complete than the menu tags. */
@@ -728,7 +768,13 @@ export type MenuMeal = { meal: string; sections: MenuSection[] };
  * 081906 reports 299 kcal at portionSize "3 oz" and is served at serv=3, while
  * its label for 081906*3 says 897. Use label.aspx for nutrition.
  */
-type RecipeMeta = { name: string; legends: string[]; avoid: string[] };
+type RecipeMeta = {
+    name: string;
+    legends: string[];
+    avoid: string[];
+    /** False when UT published no ingredient statement, so `avoid` means nothing. */
+    ingredientsKnown: boolean;
+};
 
 type RawDays = Record<
     string,
@@ -800,6 +846,9 @@ function getMenuFeed(): Promise<MenuFeed> {
                 name: JSON.parse(`"${name}"`) as string,
                 legends: [...legends.matchAll(/"([^"]+)"/g)].map((l) => l[1]!),
                 avoid,
+                // UT publishes an empty string, not a missing field, for the two
+                // recipes it has no statement for, so presence is not the test.
+                ingredientsKnown: !!ingredients,
             };
         }
 
@@ -945,6 +994,7 @@ export async function getMenu(locationName: string, mdy: string, mealFilter?: st
                 serving,
                 legends: meta?.legends ?? [],
                 avoid: meta?.avoid ?? [],
+                ingredientsKnown: meta?.ingredientsKnown ?? false,
             });
         }
         if (current.items.length) sections.push(current);

@@ -55,6 +55,25 @@ describe("austinNow", () => {
     });
 });
 
+describe("parseDate rejects a date it would have to guess at", () => {
+    it.each([
+        ["saturday nov 7"],
+        ["friday the 13th"],
+        ["sunday brunch"],
+        ["s"],
+        ["mon 3"],
+    ])("rejects %s", (input) => {
+        expect(() => parseDate(input)).toThrow(/Couldn't read date/);
+    });
+
+    it.each([["friday"], ["fri"], ["next friday"], ["this monday"], ["Saturday"]])(
+        "still accepts %s",
+        (input) => {
+            expect(parseDate(input)).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+        },
+    );
+});
+
 describe("parseDate", () => {
     it("defaults to today in Austin", () => {
         expect(parseDate()).toBe("10/15/2026");
@@ -161,6 +180,18 @@ describe("open/closed status", () => {
         const j2 = rows.find((r) => r.name === "J2 Dining")!;
         expect(j2.open).toBe(true);
         expect(j2.closesIn).toBe(6 * 60 + 16);
+    });
+
+    // The closing minute is not an open minute: a hall that closes at 10pm is
+    // shut at 22:00, and reading it as open sends someone to a locked door.
+    it("is closed at the exact minute it closes, and open the minute before", async () => {
+        const at = async (minutes: number) =>
+            (await statusAt("10/15/2026", minutes)).find((r) => r.name === "J2 Dining")!;
+        const before = await at(22 * 60 - 1);
+        const on = await at(22 * 60);
+        expect(before.open, "should still be open at 21:59").toBe(true);
+        expect(before.closesIn).toBe(1);
+        expect(on.open, "should be closed at 22:00").toBe(false);
     });
 
     it("reports closed between two services, with time until reopening", async () => {

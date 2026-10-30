@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { resetCache } from "../src/lib/http";
 import { allergens, getMenu, mergedAllergens } from "../src/lib/dining";
 import { CATEGORY_LIST, registerDiningTools } from "../src/tools/dining";
-import { FIXED_NOW, stubFetch } from "./fixtures";
+import { FIXED_NOW, fixture, stubFetch } from "./fixtures";
 
 /**
  * Drives the registered tools rather than the library underneath, because the
@@ -29,6 +29,7 @@ type MenuStructured = {
             items: {
                 id: string;
                 name: string;
+                dietary: string[];
                 // null when nobody read the label: [] there would read as a
                 // positive claim of allergen-free.
                 allergens: string[] | null;
@@ -170,9 +171,11 @@ describe("get_dining_menu", () => {
             );
             const distinct = new Set(items.map((i) => i.id)).size;
             expect(structured.nutritionCoverage.distinctItems).toBe(distinct);
-            expect(structured.nutritionCoverage.distinctWithNutrition).toBeLessThanOrEqual(
-                distinct,
-            );
+            // Held to the exact figure: <= distinct is also true of the total.
+            const covered = new Set(
+                items.filter((i) => i.nutrition !== null).map((i) => i.id),
+            ).size;
+            expect(structured.nutritionCoverage.distinctWithNutrition).toBe(covered);
         },
     );
 
@@ -318,6 +321,80 @@ describe("get_dining_menu", () => {
         if (/^Nothing at/.test(out)) expect(out).toMatch(/avoiding seed oils, gelatin/);
     });
 
+    // Live, J2 lunch drops from 101 items to 49 with every avoid key set. The
+    // only end-to-end test of this used to hide behind a condition the fixtures
+    // never meet, so removing the filter altogether kept the suite green.
+    it("actually drops items for an ingredient preference", async () => {
+        const names = async (args: Record<string, unknown>) => {
+            const res = await call("get_dining_menu", {
+                location: "J2",
+                meal: "Lunch",
+                ...args,
+            });
+            return res
+                .structuredContent!.meals.flatMap((m) => m.sections.flatMap((x) => x.items))
+                .map((i) => i.name);
+        };
+        const all = await names({});
+        const kept = await names({ avoid: ["seed-oils"] });
+        expect(all.length).toBeGreaterThan(0);
+        expect(kept.length).toBeLessThan(all.length);
+        // Baked Potato and Roasted Italian Broccoli are both cooked in canola.
+        expect(all).toContain("Baked Potato");
+        expect(kept).not.toContain("Baked Potato");
+        expect(kept).not.toContain("Roasted Italian Broccoli");
+        // Green onions are green onions.
+        expect(kept).toContain("Sliced Green Onion");
+    });
+
+    // Whipped Margarine is soybean oil and palm oil, so it answers to both, and
+    // a key must only drop what it names.
+    it("drops only what the chosen preference names", async () => {
+        const names = async (avoid: string[]) => {
+            const res = await call("get_dining_menu", {
+                location: "J2",
+                meal: "Lunch",
+                ...(avoid.length ? { avoid } : {}),
+            });
+            return res
+                .structuredContent!.meals.flatMap((m) => m.sections.flatMap((x) => x.items))
+                .map((i) => i.name);
+        };
+        expect(await names([])).toContain("Whipped Margarine");
+        expect(await names(["palm-oil"])).not.toContain("Whipped Margarine");
+        // Nothing in the baked potato is palm, so that one has to stay.
+        expect(await names(["palm-oil"])).toContain("Baked Potato");
+        expect(await names(["gelatin"])).toContain("Whipped Margarine");
+    });
+
+    // Only rejecting an unknown diet code was tested; nothing asserted that a
+    // valid one actually filters. Live, J2 lunch goes 101 -> 59 for VGN.
+    it("actually filters on a dietary tag", async () => {
+        const names = async (args: Record<string, unknown>) => {
+            const res = await call("get_dining_menu", {
+                location: "J2",
+                meal: "Lunch",
+                ...args,
+            });
+            return res
+                .structuredContent!.meals.flatMap((m) => m.sections.flatMap((x) => x.items))
+                .map((i) => i.name);
+        };
+        const all = await names({});
+        const vegan = await names({ diet: ["VGN"] });
+        expect(vegan.length).toBeGreaterThan(0);
+        expect(vegan.length).toBeLessThan(all.length);
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            diet: ["VGN"],
+        });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((x) => x.items),
+        );
+        for (const item of items) expect(item.dietary, item.name).toContain("Vegan");
+    });
+
     it("rejects an unrecognised exclude code instead of ignoring it", async () => {
         for (const bad of [["peanuts"], ["Peanut", "Milk"], ["NUTS"]]) {
             const out = await textOf("get_dining_menu", {
@@ -401,6 +478,104 @@ describe("search_menu_items argument handling", () => {
         }
     });
 
+    // The name is tokenised on every non-alphanumeric; the query was only split
+    // on whitespace, so a word with punctuation stuck to it could never match
+    // and the reply was a confident "nothing on the published menu". 86 of the
+    // fixture's recipe names carry one.
+    it.each([
+        ["peas & carrots", "Peas & Carrots", undefined],
+        ["cauliflower & potatoes", "Gobi Aloo (Cauliflower & Potatoes)", undefined],
+        ["s'mores", "S'mores Cloud Cake", "10/14/2026"],
+        ["ham & cheese omelet", "Ham & Cheese Omelet", "10/14/2026"],
+        // A curly apostrophe is what a phone keyboard produces.
+        ["s\u2019mores", "S'mores Cloud Cake", "10/14/2026"],
+    ])("finds %s", async (query, expected, date) => {
+        const out = await textOf("search_menu_items", date ? { query, date } : { query });
+        expect(out, query).not.toMatch(/^Nothing/);
+        expect(out, query).toContain(expected);
+    });
+
+    // The feed is one Mon-Sun week, so by midweek some rows are days already
+    // eaten. "Where can I get tacos" must not be answered with Monday.
+    it("finds nothing when the only matches are on a day gone by", async () => {
+        // The fixture serves Fresh Matchstick Carrots on 10/14 and nothing
+        // else on the feed carries the word. FIXED_NOW is 10/15.
+        const out = await textOf("search_menu_items", { query: "matchstick" });
+        expect(out).toMatch(/^Nothing from today/);
+        expect(out).toMatch(/not searched unless you ask for one by date/);
+    });
+
+    it("leaves out days that have already gone", async () => {
+        const res = await call("search_menu_items", { query: "a" });
+        const hits = (res.structuredContent as unknown as SearchStructured).hits as unknown as {
+            date: string;
+        }[];
+        expect(hits.length).toBeGreaterThan(0);
+        const iso = (mdy: string) => {
+            const [m, d, y] = mdy.split("/");
+            return `${y}-${m}-${d}`;
+        };
+        // FIXED_NOW is 10/15/2026 and the fixture week starts on 10/12.
+        for (const hit of hits) expect(iso(hit.date) >= iso("10/15/2026"), hit.date).toBe(true);
+    });
+
+    it("still answers about an earlier day when asked for it by date", async () => {
+        const out = await textOf("search_menu_items", { query: "matchstick", date: "10/14/2026" });
+        expect(out).not.toMatch(/^Nothing/);
+        expect(out).toContain("10/14/2026");
+        expect(out).toContain("Fresh Matchstick Carrots");
+    });
+
+    // A query that tokenises to nothing is a miss, not a wildcard. UT runs a
+    // sushi place, so a student typing the dish in Japanese is a real case.
+    it.each([["\u5BFF\u53F8"], ["\uD83C\uDF55"], ["???"], ["&"], ["!!!"], ["\u2014"]])(
+        "treats %s as no match rather than everything",
+        async (query) => {
+            const res = await call("search_menu_items", { query });
+            const structured = res.structuredContent as unknown as SearchStructured;
+            expect(structured.matched, query).toBe(0);
+            expect(structured.hits, query).toEqual([]);
+        },
+    );
+
+    // An absent query still means "show me what there is", filtered by the
+    // other arguments. That is the case the empty word list is actually for.
+    it("still browses when there is no query at all", async () => {
+        const res = await call("search_menu_items", { query: "" });
+        expect((res.structuredContent as unknown as SearchStructured).matched).toBeGreaterThan(0);
+    });
+
+    // matched is the honest total; shown is what survived the row cap.
+    it("reports the true total even when the rows are capped", async () => {
+        const res = await call("search_menu_items", { query: "a" });
+        const structured = res.structuredContent as unknown as SearchStructured;
+        expect(structured.matched).toBeGreaterThan(structured.shown);
+        expect(structured.hits.length).toBe(structured.shown);
+        const text = res.content.map((c) => c.text).join("\n");
+        expect(text).toContain(`${structured.matched} match(es)`);
+        // cap() says how many it left out, and that has to add up.
+        const hidden = text.match(/\((\d+) of (\d+) not shown\)/);
+        if (hidden) {
+            expect(Number(hidden[2])).toBe(structured.matched);
+            expect(Number(hidden[1])).toBe(structured.matched - structured.shown);
+        }
+    });
+
+    // The header is the only place a partial window is disclosed on a hit.
+    it("says it searched from today onwards", async () => {
+        const out = await textOf("search_menu_items", { query: "chicken" });
+        expect(out).toMatch(/from today onwards/);
+        expect(out).toMatch(/earlier days in the published week are not searched/);
+    });
+
+    // The allergens on a search row are menu tags only, and the prose has to
+    // say so: the whole sentence could be deleted with the suite still green.
+    it("says its allergens come from the menu tags only", async () => {
+        const out = await textOf("search_menu_items", { query: "chicken" });
+        expect(out).toMatch(/menu tags only/);
+        expect(out).toMatch(/unknown rather than allergen-free/);
+    });
+
     it("rejects an unknown diet code instead of matching nothing", async () => {
         const out = await textOf("search_menu_items", { query: "wrap", diet: ["GF"] });
         expect(out).toMatch(/Unknown diet code/);
@@ -433,11 +608,65 @@ describe("search_menu_items argument handling", () => {
     });
 });
 
+describe("dining_hours filtering", () => {
+    it("openOnly actually removes the closed locations", async () => {
+        const rows = async (args: Record<string, unknown>) =>
+            (
+                (await call("dining_hours", args)).structuredContent as unknown as {
+                    locations: { open: boolean }[];
+                }
+            ).locations;
+        const all = await rows({ at: "19:30" });
+        const open = await rows({ at: "19:30", openOnly: true });
+        expect(all.length).toBeGreaterThan(open.length);
+        expect(open.length).toBeGreaterThan(0);
+        expect(open.every((r) => r.open)).toBe(true);
+    });
+});
+
 describe("menu_item_nutrition", () => {
     it("accepts the reference exactly as the menu printed it", async () => {
         const log = stubFetch();
         await call("menu_item_nutrition", { itemNumber: "450231*3" });
         expect(log.at(-1)!.url).toContain("RecNumAndPort=450231*3");
+    });
+});
+
+describe("menu_item_nutrition output", () => {
+    it("prints the label, its allergens and its ingredients", async () => {
+        const out = await textOf("menu_item_nutrition", { itemNumber: "450231*1" });
+        expect(out).toMatch(/Serving size:/);
+        expect(out).toMatch(/Calories: \d+ per serving/);
+        expect(out).toMatch(/\nContains: \w/);
+        expect(out).toMatch(/\nIngredients: \w/);
+    });
+
+    // 405 of this week's labels carry an empty allergen line. Printing nothing
+    // there left UT declaring none indistinguishable from nothing being read,
+    // in the one tool the other two point people at for allergen checks.
+    it("says so when UT's label declares no allergens", async () => {
+        resetCache();
+        stubFetch({
+            "label.aspx": fixture("foodpro-label-450231.html").replace(
+                /(class="labelallergensvalue"[^>]*>)[\s\S]*?(<)/,
+                "$1$2",
+            ),
+        });
+        const out = await textOf("menu_item_nutrition", { itemNumber: "450231*1" });
+        expect(out).toMatch(/Contains: UT's label declares no allergens/);
+    });
+
+    it("says what it could not read rather than echoing an empty reference", async () => {
+        const res = await call("menu_item_nutrition", { itemNumber: "not-a-number" });
+        expect(res.isError).toBe(true);
+        const out = res.content.map((c) => c.text).join("\n");
+        expect(out).toContain("not-a-number");
+        expect(out).not.toMatch(/for item\s*$/);
+    });
+
+    it("flags a figure that contradicts itself", async () => {
+        const out = await textOf("menu_item_nutrition", { itemNumber: "081906*3" });
+        expect(out).toMatch(/NOTE: this figure looks wrong/);
     });
 });
 
@@ -476,6 +705,15 @@ describe("gaps found in review", () => {
     it("names the meals that are served when the asked-for one isn't", async () => {
         const out = await textOf("get_dining_menu", { location: "J2", meal: "brunch" });
         expect(out).toMatch(/Meals served that day: .*(Breakfast|Lunch|Dinner)/);
+    });
+
+    // JCL publishes a Breakfast with no recipes on any day of the week and opens
+    // at 10:30. Listing it said the hall serves a meal it does not serve.
+    it("does not count a meal with nothing in it as served", async () => {
+        const out = await textOf("get_dining_menu", { location: "JCL", meal: "Breakfast" });
+        expect(out).toMatch(/^Nothing at JCL Dining/);
+        expect(out).toMatch(/Meals served that day: Lunch, Dinner/);
+        expect(out).not.toMatch(/Meals served that day:[^\n]*Breakfast/);
     });
 
     // The menu tags under-report. 450257 is tagged vegan with wheat and soy,
@@ -666,6 +904,64 @@ describe("gaps found in review", () => {
     it("finds a hall in dining_hours by its menu-feed name", async () => {
         const out = await textOf("dining_hours", { location: "JCL" });
         expect(out).not.toMatch(/No dining location matching/);
+    });
+
+    it("can return every category it advertises", async () => {
+        for (const category of CATEGORY_LIST) {
+            const out = await textOf("list_dining_locations", { category });
+            expect(out, `${category} is advertised but empty`).not.toMatch(
+                /No locations in category/,
+            );
+        }
+    });
+
+    // [] would read as "accepts no payment methods"; the detail page that
+    // carries them is only fetched for a named location.
+    // The hours feed and the housing pages spell some places differently, which
+    // put 29 rows in the roster for 26 real locations and listed La Fonda as
+    // both a Restaurant and a Food Truck.
+    it("lists each location once, under the name dining_hours prints", async () => {
+        const list = await call("list_dining_locations", {});
+        const rows = (
+            list.structuredContent as unknown as { locations: { name: string }[] }
+        ).locations;
+        const keys = rows.map((r) => r.name.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        expect(new Set(keys).size, "a location is listed twice").toBe(keys.length);
+        // No row's name is a prefix of another's: that is the shape of the
+        // duplicate this merge removes.
+        for (const a of keys)
+            for (const b of keys)
+                if (a !== b) expect(b.startsWith(a), `${a} and ${b} are the same place`).toBe(false);
+
+        const hours = await call("dining_hours", {});
+        const printed = (
+            hours.structuredContent as unknown as { locations: { name: string }[] }
+        ).locations;
+        expect(rows.length).toBe(printed.length);
+        // Every name dining_hours prints has to be in the roster verbatim.
+        for (const row of printed) expect(rows.map((r) => r.name)).toContain(row.name);
+    });
+
+    // "La Fonda Food Trailer" is the feed's spelling; the detail page is filed
+    // under "La Fonda". Looking it up by the name dining_hours prints used to
+    // land on the feed row, which has coordinates and nothing else.
+    it("fills in the detail for a location the two sources name differently", async () => {
+        const out = await textOf("list_dining_locations", { name: "La Fonda Food Trailer" });
+        expect(out).toMatch(/La Fonda/);
+        // Something beyond the coordinates the feed row carries on its own.
+        expect(out, "resolved to the bare feed row").toMatch(/Address|Payment|Source/);
+    });
+
+    it("leaves payment unknown in the list and fills it in for one location", async () => {
+        const list = await call("list_dining_locations", {});
+        const rows = (list.structuredContent as unknown as { locations: { payment: unknown }[] })
+            .locations;
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((r) => r.payment === null)).toBe(true);
+        const one = await call("list_dining_locations", { name: "Noodle Lab" });
+        const detail = (one.structuredContent as unknown as { locations: { payment: unknown }[] })
+            .locations[0]!;
+        expect(Array.isArray(detail.payment)).toBe(true);
     });
 
     it("advertises every category it puts a location in", async () => {

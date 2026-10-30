@@ -14,6 +14,9 @@ import {
     getNutrition,
     implausible,
     macrosFromLabel,
+    recipeLegends,
+    requireLocation,
+    splitAllergens,
     isAllergenCode,
     hoursForDate,
     labelHasAllergen,
@@ -296,6 +299,7 @@ export function registerDiningTools(server: McpServer): void {
                 avoid?: string[];
                 station?: string;
             }) => {
+                requireLocation(location);
                 const mdy = parseDate(date);
 
                 // An unrecognised code must never pass silently: a dietary
@@ -320,7 +324,7 @@ export function registerDiningTools(server: McpServer): void {
                     (!avoid.length || !avoid.some((tag) => item.legends.includes(tag))) &&
                     (!skip.length || !skip.some((k) => item.avoid.includes(k)));
 
-                const meals = menu.meals
+                let meals = menu.meals
                     .map((entry) => ({
                         meal: entry.meal,
                         sections: entry.sections
@@ -340,8 +344,10 @@ export function registerDiningTools(server: McpServer): void {
                     const why = [
                         meal ? `for ${meal}` : "",
                         station ? `at station "${station}"` : "",
-                        want.length ? `tagged ${want.join(", ")}` : "",
-                        avoid.length ? `without ${avoid.join(", ")}` : "",
+                        // Spelled out, as every other line of output is: the
+                        // codes are the caller's input, not a reply.
+                        want.length ? `tagged ${dietTags(want).join(", ")}` : "",
+                        avoid.length ? `without ${allergens(avoid).join(", ")}` : "",
                         skip.length
                             ? `avoiding ${skip
                                   .map((key) => AVOID_INGREDIENTS[key]?.label ?? key)
@@ -417,6 +423,10 @@ export function registerDiningTools(server: McpServer): void {
                         }
                         entry.sections = entry.sections.filter((section) => section.items.length);
                     }
+                    // A meal with every item withheld is not a meal with no
+                    // food in it. The lead says how many were held back; an
+                    // empty heading under it says the opposite.
+                    meals = meals.filter((entry) => entry.sections.length);
                 }
 
                 const line = (item: MenuItem) => {
@@ -444,6 +454,11 @@ export function registerDiningTools(server: McpServer): void {
                     // all along; this is the same distinction in the prose.
                     const notes = [
                         ...dietTags(item.legends),
+                        // A preference can only speak for a recipe UT published
+                        // ingredients for. Two of this week's 997 have none at all.
+                        ...(skip.length && !item.ingredientsKnown
+                            ? ["ingredients unpublished, preference unchecked"]
+                            : []),
                         ...(allergenList.length
                             ? [
                                   `contains ${allergenList.join("/")}` +
@@ -845,13 +860,16 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 if (!hits.length) {
                     const window = await getMenuWindow();
                     return textWith(
-                        `Nothing from today through ${window.dates[window.dates.length - 1]} ` +
-                            `(at ${window.locations.join(", ")}) matches "${query}". Days earlier in the ` +
-                            `published week are not searched unless you ask for one by date. ` +
-                            `This searches item names and station names only, not ` +
+                        `Nothing ${date ? `on ${date}` : `from today through ${window.dates[window.dates.length - 1]}`} ` +
+                            `(at ${location ?? window.locations.join(", ")}` +
+                            `${diet?.length ? `, tagged ${diet.join(", ")}` : ""}) matches "${query}".` +
+                            `${date ? "" : " Days earlier in the published week are not searched unless you ask for one by date."}` +
+                            `${location ? " Only that location was searched." : ""}` +
+                            `${diet?.length ? " The dietary filter may be what emptied this; try without it." : ""}` +
+                            ` This searches item names and station names only, not ` +
                             `ingredients, and the feed carries no drinks at all, so a miss here does not ` +
                             `mean UT never serves it.`,
-                        { query, matched: 0, shown: 0, lastCached: "", hits: [] },
+                        { query, matched: 0, shown: 0, lastCached: window.lastCached, hits: [] },
                     );
                 }
                 // Today first, then whole-word matches, because that is the order the
@@ -879,8 +897,8 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     return `  ${when}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})${hit.tier === 2 ? "  [loose]" : ""}`;
                 });
                 return textWith(
-                    `${hits.length} match(es) for "${query}" from today onwards` +
-                        `${date ? "" : " (earlier days in the published week are not searched)"}` +
+                    `${hits.length} match(es) for "${query}"` +
+                        `${date ? "" : " from today onwards (earlier days in the published week are not searched)"}` +
                         `, today first:\n\n${body}\n\n` +
                         (loose
                             ? `${loose} of the rows shown are marked [loose]: the query appears inside ` +
@@ -956,8 +974,52 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         `recipe number, then its serving. get_dining_menu and search_menu_items ` +
                         `print one at the end of every line.`,
                 );
-            const label = await getNutrition(digits, serving ?? embedded);
+            // Servings are what get_dining_menu prints: a count, or a fraction
+            // like 1/12. Anything else goes into UT's URL and comes back as
+            // arithmetic we would be reporting as fact.
+            const portion = serving ?? embedded;
+            if (portion !== undefined && !/^\d+(?:\/\d+)?$/.test(portion.trim()))
+                throw new Error(
+                    `"${portion}" is not a serving. They are a count like 3, or a fraction ` +
+                        `like 1/12, exactly as get_dining_menu prints them after the *.`,
+                );
+            // Syntax is not enough: *999999 parses and UT answers it with
+            // 4,145,227,855 calories. The feed's own servings are small counts
+            // and fractions down to 1/96.
+            const [num, den] = (portion ?? "1").trim().split("/").map(Number);
+            if (
+                portion !== undefined &&
+                (!num || num > 200 || (den !== undefined && (!den || den > 1000)))
+            )
+                throw new Error(
+                    `A serving of "${portion}" is not a portion of anything UT serves. ` +
+                        `They run from 1 to a few dozen, with fractions as small as 1/96.`,
+                );
+            const label = await getNutrition(digits, portion);
             const odd = implausible(macrosFromLabel(label));
+            // The label and the menu tags each miss things the other catches, so
+            // reporting the label alone turned its silence into a denial: Honey
+            // Chipotle Chicken Taco is tagged Pork and its label declares
+            // nothing. Say what each source holds rather than merging them into
+            // one sentence that hides which is which.
+            const labelNames = splitAllergens(label.allergens ?? "");
+            const merged = mergedAllergens({
+                number: digits,
+                name: label.name,
+                legends: await recipeLegends(digits),
+                avoid: [],
+                labelAllergens: labelNames,
+            });
+            const missedByLabel = merged.filter((name) => !labelNames.includes(name));
+            const allergenLine = label.allergens
+                ? `\nContains: ${label.allergens}` +
+                  (missedByLabel.length
+                      ? `; the menu tags also list ${missedByLabel.join(", ")}`
+                      : "")
+                : missedByLabel.length
+                  ? `\nContains: UT's label declares none, but the menu tags for this item list ` +
+                    `${missedByLabel.join(", ")}. Treat the tags as the answer.`
+                  : "\nContains: UT's label declares no allergens, and its menu tags name none.";
             return text(
                 [
                     label.name,
@@ -972,9 +1034,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         (row) =>
                             `  ${row.name.padEnd(22)} ${row.amount.padEnd(10)}${row.dv ? ` ${row.dv} DV` : ""}`,
                     ),
-                    label.allergens
-                        ? `\nContains: ${label.allergens}`
-                        : "\nContains: UT's label declares no allergens.",
+                    allergenLine,
                     label.ingredients ? `\nIngredients: ${label.ingredients}` : "",
                 ]
                     .filter(Boolean)

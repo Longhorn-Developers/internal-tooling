@@ -86,7 +86,14 @@ export function parseDate(input?: string): string {
         return calendarDate(Number(us[1]), Number(us[2]), year, input!);
     }
 
-    const wd = DAY_NAMES.findIndex((d) => d.toLowerCase().startsWith(s.slice(0, 3)));
+    // Match the whole word, not its first three characters: "saturday nov 7"
+    // used to resolve to Saturday and quietly drop the rest of what was asked.
+    const asWeekday = s.replace(/^(?:next|this|coming)\s+/, "").trim();
+    const wd = /^[a-z]+$/.test(asWeekday)
+        ? DAY_NAMES.findIndex(
+              (d) => d.toLowerCase() === asWeekday || d.toLowerCase().slice(0, 3) === asWeekday,
+          )
+        : -1;
     if (wd >= 0) return fromOffset((wd - now.dayIndex + 7) % 7);
 
     throw new Error(`Couldn't read date "${input}". Try "today", "friday", or "2026-10-16".`);
@@ -304,7 +311,10 @@ const CATEGORY_PAGES = [
     ["Dining Halls", "dining-halls"],
     ["Restaurants", "restaurants"],
     ["Coffee Shops", "coffee-shops"],
-    ["Convenience Stores", "convenience-stores"],
+    // UT's hours feed calls these Markets, and that is what dining_hours
+    // prints, so take the feed's name for them here rather than publishing a
+    // category that no location can ever be in.
+    ["Markets", "convenience-stores"],
 ] as const;
 
 /** Coordinates live inline in the FoodPro app shell. */
@@ -372,15 +382,30 @@ export function getLocations(): Promise<DiningLocation[]> {
         // the hours feed lists food trucks too, which have no detail page
         for (const loc of period.locations) {
             const key = norm(loc.name);
-            const hit = found.get(key);
-            // The feed is what dining_hours prints, so it has to be what
-            // list_dining_locations answers to. The housing site files Jester
-            // City Market and Kin's Market under convenience-stores while the
-            // feed calls them Markets, and keeping the housing value meant
-            // asking for a category the other tool had just shown you came back
-            // "no locations in that category".
-            if (hit) hit.category = loc.category || hit.category;
-            else found.set(key, { name: loc.name, category: loc.category });
+            let hit = found.get(key);
+            // The two sources spell three places differently, so the roster
+            // carried 29 rows for 26 real locations: "Prufrock's" beside
+            // "Prufrock's Coffee", "Tower Burger" beside "Tower Burgers and
+            // Fries", and La Fonda listed as both a Restaurant and a Food
+            // Truck. One name being the start of the other is what separates a
+            // second spelling of one place from two places in one building.
+            if (!hit)
+                for (const [known, entry] of found)
+                    if (known.startsWith(key) || key.startsWith(known)) {
+                        hit = entry;
+                        break;
+                    }
+            // The feed is what dining_hours prints, so its spelling and its
+            // category are what any follow-up call will be made with. The
+            // housing site files Jester City Market under convenience-stores
+            // while the feed calls it a Market, and keeping the housing value
+            // meant asking for a category the other tool had just shown you
+            // came back "no locations in that category". The housing row keeps
+            // its slug, address and description.
+            if (hit) {
+                hit.name = loc.name;
+                hit.category = loc.category || hit.category;
+            } else found.set(key, { name: loc.name, category: loc.category });
         }
 
         for (const [key, loc] of found) {
@@ -968,7 +993,13 @@ export async function searchMenuItems(
     opts: { date?: string; location?: string; diet?: string[] } = {},
 ) {
     const feed = await getMenuFeed();
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    // Tokenise the query exactly as the names are. Splitting it on whitespace
+    // alone left the punctuation attached, so "mac & cheese" could not match
+    // Homemade Mac and Cheese at either tier and came back as a confident
+    // "nothing on the published menu". 85 of this week's 688 names carry an
+    // apostrophe, ampersand, comma or slash.
+    const words = tokens(query);
+    if (query.trim() && !words.length) return { lastCached: feed.lastCached, hits: [] };
     const hits: ItemHit[] = [];
     const today = austinNow().mdy;
 
@@ -985,6 +1016,9 @@ export async function searchMenuItems(
 
     for (const [date, day] of days) {
         if (opts.date && date !== opts.date) continue;
+        // Days already eaten are no answer to "where can I get this". An
+        // explicit date is a deliberate question about that day, so it stands.
+        if (!opts.date && iso(date) < iso(today)) continue;
         for (const loc of day.locations) {
             if (opts.location && !matchesLocation(loc.locationName, opts.location)) continue;
             for (const meal of loc.meals) {

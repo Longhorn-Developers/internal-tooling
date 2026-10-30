@@ -93,7 +93,6 @@ export const CATEGORY_LIST = [
     "Coffee Shops",
     "Markets",
     "Food Trucks",
-    "Convenience Stores",
 ] as const;
 
 const AVOID_KEYS = Object.entries(AVOID_INGREDIENTS)
@@ -352,7 +351,9 @@ export function registerDiningTools(server: McpServer): void {
                         .filter(Boolean)
                         .join(" ");
                     const served = meal
-                        ? (await getMenu(location, mdy)).meals.map((entry) => entry.meal)
+                        ? (await getMenu(location, mdy)).meals
+                              .filter((entry) => entry.sections.some((s) => s.items.length))
+                              .map((entry) => entry.meal)
                         : [];
                     // An empty result still has to satisfy outputSchema, or the
                     // client rejects the whole response instead of showing this.
@@ -714,8 +715,8 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
         {
             title: "List dining locations",
             description:
-                "List UT Austin campus dining locations: dining halls, restaurants, coffee shops, convenience " +
-                "stores and food trucks. Pass a name for one location's detail: description, street address, " +
+                "List UT Austin campus dining locations: dining halls, restaurants, coffee shops, markets " +
+                "and food trucks. Pass a name for one location's detail: description, street address, " +
                 "building and accepted payment methods.",
             outputSchema: LOCATIONS_OUTPUT,
             inputSchema: z.object({
@@ -844,9 +845,10 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 if (!hits.length) {
                     const window = await getMenuWindow();
                     return textWith(
-                        `Nothing on the published menu (${window.dates[0]} to ` +
-                            `${window.dates[window.dates.length - 1]}, at ${window.locations.join(", ")}) ` +
-                            `matches "${query}". This searches item names and station names only, not ` +
+                        `Nothing from today through ${window.dates[window.dates.length - 1]} ` +
+                            `(at ${window.locations.join(", ")}) matches "${query}". Days earlier in the ` +
+                            `published week are not searched unless you ask for one by date. ` +
+                            `This searches item names and station names only, not ` +
                             `ingredients, and the feed carries no drinks at all, so a miss here does not ` +
                             `mean UT never serves it.`,
                         { query, matched: 0, shown: 0, lastCached: "", hits: [] },
@@ -877,7 +879,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     return `  ${when}  ${hit.meal.padEnd(9)} ${hit.location.padEnd(12)} ${hit.item.name}${notes ? ` · ${notes}` : ""}  (${ref})${hit.tier === 2 ? "  [loose]" : ""}`;
                 });
                 return textWith(
-                    `${hits.length} match(es) for "${query}", today first:\n\n${body}\n\n` +
+                    `${hits.length} match(es) for "${query}" from today onwards` +
+                        `${date ? "" : " (earlier days in the published week are not searched)"}` +
+                        `, today first:\n\n${body}\n\n` +
                         (loose
                             ? `${loose} of the rows shown are marked [loose]: the query appears inside ` +
                               `a longer word rather than as a word of its own. Treat them as weak matches.\n\n`
@@ -942,10 +946,17 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
         },
         guard(async ({ itemNumber, serving }: { itemNumber: string; serving?: string }) => {
             const [number, embedded] = itemNumber.split("*");
-            const label = await getNutrition(
-                (number ?? "").replace(/\D/g, ""),
-                serving ?? embedded,
-            );
+            const digits = (number ?? "").replace(/\D/g, "");
+            // The reference is stripped to digits before it reaches the fetch, so
+            // a reference with none in it used to come back as "no nutrition label
+            // could be read for item " -- a trailing space and nothing to act on.
+            if (!digits)
+                throw new Error(
+                    `"${itemNumber}" is not an item reference. They look like 081906*3: the ` +
+                        `recipe number, then its serving. get_dining_menu and search_menu_items ` +
+                        `print one at the end of every line.`,
+                );
+            const label = await getNutrition(digits, serving ?? embedded);
             const odd = implausible(macrosFromLabel(label));
             return text(
                 [
@@ -961,7 +972,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                         (row) =>
                             `  ${row.name.padEnd(22)} ${row.amount.padEnd(10)}${row.dv ? ` ${row.dv} DV` : ""}`,
                     ),
-                    label.allergens ? `\nContains: ${label.allergens}` : "",
+                    label.allergens
+                        ? `\nContains: ${label.allergens}`
+                        : "\nContains: UT's label declares no allergens.",
                     label.ingredients ? `\nIngredients: ${label.ingredients}` : "",
                 ]
                     .filter(Boolean)

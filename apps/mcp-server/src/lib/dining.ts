@@ -64,7 +64,7 @@ function calendarDate(month: number, day: number, year: number, input: string): 
 }
 
 /** "today", "tomorrow", "friday", "2026-10-16", "10/16/2026" -> MM/DD/YYYY. */
-export function parseDate(input?: string): string {
+export function parseDate(input?: string, opts: { publishedWeek?: boolean } = {}): string {
     const now = austinNow();
     const s = (input ?? "").trim().toLowerCase();
     if (!s || s === "today") return now.mdy;
@@ -107,8 +107,14 @@ export function parseDate(input?: string): string {
         // published for 11/02" while printing a window that contained the
         // Monday being asked about. DAY_NAMES runs Monday..Sunday, so anything
         // past this week's Sunday belongs to the week already in hand.
+        // Only the menu tools have a published Monday-to-Sunday week to fall
+        // back into. dining_hours answers for any date UT has a schedule for,
+        // months out, so resolving "monday" backwards there answered a question
+        // about last Monday's hours -- invisible while two Mondays share a
+        // schedule, and wrong across a break boundary.
         const toSunday = DAY_NAMES.length - 1 - now.dayIndex;
-        return fromOffset(!forwardOnly && offset > toSunday ? offset - 7 : offset);
+        const backward = opts.publishedWeek !== false && !forwardOnly && offset > toSunday;
+        return fromOffset(backward ? offset - 7 : offset);
     }
 
     throw new Error(`Couldn't read date "${input}". Try "today", "friday", or "2026-10-16".`);
@@ -462,6 +468,13 @@ export async function getLocationDetail(name: string): Promise<DiningLocation | 
     // prefer the row that can actually be filled in.
     const byName = [
         locs.filter((l) => norm(l.name) === q),
+        // "J2" is two characters and is this tool's own documented example;
+        // "JCL Dining" is the name get_dining_menu and search_menu_items print,
+        // and neither resolved here while every other tool took both. The floor
+        // below exists to stop a one-letter substring answering by accident,
+        // and a name in the alias table is the opposite of an accident, so it
+        // is matched before the floor applies.
+        (LOCATION_ALIASES[q] ?? []).length ? locs.filter((l) => matchesLocation(l.name, name)) : [],
         // The floor applies to the prefix tier too: "o" is the start of One Two
         // Three Sushi and "ch" of Chick-fil-A, which is an accident, not a name.
         q.length >= 3

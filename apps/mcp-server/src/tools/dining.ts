@@ -245,46 +245,53 @@ export function registerDiningTools(server: McpServer): void {
                 "ingredient statement. Keep the serving: the same recipe is different nutrition at a " +
                 "different portion. It is for calling the other tools, not for showing to the person " +
                 "asking, who wants the dish name.",
-            inputSchema: z.object({
-                location: z.string().describe('Dining hall: "J2", "Kins" or "JCL"'),
-                date: z
-                    .string()
-                    .optional()
-                    .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
-                meal: z
-                    .string()
-                    .optional()
-                    .describe('"Breakfast", "Lunch" or "Dinner". Omit for all three.'),
-                diet: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        `Keep only items carrying every one of these. Usually a dietary tag: ` +
-                            `VGN (Vegan), VGT (Vegetarian), HAL (Halal Friendly). All codes: ${CODES}`,
-                    ),
-                exclude: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        `Drop items carrying any of these, for allergies and restrictions, ` +
-                            `e.g. ["PNTS","NTS"] for a nut allergy. All codes: ${CODES}`,
-                    ),
-                avoid: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        `Drop items whose ingredient list contains one of these. Preference, not ` +
-                            `allergy -- use exclude for allergens, which reads the label. One of: ` +
-                            `${AVOID_KEYS}.`,
-                    ),
-                station: z
-                    .string()
-                    .optional()
-                    .describe(
-                        'Only this serving station, e.g. "Garden Bar" or "Comfort Table". ' +
-                            "A station is small enough that every item comes back with nutrition.",
-                    ),
-            }),
+            inputSchema: z
+                .object({
+                    location: z.string().describe('Dining hall: "J2", "Kins" or "JCL"'),
+                    date: z
+                        .string()
+                        .optional()
+                        .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
+                    meal: z
+                        .string()
+                        .optional()
+                        .describe('"Breakfast", "Lunch" or "Dinner". Omit for all three.'),
+                    diet: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items carrying every one of these. Usually a dietary tag: ` +
+                                `VGN (Vegan), VGT (Vegetarian), HAL (Halal Friendly). All codes: ${CODES}`,
+                        ),
+                    exclude: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items carrying any of these, for allergies and restrictions, ` +
+                                `e.g. ["PNTS","NTS"] for a nut allergy. All codes: ${CODES}`,
+                        ),
+                    avoid: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items whose ingredient list contains one of these. Preference, not ` +
+                                `allergy -- use exclude for allergens, which reads the label. One of: ` +
+                                `${AVOID_KEYS}.`,
+                        ),
+                    station: z
+                        .string()
+                        .optional()
+                        .describe(
+                            'Only this serving station, e.g. "Garden Bar" or "Comfort Table". ' +
+                                "A station is small enough that every item comes back with nutrition.",
+                        ),
+                })
+                // Strict for the same reason search_menu_items is, and this is
+                // the tool that reads labels for allergies: `excludes` instead
+                // of `exclude` was stripped before the handler saw it and
+                // returned the unfiltered menu, six tree-nut items included,
+                // with withheld.count 0 and no hedge anywhere.
+                .strict(),
             outputSchema: MENU_OUTPUT,
         },
         guard(
@@ -623,18 +630,25 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 "they close. Defaults to today, and to noon for any other date unless at says otherwise. " +
                 "Handles special schedules such as finals, breaks and holidays.",
             outputSchema: HOURS_OUTPUT,
-            inputSchema: z.object({
-                date: z
-                    .string()
-                    .optional()
-                    .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
-                location: z.string().optional().describe('Only this location, e.g. "J2"'),
-                openOnly: z.boolean().optional().describe("Only locations open at the given time"),
-                at: z
-                    .string()
-                    .optional()
-                    .describe('Time to check, e.g. "19:30". Defaults to now for today.'),
-            }),
+            inputSchema: z
+                .object({
+                    date: z
+                        .string()
+                        .optional()
+                        .describe('"today" (default), "tomorrow", "friday", or "2026-10-16"'),
+                    location: z.string().optional().describe('Only this location, e.g. "J2"'),
+                    openOnly: z
+                        .boolean()
+                        .optional()
+                        .describe("Only locations open at the given time"),
+                    at: z
+                        .string()
+                        .optional()
+                        .describe('Time to check, e.g. "19:30". Defaults to now for today.'),
+                })
+                // `time` instead of `at` was dropped silently, so "is J2 open
+                // at 22:30" was answered about now -- OPEN, when it is closed.
+                .strict(),
         },
         guard(
             async ({
@@ -648,7 +662,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 openOnly?: boolean;
                 at?: string;
             }) => {
-                const mdy = parseDate(date);
+                // Not the menu's published week: this tool answers for any date UT
+                // has a schedule for, so a bare weekday must not resolve backwards.
+                const mdy = parseDate(date, { publishedWeek: false });
                 const now = austinNow();
                 const isToday = mdy === now.mdy;
 
@@ -750,13 +766,21 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 "and food trucks. Pass a name for one location's detail: description, street address, " +
                 "building and accepted payment methods.",
             outputSchema: LOCATIONS_OUTPUT,
-            inputSchema: z.object({
-                name: z
-                    .string()
-                    .optional()
-                    .describe('A specific location, e.g. "J2" or "Noodle Lab"'),
-                category: z.string().optional().describe(`Filter by type. One of: ${CATEGORIES}`),
-            }),
+            inputSchema: z
+                .object({
+                    name: z
+                        .string()
+                        .optional()
+                        .describe('A specific location, e.g. "J2" or "Noodle Lab"'),
+                    category: z
+                        .string()
+                        .optional()
+                        .describe(`Filter by type. One of: ${CATEGORIES}`),
+                })
+                // `type` instead of `category` listed all 25 locations under a
+                // "Coffee Shops" heading, so a model summarising it called the
+                // dining halls coffee shops.
+                .strict(),
         },
         guard(async ({ name, category }: { name?: string; category?: string }) => {
             if (name) {
@@ -928,10 +952,22 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     return textWith(
                         `Nothing ${asked ? `on ${asked}` : `from today through ${window.dates[window.dates.length - 1]}`} ` +
                             `(at ${location ?? window.locations.join(", ")}` +
-                            `${diet?.length ? `, tagged ${diet.join(", ")}` : ""}) matches "${query}".` +
+                            `${diet?.length ? `, tagged ${diet.join(", ")}` : ""}` +
+                            `${exclude?.length ? `, without ${exclude.map(spellCode).join(", ")}` : ""}` +
+                            `${contains?.length ? `, containing ${contains.map((k) => AVOID_INGREDIENTS[k]?.label ?? k).join(", ")}` : ""}` +
+                            `) matches "${query}".` +
                             `${date ? "" : " Days earlier in the published week are not searched unless you ask for one by date."}` +
                             `${location ? " Only that location was searched." : ""}` +
                             `${diet?.length ? " The dietary filter may be what emptied this; try without it." : ""}` +
+                            // Saying nothing matches the query when a filter did
+                            // the emptying is a false statement about the menu:
+                            // "cookies without nuts, milk or wheat" reported no
+                            // cookies at all, with ten on the week's menu.
+                            `${
+                                exclude?.length || contains?.length
+                                    ? ` The name may match items that the ${exclude?.length ? "exclusion" : "ingredient filter"} then removed; try the query on its own.`
+                                    : ""
+                            }` +
                             ` This matches item and station names; for what is in a dish, ` +
                             `pass contains (${AVOID_KEYS}). The feed carries no drinks at all, so a ` +
                             `miss here does not mean UT never serves it.`,
@@ -1012,19 +1048,21 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 "Get the full nutrition label and ingredient list for one UT Austin dining item, by the reference " +
                 "shown in get_dining_menu or search_menu_items. Returns every nutrient plus the complete " +
                 "ingredient statement, which the menu does not carry. Useful for allergen checks.",
-            inputSchema: z.object({
-                itemNumber: z
-                    .string()
-                    .describe(
-                        'The item reference exactly as the menu printed it, e.g. "450178*4" or "450178"',
-                    ),
-                serving: z
-                    .string()
-                    .optional()
-                    .describe(
-                        "Serving size, if not already part of itemNumber. Nutrition is per serving.",
-                    ),
-            }),
+            inputSchema: z
+                .object({
+                    itemNumber: z
+                        .string()
+                        .describe(
+                            'The item reference exactly as the menu printed it, e.g. "450178*4" or "450178"',
+                        ),
+                    serving: z
+                        .string()
+                        .optional()
+                        .describe(
+                            "Serving size, if not already part of itemNumber. Nutrition is per serving.",
+                        ),
+                })
+                .strict(),
         },
         guard(async ({ itemNumber, serving }: { itemNumber: string; serving?: string }) => {
             const [number, embedded] = itemNumber.split("*");
@@ -1088,6 +1126,16 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 [
                     label.name,
                     label.servingSize ? `Serving size: ${label.servingSize}` : "",
+                    // Without a serving this reads the recipe's base portion,
+                    // which for a pizza is the whole pizza: #140915 came back
+                    // 2961 cal where the menu's own #140915*1/12 is 247. A
+                    // twelvefold error with nothing in the reply to catch it.
+                    portion === undefined
+                        ? `NOTE: no serving was given, so this is the recipe's base portion` +
+                          ` shown above, which may be a whole tray or pizza rather than a` +
+                          ` helping. Pass the reference as get_dining_menu printed it, e.g.` +
+                          ` "${number}*1/12", for one serving.`
+                        : "",
                     odd
                         ? `NOTE: this figure looks wrong -- ${odd}. It is what UT publishes;` +
                           ` treat it as unverified.`

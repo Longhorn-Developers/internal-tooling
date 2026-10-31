@@ -60,6 +60,15 @@ type Registered = {
         // Zod object, kept structural: the SDK types structuredContent as an
         // open record whatever the schema says, so tsc will never link them.
         outputSchema?: { parse: (value: unknown) => unknown };
+        // Same reason: the call has to go through it, because an input schema
+        // that drops what it does not recognise is invisible from the handler.
+        inputSchema?: {
+            safeParse: (value: unknown) => {
+                success: boolean;
+                data?: unknown;
+                error?: { message: string };
+            };
+        };
     };
     handler: (args: unknown, extra?: unknown) => Promise<ToolResult>;
 };
@@ -88,6 +97,19 @@ function tools(): Record<string, Registered> {
 async function call(name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
     const tool = tools()[name];
     if (!tool) throw new Error(`No such tool: ${name}`);
+    // Go through the input schema the way the server does. Calling the handler
+    // with a raw object skipped validation entirely, which is why a schema that
+    // silently dropped an unknown `exclude` looked fine here while answering a
+    // nut-allergy question with peanut cookies.
+    if (tool.config.inputSchema) {
+        const checked = tool.config.inputSchema.safeParse(args);
+        if (!checked.success)
+            return {
+                isError: true,
+                content: [{ type: "text", text: checked.error?.message ?? "invalid arguments" }],
+            } as ToolResult;
+        args = checked.data as Record<string, unknown>;
+    }
     const result = await tool.handler(args, {});
     if (tool.config.outputSchema && !result.isError) {
         const parsed = tool.config.outputSchema.parse(result.structuredContent);
@@ -189,9 +211,8 @@ describe("get_dining_menu", () => {
             const distinct = new Set(items.map((i) => i.id)).size;
             expect(structured.nutritionCoverage.distinctItems).toBe(distinct);
             // Held to the exact figure: <= distinct is also true of the total.
-            const covered = new Set(
-                items.filter((i) => i.nutrition !== null).map((i) => i.id),
-            ).size;
+            const covered = new Set(items.filter((i) => i.nutrition !== null).map((i) => i.id))
+                .size;
             expect(structured.nutritionCoverage.distinctWithNutrition).toBe(covered);
         },
     );
@@ -319,21 +340,20 @@ describe("get_dining_menu", () => {
         expect(text).toMatch(/Do not read those rows as allergen-free/);
     });
 
-    // The label budget is spent in menu order, so a later meal can have every
-    // one of its items withheld. Printing the heading with nothing under it
-    // reads as "there is no peanut-free dinner here", which is the opposite of
-    // what happened.
+    // A meal heading with nothing under it reads as "there is no peanut-free
+    // dinner here", which is the opposite of what happened. This used to be
+    // reachable by date, because the budget was spent in menu order and a later
+    // meal could lose every item; spreading the budget across the day made that
+    // scenario rare rather than impossible, so what is asserted now is the
+    // invariant itself: nothing printed is empty.
     it("does not print a meal whose every item was withheld", async () => {
-        // On 10/16 the label budget is spent entirely on JCL's lunch, so every
-        // dinner item is unverified and withheld. On other days the two meals
-        // share recipes and both survive, which is why the date matters here.
         const res = await call("get_dining_menu", {
             location: "JCL",
             exclude: ["PNTS"],
             date: "10/16/2026",
         });
         const structured = res.structuredContent!;
-        expect(structured.meals.map((m) => m.meal)).toEqual(["Lunch"]);
+        expect(structured.meals.length).toBeGreaterThan(0);
         expect(structured.withheld.count).toBeGreaterThan(0);
         for (const entry of structured.meals)
             expect(entry.sections.length, `${entry.meal} has no sections`).toBeGreaterThan(0);
@@ -912,10 +932,13 @@ describe("a location name that cannot be read", () => {
         },
     );
 
-    it.each([["\u4E2D\u6587"], ["???"]])("does not silently drop the filter in hours: %s", async (location) => {
-        const out = await textOf("dining_hours", { location });
-        expect(out, location).toMatch(/No dining location matching/);
-    });
+    it.each([["\u4E2D\u6587"], ["???"]])(
+        "does not silently drop the filter in hours: %s",
+        async (location) => {
+            const out = await textOf("dining_hours", { location });
+            expect(out, location).toMatch(/No dining location matching/);
+        },
+    );
 
     it.each([["\u4E2D\u6587"], ["***"]])("does not hand back a menu for %s", async (location) => {
         const res = await call("get_dining_menu", { location, meal: "Lunch" });
@@ -952,6 +975,67 @@ describe("a location name too short to mean anything", () => {
     it("still answers a name that is only a fragment, once it is long enough", async () => {
         const out = await textOf("list_dining_locations", { name: "Jest" });
         expect(out).not.toMatch(/No dining location matching/);
+    });
+});
+
+describe("search_menu_items filters that must not fail open", () => {
+    // The schema used to ignore any key it did not declare, so a model that had
+    // read get_dining_menu's schema could send exclude: ["PNTS","NTS"] for a
+    // nut allergy and get the peanut cookies back, unfiltered and unhedged.
+    it("drops items whose tags carry an excluded allergen", async () => {
+        const plain = await call("search_menu_items", { query: "cookies" });
+        const safe = await call("search_menu_items", {
+            query: "cookies",
+            exclude: ["PNTS", "NTS"],
+        });
+        const hitsOf = (res: ToolResult) =>
+            (res.structuredContent as unknown as SearchStructured).hits as unknown as {
+                name: string;
+                allergens?: string[] | null;
+                ingredientsKnown?: boolean;
+            }[];
+        const nutty = (res: ToolResult) =>
+            hitsOf(res).filter((h) => h.allergens?.some((a) => /Peanut|Tree Nut/i.test(a))).length;
+        expect(nutty(plain)).toBeGreaterThan(0); // the fixture has some
+        expect(nutty(safe)).toBe(0);
+        expect(hitsOf(safe).length).toBeLessThan(hitsOf(plain).length);
+    });
+
+    // Silently dropping an unknown key is how the above happened. Anything the
+    // tool cannot honour has to be an error, not a shrug.
+    it("refuses a key it does not implement rather than ignoring it", async () => {
+        const res = await call("search_menu_items", { query: "pasta", maxCalories: 400 });
+        expect(res.isError).toBe(true);
+    });
+
+    it("refuses an unknown contains key", async () => {
+        const res = await call("search_menu_items", { query: "pasta", contains: ["msq"] });
+        expect(res.isError).toBe(true);
+        expect(res.content.map((c) => c.text).join("")).toMatch(/Unknown contains key/);
+    });
+
+    // The ingredient statement was in hand for every item and no tool would
+    // search it: "give me foods that have seed oils" returned a confident
+    // "nothing matches" while get_dining_menu could already hide exactly those
+    // items through avoid.
+    it("finds items by what is in them, not only by name", async () => {
+        const res = await call("search_menu_items", { query: "", contains: ["seed-oils"] });
+        const hits = (res.structuredContent as unknown as SearchStructured).hits as unknown as {
+            name: string;
+        }[];
+        expect(hits.length).toBeGreaterThan(0);
+        // Nothing here is named for a seed oil; they are found by ingredient.
+        expect(hits.every((h) => !/seed|canola|soybean/i.test(h.name))).toBe(true);
+    });
+
+    it("does not claim an item contains something when no statement exists", async () => {
+        const res = await call("search_menu_items", { query: "", contains: ["gelatin"] });
+        const hits = (res.structuredContent as unknown as SearchStructured).hits as unknown as {
+            name: string;
+            ingredientsKnown?: boolean;
+        }[];
+        for (const hit of hits)
+            expect(hit.ingredientsKnown, `${hit.name} has no ingredient statement`).not.toBe(false);
     });
 });
 
@@ -1312,21 +1396,20 @@ describe("gaps found in review", () => {
     // both a Restaurant and a Food Truck.
     it("lists each location once, under the name dining_hours prints", async () => {
         const list = await call("list_dining_locations", {});
-        const rows = (
-            list.structuredContent as unknown as { locations: { name: string }[] }
-        ).locations;
+        const rows = (list.structuredContent as unknown as { locations: { name: string }[] })
+            .locations;
         const keys = rows.map((r) => r.name.toLowerCase().replace(/[^a-z0-9]/g, ""));
         expect(new Set(keys).size, "a location is listed twice").toBe(keys.length);
         // No row's name is a prefix of another's: that is the shape of the
         // duplicate this merge removes.
         for (const a of keys)
             for (const b of keys)
-                if (a !== b) expect(b.startsWith(a), `${a} and ${b} are the same place`).toBe(false);
+                if (a !== b)
+                    expect(b.startsWith(a), `${a} and ${b} are the same place`).toBe(false);
 
         const hours = await call("dining_hours", {});
-        const printed = (
-            hours.structuredContent as unknown as { locations: { name: string }[] }
-        ).locations;
+        const printed = (hours.structuredContent as unknown as { locations: { name: string }[] })
+            .locations;
         expect(rows.length).toBe(printed.length);
         // Every name dining_hours prints has to be in the roster verbatim.
         for (const row of printed) expect(rows.map((r) => r.name)).toContain(row.name);
@@ -1373,9 +1456,9 @@ describe("gaps found in review", () => {
     it("advertises every category it puts a location in", async () => {
         const all = await call("list_dining_locations", {});
         const present = new Set(
-            (all.structuredContent as unknown as { locations: { category: string }[] }).locations.map(
-                (l) => l.category,
-            ),
+            (
+                all.structuredContent as unknown as { locations: { category: string }[] }
+            ).locations.map((l) => l.category),
         );
         expect(present.size).toBeGreaterThan(1);
         for (const category of present) {
@@ -1394,9 +1477,9 @@ describe("gaps found in review", () => {
     it("agrees with dining_hours about what the categories are", async () => {
         const hours = await call("dining_hours", {});
         const printed = new Set(
-            (hours.structuredContent as unknown as { locations: { category: string }[] }).locations.map(
-                (l) => l.category,
-            ),
+            (
+                hours.structuredContent as unknown as { locations: { category: string }[] }
+            ).locations.map((l) => l.category),
         );
         expect(printed.size).toBeGreaterThan(1);
         for (const category of printed) {

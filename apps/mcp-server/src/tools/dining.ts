@@ -16,6 +16,7 @@ import {
     macrosFromLabel,
     recipeLegends,
     requireLocation,
+    spellCode,
     splitAllergens,
     isAllergenCode,
     hoursForDate,
@@ -211,6 +212,11 @@ const MENU_OUTPUT = z.object({
                             dietary: z.array(z.string()),
                             allergens: z.array(z.string()).nullable(),
                             allergenSource: z.enum(["label+menu-tags", "menu-tags"]),
+                            // False when UT published no ingredient statement, so an
+                            // `avoid` preference could not be applied to this item.
+                            // It is kept rather than dropped, because unknown is not
+                            // the same as clear.
+                            ingredientsKnown: z.boolean(),
                             nutrition: NUTRITION_SHAPE,
                         }),
                     ),
@@ -346,8 +352,8 @@ export function registerDiningTools(server: McpServer): void {
                         station ? `at station "${station}"` : "",
                         // Spelled out, as every other line of output is: the
                         // codes are the caller's input, not a reply.
-                        want.length ? `tagged ${dietTags(want).join(", ")}` : "",
-                        avoid.length ? `without ${allergens(avoid).join(", ")}` : "",
+                        want.length ? `tagged ${want.map(spellCode).join(", ")}` : "",
+                        avoid.length ? `without ${avoid.map(spellCode).join(", ")}` : "",
                         skip.length
                             ? `avoiding ${skip
                                   .map((key) => AVOID_INGREDIENTS[key]?.label ?? key)
@@ -580,6 +586,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                                 // read the label, and an empty list there is
                                 // unknown rather than allergen-free.
                                 allergenSource: item.labelChecked ? "label+menu-tags" : "menu-tags",
+                                ingredientsKnown: item.ingredientsKnown ?? false,
                                 nutrition: item.nutrition
                                     ? {
                                           servingSize: item.nutrition.servingSize ?? null,
@@ -679,7 +686,13 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     if (!rows.length) return nothing(`No dining location matching "${location}".`);
                 }
                 if (openOnly) rows = rows.filter((row) => row.open);
-                if (!rows.length) return nothing(`Nothing is open at that time on ${mdy}.`);
+                if (!rows.length)
+                    return nothing(
+                        location
+                            ? `Nothing matching "${location}" is open at that time on ${mdy}. ` +
+                              `Other locations were not considered; ask without a location to see them.`
+                            : `Nothing is open at that time on ${mdy}.`,
+                    );
 
                 const clock = `${String(Math.floor(when / 60)).padStart(2, "0")}:${String(when % 60).padStart(2, "0")}`;
                 const groups = new Map<string, typeof rows>();
@@ -827,7 +840,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
         {
             title: "Search menu items",
             description:
-                "Search every UT Austin dining hall menu in the published week for a dish, to find where and when " +
+                "Search the UT Austin dining hall menus from today to the end of the published week for a dish, to find where and when " +
                 "it is served. Use when the hall is not known yet; use get_dining_menu when it is.",
             outputSchema: SEARCH_OUTPUT,
             inputSchema: z.object({
@@ -852,15 +865,29 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 location?: string;
                 diet?: string[];
             }) => {
+                const asked = date ? parseDate(date) : undefined;
                 const { hits, lastCached } = await searchMenuItems(query, {
-                    date: date ? parseDate(date) : undefined,
+                    date: asked,
                     location,
                     diet: diet ? codes(diet, "diet") : undefined,
                 });
                 if (!hits.length) {
                     const window = await getMenuWindow();
+                    // Saying "nothing matches" about a day or a hall there is no
+                    // menu for is a statement about what UT serves, made without
+                    // looking. get_dining_menu already refuses both.
+                    if (asked && !window.dates.includes(asked))
+                        throw new Error(
+                            `No menu published for ${asked}. Menus cover ${window.dates[0]} to ` +
+                                `${window.dates[window.dates.length - 1]}.`,
+                        );
+                    if (location && !window.locations.some((l) => matchesLocation(l, location)))
+                        throw new Error(
+                            `"${location}" has no published menu. Menus exist for: ` +
+                                `${window.locations.join(", ")}.`,
+                        );
                     return textWith(
-                        `Nothing ${date ? `on ${date}` : `from today through ${window.dates[window.dates.length - 1]}`} ` +
+                        `Nothing ${asked ? `on ${asked}` : `from today through ${window.dates[window.dates.length - 1]}`} ` +
                             `(at ${location ?? window.locations.join(", ")}` +
                             `${diet?.length ? `, tagged ${diet.join(", ")}` : ""}) matches "${query}".` +
                             `${date ? "" : " Days earlier in the published week are not searched unless you ask for one by date."}` +

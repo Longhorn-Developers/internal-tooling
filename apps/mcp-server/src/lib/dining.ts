@@ -343,7 +343,14 @@ function getCoordinates(): Promise<Record<string, { lat: number; lon: number }>>
 
 export function getLocations(): Promise<DiningLocation[]> {
     return cached("dining:locations", 86400, async () => {
-        const [coords, period] = await Promise.all([getCoordinates(), getCurrentHours()]);
+        // The housing pages and the hours feed each carry locations the other
+        // misses, so losing one should cost those rows, not the whole list.
+        const [coords, period] = await Promise.all([
+            getCoordinates(),
+            getCurrentHours().catch(
+                (): HoursPeriod => ({ label: "(hours unavailable)", locations: [] }),
+            ),
+        ]);
         const found = new Map<string, DiningLocation>();
 
         const pages = await Promise.all(
@@ -616,7 +623,8 @@ export const splitAllergens = (contains: string): string[] =>
  * feed carries an ingredient statement for 995 of 997 recipes and we parse past
  * it already, so these cost nothing to answer. Each is a phrase specific enough
  * to mean what it says: an open ingredient search is useless, because "oil"
- * matches 712 of 997 recipes and "soda" matches baking soda in 80 of them.
+ * matches 712 of 997 recipes, and of the 128 whose ingredients mention "soda", 80
+ * are baking soda.
  *
  * This is a preference filter, not a safety one. Allergens stay on the label's
  * CONTAINS line, where a wrong answer matters more than a missed dish.
@@ -733,6 +741,14 @@ export async function recipeLegends(number: string): Promise<string[]> {
     const feed = await getMenuFeed();
     return feed.recipes[number]?.legends ?? [];
 }
+
+/**
+ * One code, in words. dietTags() and allergens() each keep only their own
+ * family, so asking either to spell a code from the other gives an empty
+ * string; this answers for any code and falls back to the code itself.
+ */
+export const spellCode = (code: string): string =>
+    (DIET_LEGENDS[code] ?? code).replace(/^Contains /, "");
 
 export const allergens = (legends: string[]): string[] =>
     legends
@@ -1046,7 +1062,7 @@ export async function searchMenuItems(
     // Tokenise the query exactly as the names are. Splitting it on whitespace
     // alone left the punctuation attached, so "mac & cheese" could not match
     // Homemade Mac and Cheese at either tier and came back as a confident
-    // "nothing on the published menu". 85 of this week's 688 names carry an
+    // "nothing on the published menu". 65 of this week's 688 names carry an
     // apostrophe, ampersand, comma or slash.
     const words = tokens(query);
     if (query.trim() && !words.length) return { lastCached: feed.lastCached, hits: [] };

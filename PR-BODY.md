@@ -121,13 +121,22 @@ of them baking soda, so an open index would mostly return noise.
 
 `search_menu_items` searches today's menu first — the feed runs Monday to Sunday, so by Wednesday
 a capped result was answering from a day already eaten — and matches whole words, with substring
-hits kept but marked `[loose]`.
+hits kept but marked `[loose]`. It takes `exclude` as well, on menu tags only, and the reply says
+so: unlike `get_dining_menu` this path reads no labels, and the tags under-report what a label
+declares. `contains` is the inverse of `avoid` over the same named terms, because the ingredient
+statement was in hand for every item and nothing would search it — "which dishes have seed oils"
+could only be answered as a list of what to hide.
+
+Every tool's input schema is strict. A key a tool can't honour is an error, not something dropped
+on the way in: `exclude` sent to a tool that didn't declare it was being stripped before the
+handler ran, so an allergy filter came back as an unfiltered menu with no indication anything had
+been ignored.
 
 I left the `calculate` tool alone.
 
 ### Tests
 
-`vp test`, 332 tests, no network, under a second. `test/fixtures/` holds real UT responses so
+`vp test`, 352 tests, no network, under a second. `test/fixtures/` holds real UT responses so
 the parsers run against the markup UT actually serves.
 
 The tool tests parse every response against the `outputSchema` the tool declared. Declaring one

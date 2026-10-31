@@ -6,6 +6,7 @@ onlyBuiltDependencies:
 allowBuilds:
   core-js-pure: true
   esbuild: true
+  pnpm: set this to true or false
   workerd: true
 minimumReleaseAgeExclude:
   - zod@4.6.6

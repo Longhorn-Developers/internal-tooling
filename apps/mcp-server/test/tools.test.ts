@@ -1039,6 +1039,119 @@ describe("search_menu_items filters that must not fail open", () => {
     });
 });
 
+describe("a key the tool does not implement is an error on every tool", () => {
+    // search_menu_items was made strict on its own and the other four were
+    // left open, which is the same bug one tool over: get_dining_menu with
+    // `excludes` returned the unfiltered dinner, six tree-nut items included,
+    // from the tool whose description sells it as the one that reads labels.
+    // One character between a correct answer and a nut-allergy answer.
+    it.each([
+        ["get_dining_menu", { location: "J2", excludes: ["PNTS"] }],
+        ["get_dining_menu", { location: "J2", station_name: "Garden Bar" }],
+        ["search_menu_items", { query: "pasta", maxCalories: 400 }],
+        ["dining_hours", { location: "J2", time: "22:30" }],
+        ["list_dining_locations", { type: "Coffee Shops" }],
+        ["menu_item_nutrition", { itemNumber: "140915", portion: "1/12" }],
+    ])("%s refuses %o", async (tool, args) => {
+        const res = await call(tool, args as Record<string, unknown>);
+        expect(res.isError, `${tool} accepted ${JSON.stringify(args)}`).toBe(true);
+    });
+
+    // The near-miss that started it: the filter works, so the only thing
+    // standing between a correct answer and a wrong one is the key check.
+    it("does not quietly answer an allergy question unfiltered", async () => {
+        const good = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Dinner",
+            exclude: ["NTS"],
+        });
+        const typo = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Dinner",
+            excludes: ["NTS"],
+        });
+        expect(typo.isError).toBe(true);
+        const nuts = (res: ToolResult) =>
+            res.content
+                .map((c) => c.text)
+                .join("\n")
+                .match(/Tree Nuts/g)?.length ?? 0;
+        expect(nuts(good)).toBe(0);
+    });
+});
+
+describe("a serving nobody gave is a guess that has to be labelled", () => {
+    // #140915 with no serving reads the recipe's base portion, which for a
+    // pizza is the whole pizza: 2961 cal against the menu's own 247 for
+    // #140915*1/12. Twelvefold, with nothing in the reply to catch it.
+    it("says so when it falls back to the base portion", async () => {
+        const out = await textOf("menu_item_nutrition", { itemNumber: "140915" });
+        expect(out).toMatch(/no serving was given/);
+        expect(out).toMatch(/140915\*1\/12/);
+    });
+
+    it("says nothing of the sort when the serving was given", async () => {
+        const out = await textOf("menu_item_nutrition", { itemNumber: "140915*1/12" });
+        expect(out).not.toMatch(/no serving was given/);
+    });
+});
+
+describe("a hall is findable by the name the other tools print", () => {
+    // "J2" is this tool's own documented example and returned "No dining
+    // location matching". The 3-char floor that stops "a" answering with
+    // Jester Java also stopped a two-character hall name, and this path never
+    // consulted the alias table every other tool uses.
+    it.each([["J2"], ["JCL"], ["Kinsolving"], ["Jester City Limits"]])(
+        "resolves %s",
+        async (name) => {
+            const out = await textOf("list_dining_locations", { name });
+            expect(out, name).not.toMatch(/No dining location matching/);
+        },
+    );
+
+    // Still not answering a one-letter accident.
+    it.each([["a"], ["i"], ["z"]])("still refuses %s", async (name) => {
+        const out = await textOf("list_dining_locations", { name });
+        expect(out, name).toMatch(/No dining location matching/);
+    });
+});
+
+describe("an empty result says which lever emptied it", () => {
+    // "cookies without nuts, milk or wheat" reported nothing matching
+    // "cookie" at all, with ten cookie rows on the week's menu: a false
+    // statement about the menu, where diet in the same position is named.
+    it("names the exclusion rather than blaming the query", async () => {
+        const out = await textOf("search_menu_items", {
+            query: "cookie",
+            exclude: ["PNTS", "NTS", "MLK", "WHT"],
+        });
+        expect(out).toMatch(/without .*Peanut/i);
+        expect(out).toMatch(/try the query on its own/);
+    });
+
+    it("names the ingredient filter the same way", async () => {
+        const out = await textOf("search_menu_items", { query: "cookie", contains: ["msg"] });
+        expect(out).toMatch(/containing added MSG/);
+        expect(out).toMatch(/try the query on its own/);
+    });
+});
+
+describe("dining_hours does not borrow the menu's published week", () => {
+    // parseDate falls back into the Monday-to-Sunday feed window, which
+    // dining_hours does not have: it answers for any date UT has a schedule
+    // for, so "what time does J2 close monday" answered about last Monday.
+    it("reads a bare weekday as the one ahead", async () => {
+        const out = await textOf("dining_hours", { location: "J2", date: "monday" });
+        expect(out).toMatch(/10\/19\/2026/); // the Monday after the fixed now
+        expect(out).not.toMatch(/10\/12\/2026/);
+    });
+
+    it("still reads it backwards for the menu, which has a week", async () => {
+        const out = await textOf("get_dining_menu", { location: "J2", date: "monday" });
+        expect(out).toMatch(/10\/12\/2026/);
+    });
+});
+
 describe("menu_item_nutrition output", () => {
     it("prints the label, its allergens and its ingredients", async () => {
         const out = await textOf("menu_item_nutrition", { itemNumber: "450231*1" });

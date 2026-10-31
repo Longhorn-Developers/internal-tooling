@@ -10,6 +10,7 @@ import {
     getFeedHours,
     hoursForDate,
     parseDate,
+    spellCode,
     searchMenuItems,
     statusAt,
     withNutrition,
@@ -52,6 +53,40 @@ describe("austinNow", () => {
         const now = austinNow();
         expect(now.mdy).toBe("11/15/2026");
         expect(now.hour).toBe(0);
+    });
+});
+
+describe("a source going down", () => {
+    // The housing pages and the hours feed each carry locations the other
+    // misses, so losing one should cost those rows, not the whole list.
+    it("still lists the locations the housing pages know when the hours feed is down", async () => {
+        stubFetch({ "data_all_endpoint.php?hours=1": 500, "hours-of-operation": 500 });
+        const locs = await getLocations();
+        expect(locs.length).toBeGreaterThan(0);
+        expect(locs.map((l) => l.name)).toContain("J2 Dining");
+        // These come from the hours feed alone, so they are the rows it costs.
+        expect(locs.map((l) => l.name)).not.toContain("La Fonda Food Trailer");
+    });
+});
+
+describe("spellCode", () => {
+    // dietTags() keeps only VGN/VGT/HAL and allergens() drops exactly those, so
+    // asking either to spell a code from the other family gave an empty string
+    // and a message read "tagged .".
+    it.each([
+        ["VGN", "Vegan"],
+        ["VGT", "Vegetarian"],
+        ["HAL", "Halal Friendly"],
+        ["MLK", "Milk"],
+        ["FSH", "Fish"],
+        ["PNTS", "Peanuts"],
+    ])("spells %s as %s", (code, expected) => {
+        expect(spellCode(code)).toBe(expected);
+    });
+
+    it("falls back to the code itself rather than an empty string", () => {
+        expect(spellCode("XYZ")).toBe("XYZ");
+        expect(spellCode("")).toBe("");
     });
 });
 

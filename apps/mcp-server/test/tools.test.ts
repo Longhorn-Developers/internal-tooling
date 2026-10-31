@@ -34,6 +34,7 @@ type MenuStructured = {
                 // positive claim of allergen-free.
                 allergens: string[] | null;
                 allergenSource: string;
+                ingredientsKnown: boolean;
                 nutrition: { calories: number | null; warning: string | null } | null;
             }[];
         }[];
@@ -426,6 +427,30 @@ describe("get_dining_menu", () => {
         for (const item of items) expect(item.dietary, item.name).toContain("Vegan");
     });
 
+    // dietTags() keeps only VGN/VGT/HAL and allergens() drops exactly those, so
+    // spelling a code with the wrong one of the two gave an empty string and
+    // the message read "tagged ." -- both of these codes are ones the published
+    // schema invites.
+    it.each([
+        [{ diet: ["FSH"] }, /tagged Fish/],
+        [{ diet: ["PRK"] }, /tagged Pork/],
+        [{ diet: ["SFSH"] }, /tagged Shellfish/],
+        // exclude is spelled by the same helper, and a diet code in it is the
+        // cross-family case for that side.
+        [{ diet: ["FSH"], exclude: ["VGN"] }, /without Vegan/],
+        [{ diet: ["FSH"], exclude: ["VGT"] }, /without Vegetarian/],
+    ])("spells %j out in the empty-menu message", async (filter, expected) => {
+        const out = await textOf("get_dining_menu", {
+            location: "J2",
+            meal: "Dinner",
+            station: "Yogurt Bar",
+            ...filter,
+        });
+        expect(out).toMatch(/^Nothing at/);
+        expect(out).toMatch(expected);
+        expect(out, "a filter joined to an empty string").not.toMatch(/tagged \.|without \./);
+    });
+
     it("rejects an unrecognised avoid key instead of filtering nothing", async () => {
         const res = await call("get_dining_menu", {
             location: "J2",
@@ -462,6 +487,20 @@ describe("get_dining_menu", () => {
             avoid: ["seed-oils"],
         });
         expect(out).toMatch(/Sour Cream[^\n]*ingredients unpublished, preference unchecked/);
+        // The same fact has to reach the copy the description tells the model
+        // to prefer, or the row reads as one the filter cleared.
+        const res = await call("get_dining_menu", {
+            location: "J2",
+            meal: "Lunch",
+            avoid: ["seed-oils"],
+        });
+        const items = res.structuredContent!.meals.flatMap((m) =>
+            m.sections.flatMap((s) => s.items),
+        );
+        const sour = items.find((i) => i.name === "Sour Cream");
+        expect(sour, "Sour Cream was dropped, not kept").toBeTruthy();
+        expect(sour!.ingredientsKnown).toBe(false);
+        expect(items.find((i) => i.name === "Sliced Green Onion")!.ingredientsKnown).toBe(true);
         // An item UT does publish ingredients for carries no such caveat.
         expect(out).toMatch(/Sliced Green Onion(?![^\n]*preference unchecked)/);
     });
@@ -695,6 +734,35 @@ describe("search_menu_items argument handling", () => {
         expect(structured.lastCached).not.toBe("");
     });
 
+    // A date outside the published window and a hall with no menu both fell
+    // through every loop, so "nothing matches" was said about data nobody had.
+    // get_dining_menu refuses both; search said it had looked.
+    it("refuses a date outside the published window rather than reporting a miss", async () => {
+        const res = await call("search_menu_items", { query: "a", date: "11/20/2026" });
+        expect(res.isError).toBe(true);
+        const out = res.content.map((c) => c.text).join("");
+        expect(out).toMatch(/No menu published for 11\/20\/2026/);
+        expect(out).toMatch(/Menus cover/);
+    });
+
+    it("refuses a location with no menu rather than reporting a miss", async () => {
+        const res = await call("search_menu_items", { query: "a", location: "Panda Express" });
+        expect(res.isError).toBe(true);
+        const out = res.content.map((c) => c.text).join("");
+        expect(out).toMatch(/has no published menu/);
+        expect(out).toMatch(/J2 Dining/);
+    });
+
+    // The raw word is not what was searched; the resolved date is.
+    it("names the date it resolved, not the word it was given", async () => {
+        const out = await textOf("search_menu_items", {
+            query: "zzzznothing",
+            date: "friday",
+        });
+        expect(out).toMatch(/Nothing on \d{2}\/\d{2}\/\d{4}/);
+        expect(out).not.toMatch(/Nothing on friday/);
+    });
+
     it("rejects an unknown diet code instead of matching nothing", async () => {
         const out = await textOf("search_menu_items", { query: "wrap", diet: ["GF"] });
         expect(out).toMatch(/Unknown diet code/);
@@ -753,6 +821,16 @@ describe("dining_hours at", () => {
 });
 
 describe("dining_hours filtering", () => {
+    // A verdict about one hall read as a verdict about the whole campus.
+    it("names the location when nothing matching it is open", async () => {
+        const all = await textOf("dining_hours", { openOnly: true, at: "23:30" });
+        const j2 = await textOf("dining_hours", { location: "J2", openOnly: true, at: "23:30" });
+        // Something is open campus-wide at that hour, but not J2.
+        expect(all).not.toMatch(/Nothing is open/);
+        expect(j2).toMatch(/Nothing matching "J2" is open/);
+        expect(j2).toMatch(/Other locations were not considered/);
+    });
+
     it("openOnly actually removes the closed locations", async () => {
         const rows = async (args: Record<string, unknown>) =>
             (

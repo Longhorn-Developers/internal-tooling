@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { MenuItem } from "../src/lib/dining";
 import { resetCache } from "../src/lib/http";
 import {
     LABEL_BUDGET,
@@ -9,6 +10,8 @@ import {
     getNutrition,
     getFeedHours,
     hoursForDate,
+    labelHasAllergen,
+    macrosFromLabel,
     parseDate,
     spellCode,
     searchMenuItems,
@@ -56,6 +59,28 @@ describe("austinNow", () => {
     });
 });
 
+describe("a meal filter that cannot be read", () => {
+    // norm() strips to [a-z0-9], and "" is the sentinel for no filter, so a
+    // meal the caller did give came back as the whole day.
+    it.each([["\u65E9\u9910"], ["\uD83C\uDF54"], ["!!!"], ["---"]])(
+        "does not answer %s with every meal of the day",
+        async (meal) => {
+            const menu = await getMenu("J2", "10/15/2026", meal);
+            expect(menu.meals, meal).toEqual([]);
+        },
+    );
+
+    it("still means no filter when no meal is given", async () => {
+        const all = await getMenu("J2", "10/15/2026");
+        expect(all.meals.length).toBeGreaterThan(1);
+    });
+
+    it("still matches a meal that is spelled out", async () => {
+        const one = await getMenu("J2", "10/15/2026", "Breakfast");
+        expect(one.meals.map((m) => m.meal)).toEqual(["Breakfast"]);
+    });
+});
+
 describe("a source going down", () => {
     // The housing pages and the hours feed each carry locations the other
     // misses, so losing one should cost those rows, not the whole list.
@@ -66,6 +91,81 @@ describe("a source going down", () => {
         expect(locs.map((l) => l.name)).toContain("J2 Dining");
         // These come from the hours feed alone, so they are the rows it costs.
         expect(locs.map((l) => l.name)).not.toContain("La Fonda Food Trailer");
+    });
+});
+
+describe("the calorie figure a student would read off the label", () => {
+    it("takes the printed figure, not the unrounded nutrient row", async () => {
+        // The bacon fixture prints 897 at the top and 897.2 in the table.
+        const label = await getNutrition("081906", "3");
+        expect(label.calories).toBe("897");
+        expect(label.calories).not.toBe("897.2");
+        const macros = macrosFromLabel(label);
+        expect(macros.calories).toBe(897);
+    });
+});
+
+describe("every allergen code recognises its own word and nothing else", () => {
+    // These eleven strings are the entire vocabulary UT's labels use: counted
+    // across all 1041 references on a published week, they are Soybeans (450),
+    // Wheat (319), Milk (229), Eggs (134), Pork (82), Sesame (71), Beef (64),
+    // Tree Nuts (56), Fish (20), Peanuts (11), Crustacean Shellfish (7).
+    const LABEL_WORD: [string, string][] = [
+        ["MLK", "Milk"],
+        ["EG", "Eggs"],
+        ["WHT", "Wheat"],
+        ["SOY", "Soybeans"],
+        ["PNTS", "Peanuts"],
+        ["NTS", "Tree Nuts"],
+        ["FSH", "Fish"],
+        ["SFSH", "Crustacean Shellfish"],
+        ["SS", "Sesame"],
+        ["BF", "Beef"],
+        ["PRK", "Pork"],
+    ];
+
+    const item = (labelAllergens: string[]): MenuItem => ({
+        number: "000000",
+        name: "test",
+        legends: [],
+        avoid: [],
+        labelAllergens,
+        labelChecked: true,
+    });
+
+    it.each(LABEL_WORD)("%s matches %s", (code, word) => {
+        expect(labelHasAllergen(item([word]), code)).toBe(true);
+    });
+
+    // The dangerous direction: one code's word answering for another's. "Fish"
+    // inside "Crustacean Shellfish" is the case this is built around.
+    it.each(LABEL_WORD)("%s does not match any other allergen's word", (code, _word) => {
+        for (const [other, otherWord] of LABEL_WORD) {
+            if (other === code) continue;
+            expect(
+                labelHasAllergen(item([otherWord]), code),
+                `${code} fired on "${otherWord}"`,
+            ).toBe(false);
+        }
+    });
+
+    it("reads a label that names several", () => {
+        const several = item(["Milk", "Eggs", "Tree Nuts", "Wheat", "Soybeans"]);
+        for (const code of ["MLK", "EG", "NTS", "WHT", "SOY"])
+            expect(labelHasAllergen(several, code), code).toBe(true);
+        for (const code of ["PNTS", "FSH", "SFSH", "BF", "PRK", "SS"])
+            expect(labelHasAllergen(several, code), code).toBe(false);
+    });
+
+    // An unread label cannot clear anything, whatever the tags say.
+    it("never reports an allergen for an item whose label went unread", () => {
+        const unread: MenuItem = {
+            number: "000000",
+            name: "test",
+            legends: ["MLK"],
+            avoid: [],
+        };
+        expect(labelHasAllergen(unread, "MLK")).toBe(false);
     });
 });
 

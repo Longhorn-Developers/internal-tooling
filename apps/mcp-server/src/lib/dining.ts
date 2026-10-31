@@ -451,8 +451,14 @@ export async function getLocationDetail(name: string): Promise<DiningLocation | 
     // prefer the row that can actually be filled in.
     const byName = [
         locs.filter((l) => norm(l.name) === q),
-        locs.filter((l) => norm(l.name).startsWith(q) || q.startsWith(norm(l.name))),
-        locs.filter((l) => norm(l.name).includes(q)),
+        // The floor applies to the prefix tier too: "o" is the start of One Two
+        // Three Sushi and "ch" of Chick-fil-A, which is an accident, not a name.
+        q.length >= 3
+            ? locs.filter((l) => norm(l.name).startsWith(q) || q.startsWith(norm(l.name)))
+            : [],
+        // A substring that short matches by accident: "a" was answering with a
+        // description, an address and a source link for Jester Java.
+        q.length >= 3 ? locs.filter((l) => norm(l.name).includes(q)) : [],
     ];
     // A row with a slug can be filled in; one without is all there will ever be.
     // Exact-but-empty used to win outright, which is the case that matters here:
@@ -566,6 +572,18 @@ export const requireLocation = (query: string): string => {
             "Which dining hall? get_dining_menu covers one at a time: J2, Kins or JCL.",
         );
     return query;
+};
+
+/**
+ * Does `candidate` answer to `query`? norm() strips to [a-z0-9], so a query the
+ * caller did give can come out empty, and "" is the sentinel for no filter at
+ * all -- which quietly widens the question instead of answering it. "早餐" as a
+ * meal used to return the whole day: 217 items for a one-meal question.
+ */
+export const matchesNormalised = (candidate: string, query: string | undefined): boolean => {
+    if (query === undefined || !query.trim()) return true; // no filter asked for
+    const q = norm(query);
+    return q ? norm(candidate).includes(q) : false;
 };
 
 export const matchesLocation = (candidate: string, query: string): boolean => {
@@ -992,7 +1010,7 @@ export async function getMenu(locationName: string, mdy: string, mealFilter?: st
 
     const meals: MenuMeal[] = [];
     for (const meal of loc.meals) {
-        if (mealFilter && !norm(meal.mealName).includes(norm(mealFilter))) continue;
+        if (!matchesNormalised(meal.mealName, mealFilter)) continue;
         const sections: MenuSection[] = [];
         let current: MenuSection = { section: "", items: [] };
         for (const r of meal.recipes) {

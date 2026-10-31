@@ -491,9 +491,8 @@ export function registerDiningTools(server: McpServer): void {
                 const refOf = (item: MenuItem) =>
                     item.serving ? `${item.number}*${item.serving}` : item.number;
                 const total = new Set(shownItems.map(refOf)).size;
-                const covered = new Set(
-                    shownItems.filter((item) => item.nutrition).map(refOf),
-                ).size;
+                const covered = new Set(shownItems.filter((item) => item.nutrition).map(refOf))
+                    .size;
                 const caught = caughtByLabel
                     ? `
 ${caughtByLabel} item(s) were dropped because their label lists an allergen the menu tags omit.`
@@ -504,7 +503,10 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     : "";
                 const coverage =
                     coveredRows < shownItems.length
-                        ? `\nNutrition shown for ${coveredRows} of ${shownItems.length} items listed (${covered} of ${total} distinct recipes); UT publishes it one item at a time. ` +
+                        ? `\nNutrition shown for ${coveredRows} of ${shownItems.length} items listed (${covered} of ${total} distinct recipes); UT publishes it one item at a time, ` +
+                          "so these are spread evenly across the meals and stations below rather " +
+                          "than being the first items of the day. Ranking by a nutrient over this " +
+                          "partial set will miss items. " +
                           "Ask for a single station to get every item covered, or call " +
                           "menu_item_nutrition for one item. Stations here: " +
                           meals
@@ -691,7 +693,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                     return nothing(
                         location
                             ? `Nothing matching "${location}" is open at that time on ${mdy}. ` +
-                              `Other locations were not considered; ask without a location to see them.`
+                                  `Other locations were not considered; ask without a location to see them.`
                             : `Nothing is open at that time on ${mdy}.`,
                     );
 
@@ -844,15 +846,40 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 "Search the UT Austin dining hall menus from today to the end of the published week for a dish, to find where and when " +
                 "it is served. Use when the hall is not known yet; use get_dining_menu when it is.",
             outputSchema: SEARCH_OUTPUT,
-            inputSchema: z.object({
-                query: z.string().describe('Words in the item name, e.g. "chicken tikka"'),
-                date: z.string().optional().describe('Restrict to one day, e.g. "friday"'),
-                location: z.string().optional().describe("Restrict to one dining hall"),
-                diet: z
-                    .array(z.string())
-                    .optional()
-                    .describe(`Keep only items carrying every one of these. All codes: ${CODES}`),
-            }),
+            inputSchema: z
+                .object({
+                    query: z.string().describe('Words in the item name, e.g. "chicken tikka"'),
+                    date: z.string().optional().describe('Restrict to one day, e.g. "friday"'),
+                    location: z.string().optional().describe("Restrict to one dining hall"),
+                    diet: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items carrying every one of these. All codes: ${CODES}`,
+                        ),
+                    exclude: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Drop items whose menu tags carry any of these, e.g. ["PNTS","NTS"] ` +
+                                `for a nut allergy. Menu tags only -- unlike get_dining_menu this ` +
+                                `does not read labels, so it is a filter, not a safety check. ` +
+                                `All codes: ${CODES}`,
+                        ),
+                    contains: z
+                        .array(z.string())
+                        .optional()
+                        .describe(
+                            `Keep only items whose ingredient statement contains every one of ` +
+                                `these, e.g. ["seed-oils"]. One of: ${AVOID_KEYS}.`,
+                        ),
+                })
+                // An unknown key used to be stripped before the handler saw it,
+                // so search_menu_items took exclude: ["PNTS","NTS"] from a model
+                // that had read get_dining_menu's schema and returned the
+                // peanut cookies anyway, silently. A filter that fails open is
+                // worse than one that is absent.
+                .strict(),
         },
         guard(
             async ({
@@ -860,17 +887,28 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 date,
                 location,
                 diet,
+                exclude,
+                contains,
             }: {
                 query: string;
                 date?: string;
                 location?: string;
                 diet?: string[];
+                exclude?: string[];
+                contains?: string[];
             }) => {
                 const asked = date ? parseDate(date) : undefined;
+                const unknown = (contains ?? []).filter((k) => !AVOID_INGREDIENTS[k]);
+                if (unknown.length)
+                    throw new Error(
+                        `Unknown contains key(s): ${unknown.join(", ")}. Valid keys are ${AVOID_KEYS}.`,
+                    );
                 const { hits, lastCached } = await searchMenuItems(query, {
                     date: asked,
                     location,
                     diet: diet ? codes(diet, "diet") : undefined,
+                    exclude: exclude ? codes(exclude, "exclude") : undefined,
+                    contains,
                 });
                 if (!hits.length) {
                     const window = await getMenuWindow();
@@ -894,9 +932,9 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                             `${date ? "" : " Days earlier in the published week are not searched unless you ask for one by date."}` +
                             `${location ? " Only that location was searched." : ""}` +
                             `${diet?.length ? " The dietary filter may be what emptied this; try without it." : ""}` +
-                            ` This searches item names and station names only, not ` +
-                            `ingredients, and the feed carries no drinks at all, so a miss here does not ` +
-                            `mean UT never serves it.`,
+                            ` This matches item and station names; for what is in a dish, ` +
+                            `pass contains (${AVOID_KEYS}). The feed carries no drinks at all, so a ` +
+                            `miss here does not mean UT never serves it.`,
                         { query, matched: 0, shown: 0, lastCached: window.lastCached, hits: [] },
                     );
                 }
@@ -904,9 +942,7 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 // header claims and the question is usually about today. Sorting on
                 // tier alone buried today's two rows under four days of future ones
                 // under a header that said "today first".
-                hits.sort(
-                    (x, y) => Number(y.isToday) - Number(x.isToday) || x.tier - y.tier,
-                );
+                hits.sort((x, y) => Number(y.isToday) - Number(x.isToday) || x.tier - y.tier);
                 // Count only the rows that survive the cap. Loose matches sort last,
                 // so a query with MAX_ROWS exact hits shows none of them, and saying
                 // otherwise points at rows that are not in the response.

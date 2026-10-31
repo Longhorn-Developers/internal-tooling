@@ -88,7 +88,7 @@ export function parseDate(input?: string): string {
 
     // Match the whole word, not its first three characters: "saturday nov 7"
     // used to resolve to Saturday and quietly drop the rest of what was asked.
-    const asWeekday = s.replace(/^(?:next|this|coming)\s+/, "").trim();
+    const asWeekday = s.replace(/^(?:next|this|coming|last)\s+/, "").trim();
     const wd = /^[a-z]+$/.test(asWeekday)
         ? DAY_NAMES.findIndex(
               (d) => d.toLowerCase() === asWeekday || d.toLowerCase().slice(0, 3) === asWeekday,
@@ -98,7 +98,17 @@ export function parseDate(input?: string): string {
         const offset = (wd - now.dayIndex + 7) % 7;
         // "next thursday" can never mean today, and plain "thursday" on a
         // Thursday does.
-        return fromOffset(offset === 0 && /^next\s/.test(s) ? 7 : offset);
+        const forwardOnly = /^(?:next|coming)\s/.test(s);
+        if (offset === 0 && forwardOnly) return fromOffset(7);
+        if (/^last\s/.test(s)) return fromOffset(offset - 7);
+        // The feed is one Monday-to-Sunday week, so on a Thursday "monday" is a
+        // day that has already happened and is still published. Resolved
+        // forward it landed in next week, and the reply refused with "no menu
+        // published for 11/02" while printing a window that contained the
+        // Monday being asked about. DAY_NAMES runs Monday..Sunday, so anything
+        // past this week's Sunday belongs to the week already in hand.
+        const toSunday = DAY_NAMES.length - 1 - now.dayIndex;
+        return fromOffset(!forwardOnly && offset > toSunday ? offset - 7 : offset);
     }
 
     throw new Error(`Couldn't read date "${input}". Try "today", "friday", or "2026-10-16".`);
@@ -347,9 +357,10 @@ export function getLocations(): Promise<DiningLocation[]> {
         // misses, so losing one should cost those rows, not the whole list.
         const [coords, period] = await Promise.all([
             getCoordinates(),
-            getCurrentHours().catch(
-                (): HoursPeriod => ({ label: "(hours unavailable)", locations: [] }),
-            ),
+            getCurrentHours().catch((): HoursPeriod => ({
+                label: "(hours unavailable)",
+                locations: [],
+            })),
         ]);
         const found = new Map<string, DiningLocation>();
 
@@ -939,7 +950,21 @@ export async function withNutrition(
     }
 
     const refs = [...byRef.keys()];
-    const slice = refs.slice(0, LABEL_BUDGET);
+    // Taking the first 36 took them in feed order, which is meal order then
+    // station order, so a whole-hall call read every garnish station and no
+    // entree station: "the highest-protein thing at J2 dinner" came back as
+    // Diced Chicken Breast at 11.4g off the salad bar, when Halal Grilled
+    // Chicken at 22.4g was on the same menu unread. An even stride spends the
+    // same budget across every meal and station instead.
+    // Stride first so every part of the menu is represented, then fill the rest
+    // of the budget with what the stride skipped: `ceil` leaves the spread
+    // short of the budget whenever the count is not a clean multiple, and an
+    // unspent label is coverage given away for nothing.
+    const step = Math.max(1, Math.ceil(refs.length / LABEL_BUDGET));
+    const slice = [
+        ...refs.filter((_, i) => i % step === 0),
+        ...refs.filter((_, i) => i % step !== 0),
+    ].slice(0, LABEL_BUDGET);
 
     // Cloudflare counts cache.match and cache.put against the same per-request
     // budget as fetch, so a label each going through the cache cost three
@@ -1074,7 +1099,13 @@ export const matchTier = (words: string[], name: string, section: string): 1 | 2
 
 export async function searchMenuItems(
     query: string,
-    opts: { date?: string; location?: string; diet?: string[] } = {},
+    opts: {
+        date?: string;
+        location?: string;
+        diet?: string[];
+        exclude?: string[];
+        contains?: string[];
+    } = {},
 ) {
     const feed = await getMenuFeed();
     // Tokenise the query exactly as the names are. Splitting it on whitespace
@@ -1118,6 +1149,21 @@ export async function searchMenuItems(
                     if (!tier) continue;
                     const legends = meta?.legends ?? [];
                     if (opts.diet?.length && !opts.diet.every((d) => legends.includes(d))) continue;
+                    // Menu tags only. No label is read on this path, and the
+                    // tags under-report what a label declares, so the reply
+                    // says as much: a filter that looks like a safety promise
+                    // and is not is worse than no filter at all.
+                    if (opts.exclude?.length && opts.exclude.some((t) => legends.includes(t)))
+                        continue;
+                    // `avoid` is the AVOID_INGREDIENTS keys already matched
+                    // against the feed's ingredient statement. An item with no
+                    // statement has an empty list, so it cannot be claimed to
+                    // contain anything.
+                    if (
+                        opts.contains?.length &&
+                        !opts.contains.every((k) => (meta?.avoid ?? []).includes(k))
+                    )
+                        continue;
                     const serving = r.serv || undefined;
                     hits.push({
                         date,

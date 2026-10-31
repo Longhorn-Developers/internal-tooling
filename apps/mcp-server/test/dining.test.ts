@@ -204,15 +204,12 @@ describe("parseDate and the word next", () => {
 });
 
 describe("parseDate rejects a date it would have to guess at", () => {
-    it.each([
-        ["saturday nov 7"],
-        ["friday the 13th"],
-        ["sunday brunch"],
-        ["s"],
-        ["mon 3"],
-    ])("rejects %s", (input) => {
-        expect(() => parseDate(input)).toThrow(/Couldn't read date/);
-    });
+    it.each([["saturday nov 7"], ["friday the 13th"], ["sunday brunch"], ["s"], ["mon 3"]])(
+        "rejects %s",
+        (input) => {
+            expect(() => parseDate(input)).toThrow(/Couldn't read date/);
+        },
+    );
 
     it.each([["friday"], ["fri"], ["next friday"], ["this monday"], ["Saturday"]])(
         "still accepts %s",
@@ -237,9 +234,26 @@ describe("parseDate", () => {
         expect(parseDate("1/5")).toBe("01/05/2026");
     });
 
-    it("treats a bare weekday as the next one, today included", () => {
+    // The feed is one Monday-to-Sunday week. Resolving a weekday forward put
+    // the earlier days of that week into next week, so "what did they have on
+    // monday" was answered with "no menu published for 11/02" -- while the
+    // same reply printed a window that contained the Monday being asked about.
+    it("reads a bare weekday as the one in the published week", () => {
+        // Today is Thursday 10/15, so the week in hand is Mon 10/12 - Sun 10/18.
         expect(parseDate("thursday")).toBe("10/15/2026"); // today
-        expect(parseDate("wednesday")).toBe("10/21/2026"); // a week out
+        expect(parseDate("wednesday")).toBe("10/14/2026"); // yesterday, published
+        expect(parseDate("monday")).toBe("10/12/2026"); // the start of the week
+        expect(parseDate("sunday")).toBe("10/18/2026"); // still ahead
+    });
+
+    it("still sends next and last outside this week", () => {
+        expect(parseDate("next wednesday")).toBe("10/21/2026");
+        expect(parseDate("next thursday")).toBe("10/22/2026"); // never today
+        // "last wednesday" on a Thursday is the Wednesday just gone, which is
+        // also what a bare "wednesday" now means: both are the published day,
+        // and it used to be an error ("Couldn't read date").
+        expect(parseDate("last wednesday")).toBe("10/14/2026");
+        expect(parseDate("last monday")).toBe("10/12/2026");
     });
 
     it("rolls over a month boundary", () => {

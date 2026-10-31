@@ -139,6 +139,22 @@ describe("get_dining_menu", () => {
         expect(out).not.toMatch(/\[MLK/);
     });
 
+    it("reads each label at the item's own serving, not at one portion", async () => {
+        const log = stubFetch();
+        await call("get_dining_menu", { location: "J2", meal: "Dinner", date: "10/16/2026" });
+        const refs = log
+            .map((entry) => /RecNumAndPort=(\d+)\*([\d/]+)/.exec(entry.url))
+            .filter(Boolean)
+            .map((m) => ({ number: m![1]!, serving: m![2]! }));
+        expect(refs.length).toBeGreaterThan(0);
+        // Crispy Chopped Bacon is served at 3, and its label at *1 says 299
+        // calories where *3 says 897.
+        const bacon = refs.find((r) => r.number === "081906");
+        expect(bacon, "bacon was not among the labels read").toBeTruthy();
+        expect(bacon!.serving).toBe("3");
+        expect(refs.some((r) => r.serving !== "1")).toBe(true);
+    });
+
     it("prints an item reference that menu_item_nutrition accepts", async () => {
         const out = await textOf("get_dining_menu", { location: "J2", meal: "Lunch" });
         expect(out).toMatch(/#\d+\*[\d/]+/);
@@ -547,6 +563,16 @@ describe("dining_hours", () => {
         );
     });
 
+    it.each([["13pm"], ["0am"], ["15am"]])("rejects %s as a 12-hour time", async (at) => {
+        const out = await textOf("dining_hours", { at });
+        expect(out, at).toMatch(/not a valid 12-hour time/);
+    });
+
+    it("reads a time with spaces round it", async () => {
+        const out = await textOf("dining_hours", { at: "  7pm " });
+        expect(out).toMatch(/at 19:00/);
+    });
+
     it("rejects an impossible time instead of wrapping it", async () => {
         for (const at of ["99", "25:00", "10:99"]) {
             expect(await textOf("dining_hours", { at })).toMatch(/not a valid/);
@@ -763,6 +789,24 @@ describe("search_menu_items argument handling", () => {
         expect(out).not.toMatch(/Nothing on friday/);
     });
 
+    // "ice" is inside Sliced, Diced and Rice. Those are matches worth keeping,
+    // but calling them exact makes a weak hit read as a dish by that name.
+    it("marks a substring-only match as loose rather than exact", async () => {
+        const res = await call("search_menu_items", { query: "ice" });
+        const structured = res.structuredContent as unknown as SearchStructured;
+        const loose = structured.hits.filter((h) => !h.exact);
+        expect(loose.length, "nothing came back loose for a substring query").toBeGreaterThan(0);
+        const text = res.content.map((c) => c.text).join("\n");
+        expect(text).toMatch(/\[loose\]/);
+        expect(text).toMatch(/marked \[loose\]/);
+        // And a whole-word query is not downgraded.
+        const exact = (
+            (await call("search_menu_items", { query: "chicken" }))
+                .structuredContent as unknown as SearchStructured
+        ).hits;
+        expect(exact.some((h) => h.exact)).toBe(true);
+    });
+
     it("rejects an unknown diet code instead of matching nothing", async () => {
         const out = await textOf("search_menu_items", { query: "wrap", diet: ["GF"] });
         expect(out).toMatch(/Unknown diet code/);
@@ -889,6 +933,24 @@ describe("a location name that cannot be read", () => {
     // An absent name is still no filter.
     it("still lists everything when no name is given", async () => {
         const out = await textOf("list_dining_locations", {});
+        expect(out).not.toMatch(/No dining location matching/);
+    });
+});
+
+describe("a location name too short to mean anything", () => {
+    // "a" was answering with Jester Java's full card, "o" with One Two Three
+    // Sushi, "z" with Jesta Pizza -- a confident answer to an accident.
+    it.each([["a"], ["i"], ["o"], ["z"], ["ch"]])(
+        "does not answer %s with the first location it happens to be inside",
+        async (name) => {
+            const out = await textOf("list_dining_locations", { name });
+            expect(out, name).toMatch(/No dining location matching/);
+        },
+    );
+
+    // Three characters is enough to mean something.
+    it("still answers a name that is only a fragment, once it is long enough", async () => {
+        const out = await textOf("list_dining_locations", { name: "Jest" });
         expect(out).not.toMatch(/No dining location matching/);
     });
 });
@@ -1181,6 +1243,25 @@ describe("gaps found in review", () => {
         expect(items.length).toBeGreaterThan(0);
         expect(items.every((i) => i.allergenSource === "menu-tags")).toBe(true);
     });
+
+    // Blank means no filter, here as in matchesLocation; a station the caller
+    // did give that cannot be read is a miss, not a widening of the question.
+    const stationRows = async (station: string) => {
+        const res = await call("get_dining_menu", { location: "J2", meal: "Lunch", station });
+        return res.structuredContent!.meals.flatMap((m) => m.sections.flatMap((s) => s.items));
+    };
+
+    it.each([["   "], ["\t"]])("treats a blank station %j as no filter", async (station) => {
+        const all = await stationRows("");
+        expect(await stationRows(station)).toHaveLength(all.length);
+    });
+
+    it.each([["\uD83C\uDF54"], ["\u4E2D\u6587"]])(
+        "treats an unreadable station %s as a miss",
+        async (station) => {
+            expect(await stationRows(station)).toEqual([]);
+        },
+    );
 
     // A station is small enough that the label budget always covers it, so this
     // is the narrowing that actually gets full nutrition.

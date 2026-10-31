@@ -336,7 +336,7 @@ export function registerDiningTools(server: McpServer): void {
                         sections: entry.sections
                             .filter(
                                 (section) =>
-                                    !station ||
+                                    !station?.trim() ||
                                     section.section
                                         .toLowerCase()
                                         .includes(station.trim().toLowerCase()),
@@ -664,7 +664,8 @@ ${withheld} item(s) are not listed: their labels could not all be read in one re
                 const DEFAULT_HOUR = 12;
                 let when = isToday ? now.minutes : DEFAULT_HOUR * 60;
                 if (at) {
-                    const parsed = at.match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i);
+                    // A time with spaces round it is still a time.
+                    const parsed = at.trim().match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i);
                     if (!parsed)
                         return nothing(`Couldn't read time "${at}". Try "19:30" or "7:30pm".`);
                     let hour = Number(parsed[1]);

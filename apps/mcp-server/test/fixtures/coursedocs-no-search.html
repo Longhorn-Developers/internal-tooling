@@ -1,0 +1,878 @@
+
+
+
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+
+
+<head>
+    
+    <title>Syllabi & CVs</title>
+
+    
+
+
+<!-- base_head.html -->
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- bootstrap css -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
+      crossorigin="anonymous">
+
+<!-- jquery MUST BE BEFORE DATATABLES -->
+<script src="https://code.jquery.com/jquery-4.0.0.min.js"
+        integrity="sha256-OaVG6prZf4v69dPg6PhVattBXkcOWQB62pdZ3ORyrao="
+        crossorigin="anonymous"></script>
+
+<!-- data tables -->
+<link href="https://cdn.datatables.net/v/bs5/jq-3.7.0/jszip-3.10.1/dt-2.3.5/b-3.2.5/b-colvis-3.2.5/b-html5-3.2.5/b-print-3.2.5/datatables.min.css"
+      rel="stylesheet" integrity="sha384-QqcgnmBa/YMgME1cwhmRWILN1RwgDrTpNQQQOu2bPoSfvGgxo3K9hn1rGc1Ns1Qg"
+      crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"
+        integrity="sha384-VFQrHzqBh5qiJIU0uGU5CIW3+OWpdGGJM9LBnGbuIH2mkICcFZ7lPd/AAtI7SNf7"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"
+        integrity="sha384-/RlQG9uf0M2vcTw3CX7fbqgbj/h8wKxw7C3zu9/GxcBPRKOEcESxaxufwRXqzq6n"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.datatables.net/v/bs5/jq-3.7.0/jszip-3.10.1/dt-2.3.5/b-3.2.5/b-colvis-3.2.5/b-html5-3.2.5/b-print-3.2.5/datatables.min.js"
+        integrity="sha384-8B82qI0g2i4G4s9tIyrDeNP+yZu46YJKsmNCSzmnrEoB4CYwiPxDrmse6YSeg14z"
+        crossorigin="anonymous"></script>
+
+<!-- our stylesheet -->
+<link href="/apps/student/coursedocs/static/common/css/course_docs.css" rel="stylesheet">
+
+<!-- our javascript -->
+<script type="text/javascript" src="/apps/student/coursedocs/static/common/js/coursedocs.js"></script>
+
+<!-- end base_head.html -->
+</head>
+
+
+<body>
+
+
+
+
+<!-- base_header.html -->
+<header>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+
+            <!-- logo -->
+            <a class="navbar-brand" href="/apps/student/coursedocs/courses/nlogon/">
+                <img src="/apps/student/coursedocs/static/common/i/texas.png" alt="University of Texas">
+            </a>
+
+            <!-- responsive hamburger -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent"
+                    aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <!-- top_nav_menu_items.html -->
+            <!-- top_nav_menu_items.html -->
+<div class="collapse navbar-collapse" id="navbarSupportedContent">
+    <h1>Syllabi & CV's</h1>
+    <ul class="navbar-nav">
+        
+    </ul>
+</div>
+<!-- end top_nav_menu_items.html -->
+
+            <!-- end top_nav_menu_items -->
+            
+        </div>
+    </nav>
+</header>
+<!-- end base_header.html -->
+
+<main>
+    
+    
+
+
+<!-- index_sidebar.html -->
+
+<div class="sidebar">
+
+    <div>
+        <!-- vertical form -->
+        <form action="" method="get" id="indexform" name="indexform" class="form form-vertical">
+
+            <fieldset>
+                <legend>Search Syllabi & CVs</legend>
+
+                <div class="form-group">
+                    <label for="id_year">Year</label>
+                    <input type="text" name="year" class="form-control" id="id_year">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_semester">Semester</label>
+                    <select name="semester" class="form-control  form-select" id="id_semester">
+  <option value="" selected></option>
+
+  <option value="2">Spring</option>
+
+  <option value="6">Summer</option>
+
+  <option value="9">Fall</option>
+
+</select>
+                </div>
+
+                <div class="form-group">
+                    <label for="id_department">Department</label>
+                    <select name="department" class="form-control  form-select" id="id_department">
+  <option value="" selected></option>
+
+  <option value="A I">A I-Artificial Intelligence</option>
+
+  <option value="AAR">AAR-Applied Archaeology</option>
+
+  <option value="AAS">AAS-Asian American Studies</option>
+
+  <option value="ACC">ACC-Accounting</option>
+
+  <option value="ACF">ACF-Actuarial Foundations </option>
+
+  <option value="ADV">ADV-Advertising</option>
+
+  <option value="AED">AED-Art Education</option>
+
+  <option value="AET">AET-Arts and Entertainment Technologies</option>
+
+  <option value="AFR">AFR-African &amp; African American Std</option>
+
+  <option value="AFS">AFS-Air Force Science</option>
+
+  <option value="AHC">AHC-Ancient Hist and Classical Civ </option>
+
+  <option value="ALD">ALD-Applied Learning &amp; Development</option>
+
+  <option value="AMS">AMS-American Studies</option>
+
+  <option value="ANS">ANS-Asian Studies</option>
+
+  <option value="ANT">ANT-Anthropology </option>
+
+  <option value="ARA">ARA-Arabic </option>
+
+  <option value="ARC">ARC-Architecture </option>
+
+  <option value="ARE">ARE-Architectural Engineering</option>
+
+  <option value="ARH">ARH-Art History</option>
+
+  <option value="ARI">ARI-Architectural Interior Design</option>
+
+  <option value="ART">ART-Studio Art</option>
+
+  <option value="ARY">ARY-Archaeology</option>
+
+  <option value="ASE">ASE-Aerospace Engineering </option>
+
+  <option value="ASL">ASL-American Sign Language</option>
+
+  <option value="AST">AST-Astronomy </option>
+
+  <option value="AUD">AUD-Audiology</option>
+
+  <option value="B A">B A-Business Administration</option>
+
+  <option value="BAH">BAH-Business Administration Honors</option>
+
+  <option value="BAX">BAX-Business Analytics</option>
+
+  <option value="BCH">BCH-Biochemistry </option>
+
+  <option value="BCM">BCM-Bosnian, Croatian, Montenegrin, Serbian</option>
+
+  <option value="BDP">BDP-Bridging Disciplines</option>
+
+  <option value="BEN">BEN-Bengali</option>
+
+  <option value="BGS">BGS-Business, Government, and Society</option>
+
+  <option value="BHD">BHD-Behavioral and Humanities Data Science</option>
+
+  <option value="BIO">BIO-Biology</option>
+
+  <option value="BME">BME-Biomedical Engineering</option>
+
+  <option value="BSN">BSN-Bassoon</option>
+
+  <option value="C C">C C-Classical Civilization</option>
+
+  <option value="C E">C E-Civil Engineering</option>
+
+  <option value="C L">C L-Comparative Literature</option>
+
+  <option value="C S">C S-Computer Sciences</option>
+
+  <option value="CAM">CAM-Computational and Applied Math </option>
+
+  <option value="CDI">CDI-Critical Disability Studies</option>
+
+  <option value="CGS">CGS-Cognitive Science</option>
+
+  <option value="CH ">CH -Chemistry</option>
+
+  <option value="CHE">CHE-Chemical Engineering</option>
+
+  <option value="CHI">CHI-Chinese</option>
+
+  <option value="CIV">CIV-Civics</option>
+
+  <option value="CLA">CLA-Clarinet</option>
+
+  <option value="CLS">CLS-Cultural Studies</option>
+
+  <option value="CMS">CMS-Communication Studies </option>
+
+  <option value="COE">COE-Computational Engineering</option>
+
+  <option value="COM">COM-Communication</option>
+
+  <option value="CON">CON-Conducting</option>
+
+  <option value="CRP">CRP-Community &amp; Regional Planning </option>
+
+  <option value="CRW">CRW-Creative Writing</option>
+
+  <option value="CSD">CSD-Comm Sciences and Disorders </option>
+
+  <option value="CTI">CTI-Core Text and Ideas</option>
+
+  <option value="CZ ">CZ -Czech</option>
+
+  <option value="CLD">CLD-Communication and Leadership</option>
+
+  <option value="CSE">CSE-Comp Sci, Engr &amp; Mathematics</option>
+
+  <option value="D B">D B-Double Bass</option>
+
+  <option value="DAN">DAN-Danish </option>
+
+  <option value="DCH">DCH-Dutch</option>
+
+  <option value="DES">DES-Design </option>
+
+  <option value="DEV">DEV-Developmental Studies </option>
+
+  <option value="DGI">DGI-Digital Game Industries</option>
+
+  <option value="DRS">DRS-Drum Set</option>
+
+  <option value="D S">D S-Decision Science</option>
+
+  <option value="DSC">DSC-Data Science</option>
+
+  <option value="E  ">E  -English</option>
+
+  <option value="E E">E E-Electrical &amp; Computer Engr </option>
+
+  <option value="E M">E M-Engineering Mechanics </option>
+
+  <option value="E S">E S-Engineering Studies</option>
+
+  <option value="ECE">ECE-Electrical/Computer Engineering</option>
+
+  <option value="ECO">ECO-Economics </option>
+
+  <option value="EDA">EDA-Educational Administration</option>
+
+  <option value="EDC">EDC-Curriculum and Instruction</option>
+
+  <option value="EDP">EDP-Educational Psychology</option>
+
+  <option value="EDU">EDU-Education</option>
+
+  <option value="EEB">EEB-Ecology, Evolution, and Behavi</option>
+
+  <option value="EEE">EEE-Earth Energy Engineering</option>
+
+  <option value="EER">EER-Energy and Earth Resources</option>
+
+  <option value="ENM">ENM-Engineering Management</option>
+
+  <option value="ENS">ENS-Ensemble</option>
+
+  <option value="ESL">ESL-English as a Second Language</option>
+
+  <option value="EUP">EUP-Euphonium </option>
+
+  <option value="EUS">EUS-European Studies</option>
+
+  <option value="EVE">EVE-Environmental Engineering </option>
+
+  <option value="EVS">EVS-Environmental Science</option>
+
+  <option value="ELP">ELP-Educational Leadership/Policy</option>
+
+  <option value="F A">F A-Fine Arts </option>
+
+  <option value="F C">F C-French Civilization</option>
+
+  <option value="F H">F H-French Horn</option>
+
+  <option value="FIN">FIN-Finance</option>
+
+  <option value="FLE">FLE-Foreign Language Education</option>
+
+  <option value="FLU">FLU-Flute</option>
+
+  <option value="FNH">FNH-Finnish</option>
+
+  <option value="FR ">FR -French</option>
+
+  <option value="G B">G B-Great Books</option>
+
+  <option value="G E">G E-General Engineering</option>
+
+  <option value="GEO">GEO-Geological Sciences</option>
+
+  <option value="GER">GER-German</option>
+
+  <option value="GK ">GK -Greek</option>
+
+  <option value="GOV">GOV-Government</option>
+
+  <option value="GRC">GRC-Germanic Civilization</option>
+
+  <option value="GRG">GRG-Geography</option>
+
+  <option value="GRS">GRS-Graduate School</option>
+
+  <option value="GSD">GSD-German, Scandinavian, and Dutch Studies</option>
+
+  <option value="GUI">GUI-Guitar</option>
+
+  <option value="H E">H E-Human Ecology</option>
+
+  <option value="H S">H S-Health and Society</option>
+
+  <option value="HAR">HAR-Harp</option>
+
+  <option value="HDF">HDF-Human Dev and Family Sciences</option>
+
+  <option value="HDO">HDO-Human Dimensions of Orgs</option>
+
+  <option value="HEB">HEB-Hebrew</option>
+
+  <option value="HED">HED-Health Education</option>
+
+  <option value="HHM">HHM-Humanities/Health/Medicine</option>
+
+  <option value="HIN">HIN-Hindi</option>
+
+  <option value="HIS">HIS-History</option>
+
+  <option value="HMN">HMN-Humanities</option>
+
+  <option value="HSC">HSC-Harpsichord</option>
+
+  <option value="HCT">HCT-Health Care Transformation</option>
+
+  <option value="I B">I B-International Business</option>
+
+  <option value="IMS">IMS-Identity Management</option>
+
+  <option value="INB">INB-Integrative Biology</option>
+
+  <option value="INF">INF-Information Studies</option>
+
+  <option value="IRG">IRG-Intl Rels and Global Studies</option>
+
+  <option value="ISL">ISL-Islamic Studies</option>
+
+  <option value="ITC">ITC-Italian Civilization</option>
+
+  <option value="ITL">ITL-Italian</option>
+
+  <option value="ILA">ILA-Iberian/Latin American Langs</option>
+
+  <option value="I  ">I  -Informatics</option>
+
+  <option value="ISP">ISP-Information Security and Privacy</option>
+
+  <option value="ITD">ITD-Integrated Design</option>
+
+  <option value="J  ">J  -Journalism</option>
+
+  <option value="J S">J S-Jewish Studies</option>
+
+  <option value="JPN">JPN-Japanese</option>
+
+  <option value="KIN">KIN-Kinesiology</option>
+
+  <option value="KOR">KOR-Korean</option>
+
+  <option value="L A">L A-Liberal Arts</option>
+
+  <option value="LAH">LAH-Liberal Arts Honors</option>
+
+  <option value="LAL">LAL-Indigenous Languages of Latin America</option>
+
+  <option value="LAR">LAR-Landscape Architecture</option>
+
+  <option value="LAS">LAS-Latin American Studies</option>
+
+  <option value="LAT">LAT-Latin</option>
+
+  <option value="LAW">LAW-Law</option>
+
+  <option value="LEB">LEB-Legal Environment of Business</option>
+
+  <option value="LIN">LIN-Linguistics</option>
+
+  <option value="LTC">LTC-Language Teaching and Coordination</option>
+
+  <option value="M  ">M  -Mathematics</option>
+
+  <option value="M E">M E-Mechanical Engineering</option>
+
+  <option value="M S">M S-Military Science</option>
+
+  <option value="MAL">MAL-Malayalam</option>
+
+  <option value="MAN">MAN-Management</option>
+
+  <option value="MAS">MAS-Mexican American Studies</option>
+
+  <option value="MBS">MBS-Molecular Biosciences</option>
+
+  <option value="MBU">MBU-Music Business</option>
+
+  <option value="MDV">MDV-Medieval Studies</option>
+
+  <option value="MED">MED-Medicine</option>
+
+  <option value="MEL">MEL-Middle Eastern Languages &amp; Cultures</option>
+
+  <option value="MES">MES-Middle Eastern Studies</option>
+
+  <option value="MFG">MFG-Manufacturing Sys Engineering</option>
+
+  <option value="MIC">MIC-Microbiology</option>
+
+  <option value="MIS">MIS-Management Information Systems</option>
+
+  <option value="MKT">MKT-Marketing</option>
+
+  <option value="MLS">MLS-Medical Laboratory Science</option>
+
+  <option value="MNS">MNS-Marine Science</option>
+
+  <option value="MOL">MOL-Molecular Biology</option>
+
+  <option value="MRT">MRT-Music Recording Technology</option>
+
+  <option value="MSE">MSE-Materials Science &amp; Engr</option>
+
+  <option value="MST">MST-Mathematical Statistics</option>
+
+  <option value="MUS">MUS-Music</option>
+
+  <option value="N  ">N  -Nursing</option>
+
+  <option value="N S">N S-Naval Science</option>
+
+  <option value="NE">NE -Nanoengineering</option>
+
+  <option value="NEU">NEU-Neuroscience</option>
+
+  <option value="NOR">NOR-Norwegian</option>
+
+  <option value="NRP">NRP-Nurse Professional</option>
+
+  <option value="NSC">NSC-Natural Sciences</option>
+
+  <option value="NSP">NSP-National Security Policy</option>
+
+  <option value="NTR">NTR-Nutrition</option>
+
+  <option value="O M">O M-Operations Management</option>
+
+  <option value="OBO">OBO-Oboe</option>
+
+  <option value="OPR">OPR-Opera</option>
+
+  <option value="ORG">ORG-Organ</option>
+
+  <option value="ORI">ORI-Operations Rsch &amp; Indstrl Engr</option>
+
+  <option value="P A">P A-Public Affairs</option>
+
+  <option value="P B">P B-Plant Biology</option>
+
+  <option value="P L">P L-Public Leadership</option>
+
+  <option value="P R">P R-Public Relations</option>
+
+  <option value="P S">P S-Physical Science</option>
+
+  <option value="PBH">PBH-Public Health</option>
+
+  <option value="PED">PED-Physical Education</option>
+
+  <option value="PER">PER-Percussion</option>
+
+  <option value="PGE">PGE-Petroleum &amp; Geosystems Engr</option>
+
+  <option value="PHL">PHL-Philosophy</option>
+
+  <option value="PHM">PHM-Pharmacy(Pharm D)</option>
+
+  <option value="PHR">PHR-Pharmacy</option>
+
+  <option value="PHY">PHY-Physics</option>
+
+  <option value="PIA">PIA-Piano</option>
+
+  <option value="POL">POL-Polish</option>
+
+  <option value="POR">POR-Portuguese</option>
+
+  <option value="PPE">PPE-Philosophy, Politics, and Economics</option>
+
+  <option value="PRC">PRC-Portuguese Civilization</option>
+
+  <option value="PRF">PRF-Performance</option>
+
+  <option value="PRS">PRS-Persian</option>
+
+  <option value="PSC">PSC-Prevention Science</option>
+
+  <option value="PSH">PSH-Pashto</option>
+
+  <option value="PSY">PSY-Psychology</option>
+
+  <option value="PGS">PGS-Pharmacy Graduate Studies</option>
+
+  <option value="PSF">PSF-Public Safety</option>
+
+  <option value="RBT">RBT-Robotics</option>
+
+  <option value="R E">R E-Real Estate</option>
+
+  <option value="R M">R M-Risk Management </option>
+
+  <option value="R S">R S-Religious Studies</option>
+
+  <option value="REC">REC-Recorder</option>
+
+  <option value="REE">REE-Russian East Eur &amp; Eurasian Stds</option>
+
+  <option value="RHE">RHE-Rhetoric and Writing</option>
+
+  <option value="ROM">ROM-Romanian</option>
+
+  <option value="RTF">RTF-Radio Television &amp; Film</option>
+
+  <option value="RUS">RUS-Russian</option>
+
+  <option value="RIM">RIM-Race/Indigeneity/Migration</option>
+
+  <option value="S C">S C-Serbian &amp; Croatian</option>
+
+  <option value="S S">S S-Social Science</option>
+
+  <option value="S W">S W-Social Work</option>
+
+  <option value="SAL">SAL-South Asian Languages</option>
+
+  <option value="SAN">SAN-Sanskrit</option>
+
+  <option value="SAX">SAX-Saxophone</option>
+
+  <option value="SCA">SCA-Scandinavian</option>
+
+  <option value="SCI">SCI-Science</option>
+
+  <option value="SDS">SDS-Statistics and Data Sciences</option>
+
+  <option value="SED">SED-Special Education</option>
+
+  <option value="SEL">SEL-Slavic and Eurasian Languages</option>
+
+  <option value="SLA">SLA-Slavic</option>
+
+  <option value="SME">SME-Science &amp; Mathematics Education</option>
+
+  <option value="SOC">SOC-Sociology</option>
+
+  <option value="SPB">SPB-Sports Production and Broadcas</option>
+
+  <option value="SPC">SPC-Spanish Civilization</option>
+
+  <option value="SPN">SPN-Spanish</option>
+
+  <option value="SSB">SSB-Systems and Synthetic Biology</option>
+
+  <option value="SSC">SSC-Statistics &amp; Scientific Computation</option>
+
+  <option value="SSE">SSE-Semiconductor Science and Engineering</option>
+
+  <option value="STA">STA-Statistics</option>
+
+  <option value="STC">STC-Sci &amp; Tech Commercialization</option>
+
+  <option value="STR">STR-Strategy and Statecraft</option>
+
+  <option value="STS">STS-Science Tech &amp; Society</option>
+
+  <option value="SUS">SUS-Sustainability Studies </option>
+
+  <option value="SWA">SWA-Swahili</option>
+
+  <option value="SWE">SWE-Swedish</option>
+
+  <option value="STM">STM-Science, Technology, Engineering</option>
+
+  <option value="SLH">SLH-Speech, Language, and Hearing</option>
+
+  <option value="T C">T C-Tutorial Course</option>
+
+  <option value="T D">T D-Theatre and Dance</option>
+
+  <option value="TAM">TAM-Tamil</option>
+
+  <option value="TBA">TBA-Tuba</option>
+
+  <option value="TEL">TEL-Telugu</option>
+
+  <option value="TRO">TRO-Trombone</option>
+
+  <option value="TRU">TRU-Trumpet</option>
+
+  <option value="TUR">TUR-Turkish</option>
+
+  <option value="TXA">TXA-Textiles and Apparel</option>
+
+  <option value="U D">U D-Urban Design</option>
+
+  <option value="UDN">UDN-Urban Design</option>
+
+  <option value="UGS">UGS-Undergraduate Studies</option>
+
+  <option value="URB">URB-Urban Studies</option>
+
+  <option value="URD">URD-Urdu</option>
+
+  <option value="UTL">UTL-UTeach &amp; Liberal Arts</option>
+
+  <option value="UTS">UTS-UTeach &amp; Natural Sciences</option>
+
+  <option value="UKR">UKR-Ukrainian</option>
+
+  <option value="V C">V C-Violoncello</option>
+
+  <option value="VAS">VAS-Visual Art Studies</option>
+
+  <option value="VIA">VIA-Viola</option>
+
+  <option value="VIB">VIB-Vibraphone</option>
+
+  <option value="VIO">VIO-Violin</option>
+
+  <option value="VOI">VOI-Voice</option>
+
+  <option value="VTN">VTN-Vietnamese</option>
+
+  <option value="WCV">WCV-Western Civilization</option>
+
+  <option value="WGS">WGS-Women&#x27;s and Gender Studies</option>
+
+  <option value="WRT">WRT-Writing</option>
+
+  <option value="YID">YID-Yiddish</option>
+
+  <option value="YOR">YOR-Yoruba </option>
+
+</select>
+                </div>
+
+                <div class="form-group">
+                    <label for="id_course_number">Course Number</label>
+                    <input type="text" name="course_number" class="form-control" id="id_course_number">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_course_title">Section Title</label>
+                    <input type="text" name="course_title" class="form-control" size="41" id="id_course_title">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_unique">Unique Number</label>
+                    <input type="text" name="unique" class="form-control" id="id_unique">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_csn">Constant Section Number</label>
+                    <input type="text" name="csn" class="form-control" id="id_csn">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_instructor_first">Instructor First Name</label>
+                    <input type="text" name="instructor_first" class="form-control" size="30" id="id_instructor_first">
+                </div>
+
+                <div class="form-group">
+                    <label for="id_instructor_last">Instructor Last Name</label>
+                    <input type="text" name="instructor_last" class="form-control" size="30" id="id_instructor_last">
+                </div>
+
+
+                <div>
+                    <div class="form-group check-or-radio"
+                         style="display: inline-block; margin-right: 2rem;">
+                        <div id="id_course_type"><div>
+    <label for="id_course_type_0"><input type="checkbox" name="course_type" value="In Residence" id="id_course_type_0" checked>
+ In Residence</label>
+
+</div><div>
+    <label for="id_course_type_1"><input type="checkbox" name="course_type" value="Extension" id="id_course_type_1">
+ Extension</label>
+
+</div>
+</div>
+                    </div>
+                    
+                    <span class="help-icon"
+                          style="margin-top: 5px;"
+                          data-bs-toggle="tooltip"
+                          data-bs-placement="top"
+                          title="In Residence courses are courses taken at
+                    the University of Texas at Austin; these do not include courses taken by extension or by
+                    correspondence. University Extension courses are completed by extension study through the UT Austin
+                    Division of Continuing Education.">?</span>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" name="search" id="search" class="btn btn-sm btn-primary">Search</button>
+                    <a href="/apps/student/coursedocs/courses/nlogon/" class="btn btn-sm btn-cancel">Reset</a>
+                </div>
+
+            </fieldset>
+        </form>
+    </div>
+
+</div>
+
+<!-- end  index_sidebar.html -->
+
+    <div class="content">
+        <!-- messages.html -->
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class="messages margin-bottom">
+        <div class="alert alert-danger">
+            Please correct the error below.
+            <ul class="margin-top margin-left">
+                
+                    <li>Must enter some search term to begin search.</li>
+                
+                
+            </ul>
+        </div>
+    </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        <!-- end messages.html -->
+        
+    <!-- content -->
+    <div class="intro">
+        <p>Search all undergraduate course syllabi, available graduate syllabi and instructor curriculum vitae for
+            UT Austin courses. Records prior to Fall 2010 are not available. In addition, Course Instructor Surveys <a
+                    href="https://testingservices.utexas.edu/cis/faculty-results">can
+                be found here</a>.</p>
+        </p>
+    </div>
+
+    
+        
+            <p class="results"><strong>No courses found matching your search criteria.</strong></p>
+        
+    
+
+    <!-- results table -->
+    
+    <!-- end results table -->
+
+    <!-- end content -->
+
+    </div>
+</main>
+
+
+    <footer>
+        Need help? <a href="mailto:regops-course-docs@utlists.utexas.edu">Send us an email</a>
+    </footer>
+
+
+
+<!-- base_js.html -->
+
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
+        integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.min.js"
+        integrity="sha384-G/EV+4j2dNv+tEPo3++6LCgdCROaejBqfUeNjuKAiuXbjrxilcCdDz6ZAVfHWe1Y"
+        crossorigin="anonymous"></script>
+
+<!-- end base_js.html -->
+
+
+
+
+    <script>
+        $(document).ready(function () {
+            $('#results_table').DataTable({
+                pageLength: 50,
+                language: {search: "Filter"},
+                columnDefs: [{type: 'string', targets: 2}],
+            });
+        });
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        })
+
+    </script>
+
+
+
+</body>
+</html>

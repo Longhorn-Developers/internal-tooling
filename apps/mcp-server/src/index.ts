@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
-import { registerCourseOverview } from "./tools/course-overview/index.ts";
-import { registerRateMyProfessor } from "./tools/rate-my-professor/index.ts";
+import { registerCourseOverview } from "./tools/course-overview";
+import { registerRateMyProfessor } from "./tools/rate-my-professor";
 
 function createServer() {
     const server = new McpServer({

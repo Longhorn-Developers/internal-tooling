@@ -9,8 +9,7 @@
         "lint:fix": "vp lint --fix",
         "start": "wrangler dev",
         "cf-typegen": "wrangler types",
-        "type-check": "tsc --noEmit",
-        "test": "vp test"
+        "type-check": "tsc --noEmit"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0",

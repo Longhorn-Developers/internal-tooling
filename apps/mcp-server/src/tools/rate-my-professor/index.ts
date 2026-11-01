@@ -13,7 +13,8 @@ import { professorSearchUrl, RMP_GRAPHQL_URL } from "./urls.ts";
 export async function lookupProfessor(name: string, course?: string | null) {
     const searchUrl = professorSearchUrl(name, course);
     const matches = professorRatings(await fetchPage(searchUrl), name);
-    const reviews = matches.length === 1 ? await fetchReviews(matches[0], course) : null;
+    const [only] = matches;
+    const reviews = only && matches.length === 1 ? await fetchReviews(only, course) : null;
     return { searchUrl, matches, reviews };
 }
 
@@ -51,7 +52,8 @@ export function registerRateMyProfessor(server: McpServer) {
 
             const { searchUrl, matches, reviews } = await lookupProfessor(name, course);
             const query = { professor: name, course };
-            if (matches.length !== 1) {
+            const [selected] = matches;
+            if (!selected || matches.length !== 1) {
                 return jsonResponse({
                     query,
                     searchUrl,
@@ -65,7 +67,6 @@ export function registerRateMyProfessor(server: McpServer) {
                 });
             }
 
-            const selected = matches[0];
             return jsonResponse({
                 query,
                 searchUrl,

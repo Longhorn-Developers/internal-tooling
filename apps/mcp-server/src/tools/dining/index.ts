@@ -28,7 +28,7 @@ import {
     statusAt,
     withNutrition,
     type MenuItem,
-} from "../lib/dining";
+} from "./extract";
 
 const MAX_ROWS = 60;
 

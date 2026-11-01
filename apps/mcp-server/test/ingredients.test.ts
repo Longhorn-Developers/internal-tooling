@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { AVOID_INGREDIENTS, hasAvoided, implausible } from "../src/lib/dining";
+import { AVOID_INGREDIENTS, hasAvoided, implausible } from "../src/tools/dining/extract";
 
 /**
  * These guard the regex escapes as much as the logic. An editing slip turned

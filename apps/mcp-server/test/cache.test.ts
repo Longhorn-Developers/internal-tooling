@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { cacheStats, cached, getText, resetCache, UpstreamError } from "../src/lib/http";
-import { getCurrentHours, getLocations } from "../src/lib/dining";
+import { cacheStats, cached, getText, resetCache, UpstreamError } from "../src/shared";
+import { getCurrentHours, getLocations } from "../src/tools/dining/extract";
 import { stubFetch } from "./fixtures";
 
 /**

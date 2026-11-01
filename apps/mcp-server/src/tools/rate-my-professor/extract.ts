@@ -173,8 +173,7 @@ function courseMatches(value: string, requested: string): boolean {
 
 function sample<T>(items: T[], count: number): T[] {
     const pool = [...items];
-    return Array.from(
-        { length: Math.min(count, pool.length) },
-        () => pool.splice(Math.floor(Math.random() * pool.length), 1)[0],
-    );
+    return Array.from({ length: Math.min(count, pool.length) }, () =>
+        pool.splice(Math.floor(Math.random() * pool.length), 1),
+    ).flat();
 }

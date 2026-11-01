@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { McpServer } from "@modelcontextprotocol/server";
 
-import { resetCache } from "../src/lib/http";
+import { resetCache } from "../src/shared";
 import { registerDiningTools } from "../src/tools/dining";
 import { FIXED_NOW, stubFetch } from "./fixtures";
 

@@ -1,3 +1,5 @@
+import { text } from "../../shared";
+
 const COURSE_ORIGIN = "https://utdirect.utexas.edu";
 
 export type CourseSection = {
@@ -16,21 +18,22 @@ export function courseResults(html: string): {
     errors: string[];
 } {
     const alert = html.match(/alert-danger[\s\S]*?<\/div>/i)?.[0] ?? "";
-    const errors = [...alert.matchAll(/<li>([\s\S]*?)<\/li>/gi)].map((item) => text(item[1]));
+    const errors = [...alert.matchAll(/<li>([\s\S]*?)<\/li>/gi)].map((item) => text(item[1] ?? ""));
     const body =
         html.match(/<table[^>]*id="results_table"[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] ?? "";
     const sections = [...body.matchAll(/<tr[\s\S]*?<\/tr>/gi)].flatMap((row) => {
-        const cells = [...row[0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => cell[1]);
+        const cells = [...row[0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(
+            (cell) => cell[1] ?? "",
+        );
         if (cells.length < 4) return [];
         return [
             {
-                semester: text(cells[0]),
-                course: text(cells[1]),
-                unique: text(cells[2]),
-                title: text(cells[3]),
-                instructors: (cells[4] ?? "")
-                    .split(/<br\s*\/?>/i)
-                    .map(text)
+                semester: text(cells[0] ?? ""),
+                course: text(cells[1] ?? ""),
+                unique: text(cells[2] ?? ""),
+                title: text(cells[3] ?? ""),
+                instructors: text(cells[4] ?? "", "\n")
+                    .split("\n")
                     .filter(Boolean),
                 syllabusUrl: absolute(href(row[0], /download syllabus/i)),
                 surveyUrl: absolute(href(row[0], /course instructor survey/i)),
@@ -41,19 +44,11 @@ export function courseResults(html: string): {
     return { totalFound: count ? Number(count) : sections.length, sections, errors };
 }
 
-function text(html: string): string {
-    return html
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&nbsp;/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
 function href(html: string, marker: RegExp): string | null {
     for (const anchor of html.matchAll(/<a\s+([^>]+)>/gi)) {
-        if (!marker.test(anchor[1])) continue;
-        return anchor[1].match(/href="([^"]+)"/i)?.[1]?.replace(/&amp;/g, "&") ?? null;
+        const attributes = anchor[1] ?? "";
+        if (!marker.test(attributes)) continue;
+        return attributes.match(/href="([^"]+)"/i)?.[1]?.replace(/&amp;/g, "&") ?? null;
     }
     return null;
 }

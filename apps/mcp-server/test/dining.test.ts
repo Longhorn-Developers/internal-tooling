@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { MenuItem } from "../src/lib/dining";
-import { resetCache } from "../src/lib/http";
+import type { MenuItem } from "../src/tools/dining/extract";
+import { resetCache } from "../src/shared";
 import {
     LABEL_BUDGET,
     austinNow,
@@ -17,7 +17,7 @@ import {
     searchMenuItems,
     statusAt,
     withNutrition,
-} from "../src/lib/dining";
+} from "../src/tools/dining/extract";
 import { FIXED_NOW, fixture, stubFetch } from "./fixtures";
 
 beforeEach(() => {

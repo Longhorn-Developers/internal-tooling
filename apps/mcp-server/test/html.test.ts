@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { decode, norm, text } from "../src/lib/html";
+import { decode, norm, text } from "../src/shared";
 
 describe("decode", () => {
     it("decodes named, decimal and hex entities", () => {

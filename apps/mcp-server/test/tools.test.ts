@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { resetCache } from "../src/lib/http";
-import { allergens, getMenu, mergedAllergens } from "../src/lib/dining";
+import { resetCache } from "../src/shared";
+import { allergens, getMenu, mergedAllergens } from "../src/tools/dining/extract";
 import { CATEGORY_LIST, registerDiningTools } from "../src/tools/dining";
 import { FIXED_NOW, fixture, stubFetch } from "./fixtures";
 

@@ -1,9 +1,13 @@
-import { cached, getText, UpstreamError } from "./http";
-import { decode, norm, text } from "./html";
-
-const FOODPRO = "https://hf-foodpro.austin.utexas.edu/foodpro";
-const ENDPOINT = `${FOODPRO}/data_all_endpoint.php`;
-const HOUSING = "https://housing.utexas.edu";
+import { cached, decode, getText, norm, text, UpstreamError } from "../../shared";
+import {
+    diningCategoryUrl,
+    FOODPRO_APP_URL,
+    HOURS_FEED_URL,
+    HOURS_PAGE_URL,
+    housingUrl,
+    labelUrl,
+    MENU_FEED_URL,
+} from "./urls";
 
 export const DIET_LEGENDS: Record<string, string> = {
     BF: "Contains Beef",
@@ -193,7 +197,7 @@ function periodFromObject(
 /** Every period the feed publishes, in feed order. ~12 KB. */
 export function getFeedHours(): Promise<HoursPeriod[]> {
     return cached("dining:hours:feed", 3600, async () => {
-        const body = await getText(`${ENDPOINT}?hours=1`, 3600);
+        const body = await getText(HOURS_FEED_URL, 3600);
         const marker = body.indexOf("diningHours");
         const start = marker < 0 ? -1 : body.indexOf("{", marker);
         const end = body.lastIndexOf("}");
@@ -226,7 +230,7 @@ export async function getCurrentHours(): Promise<HoursPeriod> {
 /** Every published period. Only needed for dates outside the current one. */
 export function getAllHours(): Promise<HoursPeriod[]> {
     return cached("dining:hours:all", 21600, async () => {
-        const html = await getText(`${HOUSING}/dining/hours-of-operation`, 21600);
+        const html = await getText(HOURS_PAGE_URL, 21600);
         const periods: HoursPeriod[] = [];
         for (const chunk of html.split("<details>").slice(1)) {
             const label = text(chunk.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? "");
@@ -342,7 +346,7 @@ const CATEGORY_PAGES = [
 function getCoordinates(): Promise<Record<string, { lat: number; lon: number }>> {
     return cached("dining:coords", 86400, async () => {
         try {
-            const html = await getText(`${FOODPRO}/`, 86400);
+            const html = await getText(FOODPRO_APP_URL, 86400);
             const out: Record<string, { lat: number; lon: number }> = {};
             const block = html.match(/location_coordinates\s*=\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
             for (const m of block.matchAll(
@@ -373,10 +377,7 @@ export function getLocations(): Promise<DiningLocation[]> {
         const pages = await Promise.all(
             CATEGORY_PAGES.map(async ([category, slug]) => {
                 try {
-                    return [
-                        category,
-                        await getText(`${HOUSING}/dining/dining-locations/${slug}`, 86400),
-                    ] as const;
+                    return [category, await getText(diningCategoryUrl(slug), 86400)] as const;
                 } catch {
                     return [category, ""] as const;
                 }
@@ -402,7 +403,7 @@ export function getLocations(): Promise<DiningLocation[]> {
                     name,
                     category,
                     slug: link[1]!,
-                    url: `${HOUSING}${link[1]!}`,
+                    url: housingUrl(link[1]!),
                     description: blurb ? text(blurb) : undefined,
                 });
             }
@@ -489,10 +490,11 @@ export async function getLocationDetail(name: string): Promise<DiningLocation | 
     // "Tower Burger" is exactly the feed's spelling and exactly the stub.
     const loc = byName.flatMap((list) => list.filter((l) => l.slug))[0] ?? byName.flat()[0];
     if (!loc) return null;
-    if (!loc.slug) return loc;
+    const { slug } = loc;
+    if (!slug) return loc;
 
-    return cached(`dining:location:${loc.slug}`, 86400, async () => {
-        const html = await getText(`${HOUSING}${loc.slug}`, 86400);
+    return cached(`dining:location:${slug}`, 86400, async () => {
+        const html = await getText(housingUrl(slug), 86400);
         // description sits behind a visually-hidden "Description" label
         const descBlock =
             html.match(
@@ -860,7 +862,7 @@ type MenuFeed = {
  */
 function getMenuFeed(): Promise<MenuFeed> {
     return cached("dining:menu", 3600, async () => {
-        const body = await getText(`${ENDPOINT}?menu=1`, 3600);
+        const body = await getText(MENU_FEED_URL, 3600);
 
         // UT serves this compact; allow whitespace so a reformat doesn't drop every tag
         const key = (name: string) => new RegExp(`"${name}"\\s*:`);
@@ -1210,11 +1212,7 @@ export type Nutrition = {
 };
 
 async function fetchLabel(recipeNumber: string, serving?: string): Promise<Nutrition> {
-    const port = `${recipeNumber}*${serving ?? "1"}`;
-    const html = await getText(
-        `${FOODPRO}/label.aspx?RecNumAndPort=${encodeURIComponent(port)}`,
-        86400,
-    );
+    const html = await getText(labelUrl(recipeNumber, serving ?? "1"), 86400);
     const pick = (cls: string) => {
         const out = [
             ...html.matchAll(new RegExp(`class="${cls}"[^>]*>([\\s\\S]*?)</(?:span|div|td)>`, "g")),

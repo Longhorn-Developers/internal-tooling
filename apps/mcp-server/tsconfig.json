@@ -6,6 +6,7 @@
         "allowJs": true,
         "checkJs": false,
         "noEmit": true,
+        "allowImportingTsExtensions": true,
         "allowSyntheticDefaultImports": true,
         "forceConsistentCasingInFileNames": true,
         "types": ["./worker-configuration.d.ts", "node"]

@@ -1,4 +1,5 @@
 import { createAppAuth } from '@octokit/auth-app'
+import { ServiceError } from '../services/service'
 
 // The GitHub App must be owned by GITHUB_ORG and installed on it. App ID, installation ID,
 // and private key are secrets (wrangler secret put …); GITHUB_ORG is in wrangler.jsonc vars.
@@ -41,12 +42,43 @@ export type TeamMembership = { state: 'active' | 'pending'; role: TeamRole }
 
 export type Collaborator = { login: string; role_name: string }
 
-export class GitHubError extends Error {
+export type GitHubErrorCode =
+    | 'GITHUB_BAD_CREDENTIALS'
+    | 'GITHUB_NOT_FOUND'
+    | 'GITHUB_FORBIDDEN'
+    | 'GITHUB_RATE_LIMITED'
+    | 'GITHUB_VALIDATION_FAILED'
+    | 'GITHUB_UNAVAILABLE'
+    | 'GITHUB_ERROR'
+
+const retryableCodes = new Set<GitHubErrorCode>([
+    'GITHUB_RATE_LIMITED',
+    'GITHUB_UNAVAILABLE',
+    'GITHUB_ERROR',
+])
+
+function codeFor(status: number, message: string): GitHubErrorCode {
+    if (status === 401) return 'GITHUB_BAD_CREDENTIALS'
+    if (status === 404) return 'GITHUB_NOT_FOUND'
+    if (status === 429 || (status === 403 && /rate limit/i.test(message))) {
+        return 'GITHUB_RATE_LIMITED'
+    }
+    if (status === 403) return 'GITHUB_FORBIDDEN'
+    if (status === 422) return 'GITHUB_VALIDATION_FAILED'
+    if (status >= 500) return 'GITHUB_UNAVAILABLE'
+    return 'GITHUB_ERROR'
+}
+
+/** A failed GitHub call; `code` says what kind (see the README's table). */
+export class GitHubError extends ServiceError {
+    declare code: GitHubErrorCode
+
     constructor(
         public status: number,
         message: string,
     ) {
-        super(message)
+        const code = codeFor(status, message)
+        super('github', code, retryableCodes.has(code), message)
     }
 }
 
@@ -156,8 +188,13 @@ const repo = (env: Env, name: string) =>
     `/repos/${encodeURIComponent(env.GITHUB_ORG)}/${encodeURIComponent(name)}`
 
 // ============================================================
-// Organization membership
+// Users and organization membership
 // ============================================================
+
+/** Returns false when GitHub has no account with this login. */
+export async function userExists(env: Env, username: string): Promise<boolean> {
+    return (await github(env, 'GET', `/users/${user(username)}`)) !== null
+}
 
 /** Returns null when the user is neither a member nor invited. */
 export async function getOrgMembership(env: Env, username: string): Promise<OrgMembership | null> {
@@ -279,6 +316,13 @@ export async function createTeam(env: Env, name: string): Promise<GitHubTeam> {
         throw new GitHubError(404, `Organization ${env.GITHUB_ORG} does not exist`)
     }
     return created
+}
+
+/** Deletes a team; its members and repositories stay in the org. Returns false if it was missing. */
+export async function deleteTeam(env: Env, teamSlug: string): Promise<boolean> {
+    if (!(await getTeam(env, teamSlug))) return false
+    await github(env, 'DELETE', team(env, teamSlug))
+    return true
 }
 
 // ============================================================

@@ -6,6 +6,7 @@ import type { Vertical } from './schema'
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Team = typeof teams.$inferSelect
+export type NewTeam = typeof teams.$inferInsert
 export type TeamUser = typeof teamUsers.$inferSelect
 export type TeamRepo = typeof teamRepos.$inferSelect
 
@@ -35,6 +36,22 @@ export async function createUser(database: D1Database, data: NewUser): Promise<U
     }
 
     return user
+}
+
+/** Updates a user's fields; returns null when the user does not exist. */
+export async function updateUser(
+    database: D1Database,
+    userId: string,
+    data: Partial<Omit<NewUser, 'id'>>,
+): Promise<User | null> {
+    const user = await drizzle(database)
+        .update(users)
+        .set(data)
+        .where(eq(users.id, userId))
+        .returning()
+        .get()
+
+    return user ?? null
 }
 
 /**
@@ -131,11 +148,37 @@ export async function listTeams(database: D1Database): Promise<Team[]> {
     return drizzle(database).select().from(teams).orderBy(teams.name).all()
 }
 
-/** Records the GitHub team created for a team; duplicate slugs reject the promise. */
+/** Creates a team; duplicate IDs reject the promise. */
+export async function createTeam(database: D1Database, data: NewTeam): Promise<Team> {
+    const team = await drizzle(database).insert(teams).values(data).returning().get()
+
+    if (!team) {
+        throw new Error(`Team ${data.id} was not created`)
+    }
+
+    return team
+}
+
+/**
+ * Deletes a team with its member assignments and repository assignments.
+ * Returns false if the team did not exist.
+ */
+export async function deleteTeam(database: D1Database, teamId: string): Promise<boolean> {
+    const db = drizzle(database)
+    const [, , deleted] = await db.batch([
+        db.delete(teamUsers).where(eq(teamUsers.teamId, teamId)),
+        db.delete(teamRepos).where(eq(teamRepos.teamId, teamId)),
+        db.delete(teams).where(eq(teams.id, teamId)).returning({ id: teams.id }),
+    ])
+
+    return deleted.length > 0
+}
+
+/** Records the GitHub team created for a team, or clears it with null; duplicate slugs reject. */
 export async function setGithubTeamSlug(
     database: D1Database,
     teamId: string,
-    slug: string,
+    slug: string | null,
 ): Promise<void> {
     await drizzle(database)
         .update(teams)

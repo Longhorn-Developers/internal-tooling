@@ -60,51 +60,73 @@ const user = await getUserById(this.env.membership_db, userId);
 await assignVertical(this.env.membership_db, userId, teamId, 'tech', true); // as lead
 ```
 
-Available helpers: `createUser`, `getUserById`, `getTeamMembers`,
-`assignVertical`, and `removeVertical`. Create users and teams before assigning
+Available helpers include `createUser`, `updateUser`, `getUserById`,
+`getTeamMembers`, `assignVertical`, `removeVertical`, `createTeam`, and `deleteTeam`. Create users and teams before assigning
 verticals. `getTeamMembers` returns `{ user, verticals: { vertical, isLead }[] }[]`.
 `assignVertical` inserts the assignment or updates `isLead` on an existing one;
 assignment/removal helpers return whether a row changed. Database errors reject
 the promise.
 
-## GitHub sync
+## Services
 
-D1 is the source of truth; `src/github/sync.ts` makes the GitHub org match it.
+Each external service is a subclass of `Service` (`src/services/service.ts`), which declares
+the same actions for every service. `src/services/all-services.ts` runs each action on every
+service in `allServices` and writes D1, which is the source of truth. The Worker
+(`src/index.ts`) exposes them through the `MembershipService` RPC binding:
 
-- Every team gets a GitHub team (slug saved in `teams.github_team_slug`).
-- Active `tech` members are added to it: dev leads as maintainers, dev fellows as members.
-- `team_repos` assigns each org repository to one team. The team gets Write and the team's
-  dev leads get Admin on its repositories; LHD members who aren't leads lose direct Admin.
-- The exec team (`GITHUB_EXEC_TEAM` in `wrangler.jsonc`) has every active user with `is_exec`
-  as a member and Admin on every non-archived repository, re-applied on each sync.
-- Orphaned repositories (active, non-fork repos in no team) are flagged, not changed.
-- Accounts not in D1 are flagged, never removed. Org owners are never stripped of access.
+| Method | Does |
+| --- | --- |
+| `onboardUser(name, email, github, discord)` | creates an active user; returns `{ userId, neededChanges }` |
+| `addUserToTeam(userId, teamId, vertical, isLead)` | assigns the vertical, then sets up access |
+| `removeUserFromTeam(userId, teamId)` | removes every vertical on the team and its access |
+| `deactivateUser(userId)` | marks the user inactive and removes their access |
+| `makeExec(userId, execRole)` / `removeExec(userId, execRole)` | sets `is_exec` and exec access |
+| `createTeam(teamId, name)` / `deleteTeam(teamId)` | creates or deletes the team everywhere |
+| `syncTeam(teamId)` | checks the team in every service; changes nothing |
+| `syncUsers(teamId)` | sets up every user D1 assigns to the team |
+| `fixTeam(changes)` | makes the fixable needed changes |
 
-Other Workers call these through the `MembershipService` RPC binding: `assignRepoToTeam`,
-`unassignRepo`, `syncGithubTeam`, `syncGithubExecTeam`, `auditGithubRepos`, and `syncGithub`. Each returns
-`{ changes, flags, errors }`.
+Adds and syncs return `NeededChange[]`. Before changing anything, each service checks that what
+it needs exists (e.g. the GitHub team). If not, that service changes nothing and returns what is
+missing: `{ service, kind, teamId?, userId?, target, reason, fixable }`. Pass the list to `fixTeam`,
+which makes the `fixable` ones; the others need a person (e.g. a wrong `github_id`). Then run the
+action, or `syncUsers`, again. Removals never fail over something already missing.
 
-### Sync errors
+Failed API calls throw a `ServiceError` whose message starts with its code. Actions are
+idempotent, so retrying one is safe.
 
-If adding or removing a user's access fails (team membership, lead Admin, or removing direct
-Admin), the sync carries on and lists it in `errors`. Nothing is stored. Each error has a `code`,
-GitHub's `message`, the `operation`, `githubLogin`, and `target`, whether retrying can work as is
-(`retryable`), and a `fix` hint.
+## GitHub
 
-| Code | Usually means | Resolve |
+`GitHubService` (`src/github/github-service.ts`) uses the REST client in `src/github/github-api.ts`.
+
+- Every team has a GitHub team (slug in `teams.github_team_slug`) with Write on its repositories
+  (`team_repos`, one team per repository).
+- Active `tech` members are on it: dev leads as maintainers with direct Admin on the team's
+  repositories, dev fellows as members. Other verticals get no GitHub access.
+- Active execs are on the exec team (`GITHUB_EXEC_TEAM`), which has Admin on every non-archived
+  repository. Every exec role gets the same access.
+- `onboardUser` invites to the org; `deactivateUser` removes from the org (org owners are only
+  taken off LHD's teams).
+- Accounts not in D1 are reported, never removed. Org owners never lose access. GitHub teams are
+  only deleted by `deleteTeam`.
+
+GitHub-only RPC methods: `assignRepoToTeam(teamId, repoName)`, `unassignRepo(repoName)`,
+`auditGithubRepos()` (orphaned repositories), and `syncGithubExecTeam()` (checks the exec team).
+
+`syncTeam` reports access D1 doesn't account for: `remove_team_member` (LHD member no longer on
+the team) and `remove_repo_admin` (non-lead with direct Admin) are fixable; `unknown_account`,
+`extra_team_repo` (repository on the GitHub team but not assigned in D1), `missing_repo`
+(assigned in D1 but deleted from GitHub), and `github_user_not_found` need a person.
+
+| Error code | Usually means | Resolve |
 | --- | --- | --- |
-| `GITHUB_USER_NOT_FOUND` | the user's `github_id` in D1 is wrong | fix `github_id`, then retry |
+| `GITHUB_BAD_CREDENTIALS` | wrong or revoked app secrets | fix the secrets |
+| `GITHUB_NOT_FOUND` | something was deleted since the check | run `syncTeam`, then `fixTeam` |
 | `GITHUB_FORBIDDEN` | the GitHub App lacks a permission | fix the app, then retry |
 | `GITHUB_RATE_LIMITED` | too many requests | retry after a few minutes |
 | `GITHUB_VALIDATION_FAILED` | GitHub rejected it (e.g. no free seats) | fix in GitHub by hand |
-| `GITHUB_UNAVAILABLE` | GitHub or network outage | retry |
+| `GITHUB_UNAVAILABLE` | GitHub outage | retry |
 | `GITHUB_ERROR` | anything else | see the message |
-
-Bad app credentials (401) abort the sync instead, since every call would fail.
-
-To resolve automatically, pass the error to `retrySyncError(error)`. It re-syncs the error's team
-(re-reading D1) and returns `{ resolved, report }`; `resolved` is true when that change went through
-or is no longer needed. To resolve manually, fix it in GitHub; the next sync (or a retry) confirms it.
 
 Setup: an org owner creates a GitHub App owned by the org (org Settings → Developer settings →
 GitHub Apps) with **Organization → Members** and **Repository → Administration** set to read and

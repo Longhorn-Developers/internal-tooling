@@ -23,7 +23,11 @@
 			"database_id": "474c5c06-a8c1-474a-942b-bfb6e23b3a19",
 			"migrations_dir": "drizzle"
 		}
-	]
+	],
+	"vars": {
+		"GITHUB_ORG": "Longhorn-Developers",
+		"GITHUB_EXEC_TEAM": "exec"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

@@ -11,6 +11,7 @@
         "db:migrate": "wrangler d1 migrations apply membership_db --remote"
     },
     "dependencies": {
+        "@octokit/auth-app": "^8.3.1",
         "drizzle-orm": "^0.45.4"
     },
     "devDependencies": {

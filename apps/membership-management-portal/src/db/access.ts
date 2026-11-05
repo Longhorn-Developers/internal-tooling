@@ -1,10 +1,12 @@
 import { and, eq, ne } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
-import { teamUsers, users } from './schema'
+import { teams, teamUsers, users } from './schema'
 import type { Vertical } from './schema'
 
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
+export type Team = typeof teams.$inferSelect
+export type NewTeam = typeof teams.$inferInsert
 export type TeamUser = typeof teamUsers.$inferSelect
 
 export type VerticalAssignment = {
@@ -33,6 +35,22 @@ export async function createUser(database: D1Database, data: NewUser): Promise<U
     }
 
     return user
+}
+
+/** Updates a user's fields; returns null when the user does not exist. */
+export async function updateUser(
+    database: D1Database,
+    userId: string,
+    data: Partial<Omit<NewUser, 'id'>>,
+): Promise<User | null> {
+    const user = await drizzle(database)
+        .update(users)
+        .set(data)
+        .where(eq(users.id, userId))
+        .returning()
+        .get()
+
+    return user ?? null
 }
 
 /**
@@ -111,4 +129,45 @@ export async function removeVertical(
         .get()
 
     return assignment !== undefined
+}
+
+/** Lists every user; used to tell LHD members apart from unknown GitHub accounts. */
+export async function listUsers(database: D1Database): Promise<User[]> {
+    return drizzle(database).select().from(users).all()
+}
+
+/** Returns null when the team does not exist. */
+export async function getTeam(database: D1Database, teamId: string): Promise<Team | null> {
+    const team = await drizzle(database).select().from(teams).where(eq(teams.id, teamId)).get()
+
+    return team ?? null
+}
+
+export async function listTeams(database: D1Database): Promise<Team[]> {
+    return drizzle(database).select().from(teams).orderBy(teams.name).all()
+}
+
+/** Creates a team; duplicate IDs reject the promise. */
+export async function createTeam(database: D1Database, data: NewTeam): Promise<Team> {
+    const team = await drizzle(database).insert(teams).values(data).returning().get()
+
+    if (!team) {
+        throw new Error(`Team ${data.id} was not created`)
+    }
+
+    return team
+}
+
+/**
+ * Deletes a team with its member assignments.
+ * Returns false if the team did not exist.
+ */
+export async function deleteTeam(database: D1Database, teamId: string): Promise<boolean> {
+    const db = drizzle(database)
+    const [, deleted] = await db.batch([
+        db.delete(teamUsers).where(eq(teamUsers.teamId, teamId)),
+        db.delete(teams).where(eq(teams.id, teamId)).returning({ id: teams.id }),
+    ])
+
+    return deleted.length > 0
 }

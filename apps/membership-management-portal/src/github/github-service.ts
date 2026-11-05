@@ -1,15 +1,4 @@
-import {
-    assignRepo,
-    getTeam,
-    getTeamMembers,
-    getUserById,
-    listRepoAssignments,
-    listTeamRepos,
-    listTeams,
-    listUsers,
-    setGithubTeamSlug,
-    unassignRepo,
-} from '../db/access'
+import { getTeam, getTeamMembers, getUserById, listTeams, listUsers } from '../db/access'
 import type { Team, User } from '../db/access'
 import type { Vertical } from '../db/schema'
 import { Service } from '../services/service'
@@ -26,7 +15,6 @@ export type Env = GitHubApiEnv & {
 export type GitHubChangeKind =
     // fixTeam makes these
     | 'create_team'
-    | 'grant_team_repo'
     | 'remove_team_member'
     | 'remove_repo_admin'
     | 'create_exec_team'
@@ -35,15 +23,12 @@ export type GitHubChangeKind =
     | 'remove_exec_member'
     // these need a person
     | 'github_user_not_found'
-    | 'missing_repo'
     | 'unknown_account'
-    | 'extra_team_repo'
     | 'orphan_repo'
     | 'team_slug_conflict'
 
 const fixableKinds = new Set<string>([
     'create_team',
-    'grant_team_repo',
     'remove_team_member',
     'remove_repo_admin',
     'create_exec_team',
@@ -55,8 +40,9 @@ const fixableKinds = new Set<string>([
 // GitHub logins are case-insensitive.
 const key = (login: string) => login.toLowerCase()
 
-// Approximates how GitHub derives a team slug from its name, e.g. "Portal Web" -> "portal-web".
-const slugify = (name: string) =>
+// A team's GitHub team is found by name: GitHub derives the slug from it, e.g.
+// "UT Dining" -> "ut-dining". Renaming a team in D1 needs the GitHub team renamed to match.
+const slugOf = ({ name }: Team) =>
     name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
@@ -66,7 +52,8 @@ type DevMember = { userId: string; role: TeamRole }
 
 /**
  * Keeps the GitHub org in sync with D1:
- * - Each team has a GitHub team with Write on the team's repositories (team_repos).
+ * - Each team has a GitHub team. The repositories it has access to in GitHub are the team's
+ *   repositories; they are set in GitHub, not D1.
  * - Active tech members are on it: dev leads as maintainers with direct Admin on the team's
  *   repositories, dev fellows as members. Other verticals get no GitHub access.
  * - Active execs are on the exec team, which has Admin on every non-archived repository.
@@ -93,7 +80,7 @@ export class GitHubService extends Service<Env> {
         needed.push(...(await this.checkAccounts([user])))
         if (needed.length || !slug) return needed
 
-        await this.applyMember(user.githubId, slug, teamId, isLead ? 'maintainer' : 'member')
+        await this.applyMember(user.githubId, slug, isLead ? 'maintainer' : 'member')
         return []
     }
 
@@ -132,7 +119,7 @@ export class GitHubService extends Service<Env> {
             return
         }
         for (const team of await listTeams(this.db)) {
-            if (team.githubTeamSlug) await gh.removeFromTeam(this.env, login, team.githubTeamSlug)
+            await gh.removeFromTeam(this.env, login, slugOf(team))
         }
         await gh.removeFromTeam(this.env, login, this.execSlug)
     }
@@ -154,29 +141,22 @@ export class GitHubService extends Service<Env> {
     }
 
     /**
-     * Creates the team's GitHub team, or links one with the same name made by hand, saves its
-     * slug, and gives it Write on the team's repositories. Members are added by syncUsers.
+     * Creates the team's GitHub team unless one with its name exists. Repositories are added to
+     * it in GitHub; members are added by syncUsers.
      */
     async createTeam(teamId: string): Promise<void> {
         const team = await this.team(teamId)
-        let slug = team.githubTeamSlug && (await gh.getTeam(this.env, team.githubTeamSlug))?.slug
-        if (!slug) {
-            const existing = await gh.getTeam(this.env, slugify(team.name))
-            slug = existing?.slug ?? (await gh.createTeam(this.env, team.name)).slug
-        }
+        const slug = slugOf(team)
         if (key(slug) === key(this.execSlug)) {
             throw new Error(`${team.name} would use the exec team ${slug}; rename the team`)
         }
-        if (slug !== team.githubTeamSlug) await setGithubTeamSlug(this.db, teamId, slug)
+        if (await gh.getTeam(this.env, slug)) return
 
-        const current = await this.teamRepoRoles(slug)
-        for (const repoName of await listTeamRepos(this.db, teamId)) {
-            const role = current.get(key(repoName))
-            if (role === 'push') continue
-            // Repositories missing from GitHub are reported by syncTeam.
-            if (role || (await gh.getRepo(this.env, repoName))) {
-                await gh.setTeamRepoPermission(this.env, slug, repoName, 'push')
-            }
+        const created = await gh.createTeam(this.env, team.name)
+        if (created.slug !== slug) {
+            throw new Error(
+                `GitHub named ${team.name}'s team ${created.slug}; rename the team so it slugifies to the GitHub team`,
+            )
         }
     }
 
@@ -187,20 +167,19 @@ export class GitHubService extends Service<Env> {
     async deleteTeam(teamId: string): Promise<void> {
         const team = await getTeam(this.db, teamId)
         if (!team) return
+        const slug = slugOf(team)
+        if (key(slug) === key(this.execSlug)) return
 
-        for (const repoName of await listTeamRepos(this.db, teamId)) {
+        for (const repoName of await this.teamRepos(slug)) {
             await this.removeMemberAdmins(repoName)
         }
-        if (team.githubTeamSlug && key(team.githubTeamSlug) !== key(this.execSlug)) {
-            await gh.deleteTeam(this.env, team.githubTeamSlug)
-        }
-        await setGithubTeamSlug(this.db, teamId, null)
+        await gh.deleteTeam(this.env, slug)
     }
 
     /**
-     * Checks the team's GitHub team, its repository access, and for access D1 doesn't account
-     * for: LHD members who are no longer on the team, non-leads with direct Admin, unknown
-     * accounts, and repositories not assigned in D1. Missing members are added by syncUsers,
+     * Checks the team's GitHub team exists, and for access D1 doesn't account for: LHD members
+     * who are no longer on the team, non-leads with direct Admin on its repositories, and unknown
+     * accounts. Missing members are added by syncUsers,
      * since it is given the team's users from D1. Changes nothing.
      */
     async syncTeam(teamId: string): Promise<NeededChange[]> {
@@ -232,8 +211,7 @@ export class GitHubService extends Service<Env> {
             )
         }
 
-        const assigned = await listTeamRepos(this.db, teamId)
-        for (const repoName of assigned) {
+        for (const repoName of await this.teamRepos(slug)) {
             for (const { login, role_name } of await gh.listDirectCollaborators(
                 this.env,
                 repoName,
@@ -261,20 +239,6 @@ export class GitHubService extends Service<Env> {
                 }
             }
         }
-
-        const assignedKeys = new Set(assigned.map(key))
-        for (const repo of (await gh.listTeamRepos(this.env, slug)) ?? []) {
-            if (!assignedKeys.has(key(repo.name))) {
-                needed.push(
-                    this.change(
-                        'extra_team_repo',
-                        repo.name,
-                        `${slug} has access to ${repo.name} in GitHub but it isn't assigned to ${team.name} in D1; assign it or remove the access`,
-                        ids,
-                    ),
-                )
-            }
-        }
         return needed
     }
 
@@ -293,7 +257,7 @@ export class GitHubService extends Service<Env> {
 
         for (const user of users) {
             const dev = devs.get(key(user.githubId))
-            if (dev) await this.applyMember(user.githubId, slug, teamId, dev.role)
+            if (dev) await this.applyMember(user.githubId, slug, dev.role)
             else await this.removeMember(user.githubId, team)
         }
         return []
@@ -312,58 +276,26 @@ export class GitHubService extends Service<Env> {
     }
 
     // ============================================================
-    // GitHub-only actions (repositories and the exec team)
+    // GitHub-only actions (orphaned repositories and the exec team)
     // ============================================================
 
     /**
-     * Assigns an org repository to a team: the team gets Write and its dev leads get Admin. If
-     * another team had it, that team loses access and LHD members lose direct Admin. Changes
-     * nothing if the team isn't set up; unknown repository names reject the promise.
+     * Reports active, non-fork org repositories that no team's GitHub team has access to (the
+     * exec team doesn't count). Changes nothing.
      */
-    async assignRepoToTeam(teamId: string, repoName: string): Promise<NeededChange[]> {
-        const team = await this.team(teamId)
-        const repo = await gh.getRepo(this.env, repoName)
-        if (!repo) throw new Error(`${this.env.GITHUB_ORG} has no repository named ${repoName}`)
-
-        const { slug, needed } = await this.checkTeamSetup(team)
-        if (needed.length || !slug) return needed
-
-        const previousTeamId = await assignRepo(this.db, teamId, repo.name)
-        if (previousTeamId) {
-            const previous = await getTeam(this.db, previousTeamId)
-            if (previous?.githubTeamSlug) {
-                await gh.removeTeamRepo(this.env, previous.githubTeamSlug, repo.name)
-            }
-            await this.removeMemberAdmins(repo.name)
-        }
-
-        await gh.setTeamRepoPermission(this.env, slug, repo.name, 'push')
-        for (const [login, dev] of await this.devMembers(teamId)) {
-            if (dev.role === 'maintainer') {
-                await gh.setCollaboratorPermission(this.env, repo.name, login, 'admin')
-            }
-        }
-        return []
-    }
-
-    /** Unassigns a repository: its team loses access and LHD members lose direct Admin. */
-    async unassignRepo(repoName: string): Promise<void> {
-        const teamId = await unassignRepo(this.db, repoName)
-        if (!teamId) return
-        const team = await getTeam(this.db, teamId)
-        if (team?.githubTeamSlug) await gh.removeTeamRepo(this.env, team.githubTeamSlug, repoName)
-        await this.removeMemberAdmins(repoName)
-    }
-
-    /** Reports active, non-fork org repositories assigned to no team. Changes nothing. */
     async auditRepos(): Promise<NeededChange[]> {
-        const assigned = new Set(
-            (await listRepoAssignments(this.db)).map((row) => key(row.repoName)),
-        )
+        const owned = new Set<string>()
+        for (const team of await listTeams(this.db)) {
+            for (const repoName of await this.teamRepos(slugOf(team))) owned.add(key(repoName))
+        }
         return (await gh.listOrgRepos(this.env))
-            .filter((repo) => !repo.archived && !repo.fork && !assigned.has(key(repo.name)))
+            .filter((repo) => !repo.archived && !repo.fork && !owned.has(key(repo.name)))
             .map((repo) =>
-                this.change('orphan_repo', repo.name, `${repo.name} is not assigned to any team`),
+                this.change(
+                    'orphan_repo',
+                    repo.name,
+                    `${repo.name} isn't on any team's GitHub team; add it to one in GitHub`,
+                ),
             )
     }
 
@@ -430,47 +362,19 @@ export class GitHubService extends Service<Env> {
     // Checks
     // ============================================================
 
-    /**
-     * Checks the team has a GitHub team with Write on each assigned repository.
-     * `slug` is null when the GitHub team can't be used yet.
-     */
+    /** Checks the team's GitHub team exists. `slug` is null when it can't be used yet. */
     private async checkTeamSetup(
         team: Team,
     ): Promise<{ slug: string | null; needed: NeededChange[] }> {
         const ids = { teamId: team.id }
-        const saved = team.githubTeamSlug
-        const slug = saved && (await gh.getTeam(this.env, saved)) ? saved : null
-        if (slug && key(slug) === key(this.execSlug)) {
-            const reason = `${team.name} is linked to the exec team; set its github_team_slug to its own team`
+        const slug = slugOf(team)
+        if (key(slug) === key(this.execSlug)) {
+            const reason = `${team.name}'s name matches the exec team; rename the team`
             return { slug: null, needed: [this.change('team_slug_conflict', slug, reason, ids)] }
         }
-
-        const needed: NeededChange[] = []
-        if (!slug)
-            needed.push(
-                this.change('create_team', team.name, `${team.name} has no GitHub team`, ids),
-            )
-
-        const current = slug ? await this.teamRepoRoles(slug) : new Map()
-        for (const repoName of await listTeamRepos(this.db, team.id)) {
-            const role = current.get(key(repoName))
-            if (role === 'push') continue
-            if (!role && !(await gh.getRepo(this.env, repoName))) {
-                const reason = `${repoName} is assigned to ${team.name} in D1 but isn't in ${this.env.GITHUB_ORG}; unassign or restore it`
-                needed.push(this.change('missing_repo', repoName, reason, ids))
-            } else if (slug) {
-                // Without a GitHub team, createTeam grants this.
-                needed.push(
-                    this.change(
-                        'grant_team_repo',
-                        repoName,
-                        `${slug} needs Write on ${repoName}`,
-                        ids,
-                    ),
-                )
-            }
-        }
-        return { slug, needed }
+        if (await gh.getTeam(this.env, slug)) return { slug, needed: [] }
+        const reason = `${team.name} has no GitHub team (${slug})`
+        return { slug: null, needed: [this.change('create_team', team.name, reason, ids)] }
     }
 
     /** Checks the exec team exists and has Admin on every non-archived repository. */
@@ -522,14 +426,11 @@ export class GitHubService extends Service<Env> {
     private async fix(change: NeededChange): Promise<void> {
         const teamId = () => required(change.teamId, change)
         const login = async () => (await this.user(required(change.userId, change))).githubId
-        const slug = async () =>
-            required((await this.team(teamId())).githubTeamSlug ?? undefined, change)
+        const slug = async () => slugOf(await this.team(teamId()))
 
         switch (change.kind) {
             case 'create_team':
                 return this.createTeam(teamId())
-            case 'grant_team_repo':
-                return gh.setTeamRepoPermission(this.env, await slug(), change.target, 'push')
             case 'remove_team_member':
                 await gh.removeFromTeam(this.env, await login(), await slug())
                 return
@@ -566,14 +467,9 @@ export class GitHubService extends Service<Env> {
      * Gives a user their team role. Leads get direct Admin on the team's repositories; non-leads
      * lose it (e.g. a lead who stepped down).
      */
-    private async applyMember(
-        login: string,
-        slug: string,
-        teamId: string,
-        role: TeamRole,
-    ): Promise<void> {
+    private async applyMember(login: string, slug: string, role: TeamRole): Promise<void> {
         await gh.addToTeam(this.env, login, slug, role)
-        for (const repoName of await listTeamRepos(this.db, teamId)) {
+        for (const repoName of await this.teamRepos(slug)) {
             if (role === 'maintainer') {
                 await gh.setCollaboratorPermission(this.env, repoName, login, 'admin')
             } else {
@@ -584,8 +480,9 @@ export class GitHubService extends Service<Env> {
 
     /** Takes a user off a team's GitHub team and removes their direct Admin on its repositories. */
     private async removeMember(login: string, team: Team): Promise<void> {
-        if (team.githubTeamSlug) await gh.removeFromTeam(this.env, login, team.githubTeamSlug)
-        for (const repoName of await listTeamRepos(this.db, team.id)) {
+        const slug = slugOf(team)
+        await gh.removeFromTeam(this.env, login, slug)
+        for (const repoName of await this.teamRepos(slug)) {
             await this.removeDirectAdmin(repoName, login)
         }
     }
@@ -649,6 +546,11 @@ export class GitHubService extends Service<Env> {
     /** User IDs of everyone in D1 by lowercased login, to tell LHD members from unknown accounts. */
     private async knownLogins(): Promise<Map<string, string>> {
         return new Map((await listUsers(this.db)).map((user) => [key(user.githubId), user.id]))
+    }
+
+    /** The repositories a GitHub team has access to; none if the team is missing. */
+    private async teamRepos(slug: string): Promise<string[]> {
+        return ((await gh.listTeamRepos(this.env, slug)) ?? []).map((repo) => repo.name)
     }
 
     /** A team's current role on each of its repositories, keyed by lowercased repo name. */

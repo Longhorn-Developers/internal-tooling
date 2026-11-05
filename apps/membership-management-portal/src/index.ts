@@ -66,19 +66,9 @@ export class MembershipService extends WorkerEntrypoint<Env & ServicesEnv> {
         return services.fixTeam(this.env, changes)
     }
 
-    // GitHub-only: repositories and the exec team.
+    // GitHub-only: orphaned repositories and the exec team.
 
-    /** Assigns an org repository to a team (Write for the team, Admin for its dev leads). */
-    async assignRepoToTeam(teamId: string, repoName: string): Promise<NeededChange[]> {
-        return new GitHubService(this.env).assignRepoToTeam(teamId, repoName)
-    }
-
-    /** Removes a repository from its team; it is reported as orphaned until reassigned. */
-    async unassignRepo(repoName: string): Promise<void> {
-        return new GitHubService(this.env).unassignRepo(repoName)
-    }
-
-    /** Reports org repositories assigned to no team. Changes nothing. */
+    /** Reports org repositories that no team's GitHub team has access to. Changes nothing. */
     async auditGithubRepos(): Promise<NeededChange[]> {
         return new GitHubService(this.env).auditRepos()
     }

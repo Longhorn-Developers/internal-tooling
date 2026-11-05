@@ -8,7 +8,7 @@
     <rect x="370" y="30" width="290" height="272"/>
     <line x1="370" y1="60" x2="660" y2="60"/>
     <!-- teams -->
-    <rect x="770" y="30" width="230" height="116"/>
+    <rect x="770" y="30" width="230" height="90"/>
     <line x1="770" y1="60" x2="1000" y2="60"/>
     <!-- vertical enum -->
     <rect x="20" y="410" width="230" height="116" stroke-dasharray="6 4"/>
@@ -16,9 +16,6 @@
     <!-- team_users -->
     <rect x="370" y="395" width="290" height="142"/>
     <line x1="370" y1="425" x2="660" y2="425"/>
-    <!-- team_repos -->
-    <rect x="770" y="395" width="230" height="90"/>
-    <line x1="770" y1="425" x2="1000" y2="425"/>
   </g>
 
   <g font-size="17" font-weight="bold" fill="#000">
@@ -27,7 +24,6 @@
     <text x="780" y="51">teams</text>
     <text x="30" y="431">vertical (enum)</text>
     <text x="380" y="416">team_users</text>
-    <text x="780" y="416">team_repos</text>
   </g>
 
   <g font-size="15" fill="#000">
@@ -48,10 +44,6 @@
 
     <text x="780" y="82">id</text>
     <text x="780" y="108">name</text>
-    <text x="780" y="134">github_team_slug</text>
-
-    <text x="780" y="447">repo_name</text>
-    <text x="780" y="473">team_id</text>
 
     <text x="30" y="462">product</text>
     <text x="30" y="488">tech</text>
@@ -73,10 +65,6 @@
     <text x="650" y="290">nullable</text>
 
     <text x="990" y="82">PK</text>
-    <text x="990" y="134">UQ, nullable</text>
-
-    <text x="990" y="447">PK</text>
-    <text x="990" y="473">FK</text>
 
     <text x="650" y="447">PK, FK</text>
     <text x="650" y="473">PK, FK</text>
@@ -104,13 +92,5 @@
     <circle cx="684" cy="442" r="4.5" fill="#fff"/>
     <line x1="674" y1="442" x2="660" y2="433"/>
     <line x1="674" y1="442" x2="660" y2="451"/>
-
-    <!-- teams 1 : many team_repos -->
-    <line x1="885" y1="146" x2="885" y2="395"/>
-    <line x1="878" y1="157" x2="892" y2="157"/>
-    <line x1="878" y1="163" x2="892" y2="163"/>
-    <circle cx="885" cy="373" r="4.5" fill="#fff"/>
-    <line x1="885" y1="381" x2="876" y2="395"/>
-    <line x1="885" y1="381" x2="894" y2="395"/>
   </g>
 </svg>

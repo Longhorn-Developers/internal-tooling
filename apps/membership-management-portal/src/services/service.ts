@@ -44,8 +44,7 @@ export class ServiceError extends Error {
  * One external service (GitHub, Discord, ...) kept in sync with D1. Every service implements
  * all of these; services/all-services.ts runs each action on every service.
  *
- * Services read D1 but only write their own columns (e.g. teams.github_team_slug); D1 membership
- * rows are written by all-services.ts.
+ * Services only read D1; all-services.ts writes it.
  *
  * - Actions that return NeededChange[] check first and change nothing if anything is missing.
  * - Removals are best-effort: anything already gone is skipped.

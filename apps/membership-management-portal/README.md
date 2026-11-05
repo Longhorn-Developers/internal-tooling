@@ -99,8 +99,10 @@ idempotent, so retrying one is safe.
 
 `GitHubService` (`src/github/github-service.ts`) uses the REST client in `src/github/github-api.ts`.
 
-- Every team has a GitHub team (slug in `teams.github_team_slug`) with Write on its repositories
-  (`team_repos`, one team per repository).
+- Every team has a GitHub team, found by the slug of the team's name (e.g. `UT Dining` →
+  `ut-dining`). Renaming a team in D1 needs its GitHub team renamed to match.
+- GitHub is the source of truth for repositories: a team's repositories are the ones its GitHub
+  team has access to. Add or remove them in the GitHub team's settings.
 - Active `tech` members are on it: dev leads as maintainers with direct Admin on the team's
   repositories, dev fellows as members. Other verticals get no GitHub access.
 - Active execs are on the exec team (`GITHUB_EXEC_TEAM`), which has Admin on every non-archived
@@ -110,13 +112,12 @@ idempotent, so retrying one is safe.
 - Accounts not in D1 are reported, never removed. Org owners never lose access. GitHub teams are
   only deleted by `deleteTeam`.
 
-GitHub-only RPC methods: `assignRepoToTeam(teamId, repoName)`, `unassignRepo(repoName)`,
-`auditGithubRepos()` (orphaned repositories), and `syncGithubExecTeam()` (checks the exec team).
+GitHub-only RPC methods: `auditGithubRepos()` (repositories no team's GitHub team has access to)
+and `syncGithubExecTeam()` (checks the exec team).
 
 `syncTeam` reports access D1 doesn't account for: `remove_team_member` (LHD member no longer on
-the team) and `remove_repo_admin` (non-lead with direct Admin) are fixable; `unknown_account`,
-`extra_team_repo` (repository on the GitHub team but not assigned in D1), `missing_repo`
-(assigned in D1 but deleted from GitHub), and `github_user_not_found` need a person.
+the team) and `remove_repo_admin` (non-lead with direct Admin on one of its repositories) are
+fixable; `unknown_account` and `github_user_not_found` need a person.
 
 | Error code | Usually means | Resolve |
 | --- | --- | --- |

@@ -1,14 +1,6 @@
 import { createAppAuth } from '@octokit/auth-app'
-import { ServiceError } from '../services/service'
-
-// The GitHub App must be owned by GITHUB_ORG and installed on it. App ID, installation ID,
-// and private key are secrets (wrangler secret put …); GITHUB_ORG is in wrangler.jsonc vars.
-export interface Env {
-    GITHUB_ORG: string // e.g. "Longhorn-Developers"
-    GITHUB_APP_ID: string
-    GITHUB_APP_INSTALLATION_ID: string
-    GITHUB_APP_PRIVATE_KEY: string // PKCS#8 PEM ("BEGIN PRIVATE KEY"); escaped \n is fine
-}
+import { ServiceError } from '../service'
+import Env = Cloudflare.Env;
 
 // ============================================================
 // Low-level GitHub REST helpers

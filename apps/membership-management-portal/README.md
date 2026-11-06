@@ -69,7 +69,7 @@ the promise.
 
 ## Services
 
-Each external service is a subclass of `Service` (`src/services/service.ts`), which declares
+Each external service is a subclass of `Service` (`src/service.ts`), which declares
 the same actions for every service. `src/services/all-services.ts` runs each action on every
 service in `allServices` and writes D1, which is the source of truth. The Worker
 (`src/index.ts`) exposes them through the `MembershipService` RPC binding:

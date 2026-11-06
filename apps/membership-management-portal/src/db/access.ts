@@ -1,5 +1,5 @@
 import { and, eq, ne } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/d1'
+import {drizzle, DrizzleD1Database} from 'drizzle-orm/d1'
 import { teams, teamUsers, users } from './schema'
 import type { Vertical } from './schema'
 
@@ -19,155 +19,207 @@ export type TeamMember = {
     verticals: VerticalAssignment[]
 }
 
-/** Returns null when the user does not exist. */
-export async function getUserById(database: D1Database, userId: string): Promise<User | null> {
-    const user = await drizzle(database).select().from(users).where(eq(users.id, userId)).get()
+export function today() { return new Date().toISOString().slice(0, 10) }
 
-    return user ?? null
+export class RecordNotFoundError extends Error{
+    selectionCriteria;
+    constructor(selectionCriteria: object) {
+        super(`Record not found: ${JSON.stringify(selectionCriteria)}`)
+        this.selectionCriteria = selectionCriteria
+    }
+}
+export class InsertRecordError extends Error{
+    constructor(public readonly insertionData: object) {
+        super(`Failed to insert record: ${JSON.stringify(insertionData)}`)
+    }
+}
+export class UpdateRecordError extends Error{
+    constructor(public readonly selectionCriteria: object, public readonly updateData: object) {
+        super(`Failed to update record ${JSON.stringify(selectionCriteria)}: ${JSON.stringify(updateData)}`)
+    }
 }
 
-/** Creates a user; duplicate IDs and invalid statuses reject the promise. */
-export async function createUser(database: D1Database, data: NewUser): Promise<User> {
-    const user = await drizzle(database).insert(users).values(data).returning().get()
+export class MembershipDatabase {
+    private readonly db: DrizzleD1Database;
+    constructor(database: D1Database) { this.db = drizzle(database); }
 
-    if (!user) {
-        throw new Error(`User ${data.id} was not created`)
+    async getUser(userId: string): Promise<User> {
+        const user = await this.db
+            .select()
+            .from(users)
+            .where(eq(users.id, userId))
+            .get();
+        if (!user) throw new RecordNotFoundError({ userId })
+
+        return user
     }
 
-    return user
-}
+    // if retroactively creating a current user, can include `dateJoined` to override `today()`
+    // never allowed to specify `id`; always set randomly
+    async createUser(data: Omit<NewUser, 'id' | 'dateLeft'>): Promise<User> {
+        const newUser: NewUser = {
+            id: crypto.randomUUID(),
+            dateJoined: today(),
+            ...data
+        };
 
-/** Updates a user's fields; returns null when the user does not exist. */
-export async function updateUser(
-    database: D1Database,
-    userId: string,
-    data: Partial<Omit<NewUser, 'id'>>,
-): Promise<User | null> {
-    const user = await drizzle(database)
-        .update(users)
-        .set(data)
-        .where(eq(users.id, userId))
-        .returning()
-        .get()
+        const user = await this.db
+            .insert(users)
+            .values(newUser)
+            .returning()
+            .get()
+        if (!user) throw new InsertRecordError(newUser)
 
-    return user ?? null
-}
+        return user
+    }
 
-/**
- * Lists users with explicit vertical assignments, grouping each user's verticals.
- * Returns [] for a team with no assignments or a team that does not exist.
- */
-export async function getTeamMembers(database: D1Database, teamId: string): Promise<TeamMember[]> {
-    const assignments = await drizzle(database)
-        .select({
-            user: users,
-            vertical: teamUsers.vertical,
-            isLead: teamUsers.isLead,
-        })
-        .from(teamUsers)
-        .innerJoin(users, eq(teamUsers.userId, users.id))
-        .where(eq(teamUsers.teamId, teamId))
-        .orderBy(users.name, users.id, teamUsers.vertical)
-        .all()
+    async updateUser(
+        userId: string,
+        data: Partial<Omit<NewUser, 'id'>>,
+    ): Promise<User> {
+        const user = await this.db
+            .update(users)
+            .set(data)
+            .where(and(
+                eq(users.id, userId),
+                eq(users.status, 'active')
+            ))
+            .returning()
+            .get()
 
-    const members = new Map<string, TeamMember>()
-    for (const { user, vertical, isLead } of assignments) {
-        const member = members.get(user.id)
-        if (member) {
-            member.verticals.push({ vertical, isLead })
-        } else {
-            members.set(user.id, { user, verticals: [{ vertical, isLead }] })
+        if (!user) throw new UpdateRecordError({ userId }, data)
+
+        return user;
+    }
+
+    async getTeamMembers(teamId: string): Promise<TeamMember[]> {
+        const assignments = await this.db
+            .select({
+                user: users,
+                vertical: teamUsers.vertical,
+                isLead: teamUsers.isLead,
+            })
+            .from(teamUsers)
+            .innerJoin(users, eq(teamUsers.userId, users.id))
+            .where(eq(teamUsers.teamId, teamId))
+            .orderBy(users.name, users.id, teamUsers.vertical)
+            .all()
+
+        const members = new Map<string, TeamMember>()
+        for (const { user, vertical, isLead } of assignments) {
+            const member = members.get(user.id)
+            if (member) {
+                member.verticals.push({ vertical, isLead })
+            } else {
+                members.set(user.id, { user, verticals: [{ vertical, isLead }] })
+            }
         }
+
+        return [...members.values()]
     }
 
-    return [...members.values()]
-}
+    /**
+     * Assigns a vertical, or updates isLead on an existing assignment.
+     * Returns true if a row was inserted or changed, or false if it already matched.
+     * Missing users/teams and invalid verticals reject the promise.
+     */
+    async assignVertical(
+        userId: string,
+        teamId: string,
+        vertical: Vertical,
+        isLead = false,
+    ): Promise<void> {
+        await this.db
+            .insert(teamUsers)
+            .values({ userId, teamId, vertical, isLead })
+            .onConflictDoUpdate({
+                target: [teamUsers.teamId, teamUsers.userId, teamUsers.vertical],
+                set: { isLead },
+                setWhere: ne(teamUsers.isLead, isLead),
+            });
+    }
 
-/**
- * Assigns a vertical, or updates isLead on an existing assignment.
- * Returns true if a row was inserted or changed, or false if it already matched.
- * Missing users/teams and invalid verticals reject the promise.
- */
-export async function assignVertical(
-    database: D1Database,
-    userId: string,
-    teamId: string,
-    vertical: Vertical,
-    isLead = false,
-): Promise<boolean> {
-    const assignment = await drizzle(database)
-        .insert(teamUsers)
-        .values({ userId, teamId, vertical, isLead })
-        .onConflictDoUpdate({
-            target: [teamUsers.teamId, teamUsers.userId, teamUsers.vertical],
-            set: { isLead },
-            setWhere: ne(teamUsers.isLead, isLead),
-        })
-        .returning({ userId: teamUsers.userId })
-        .get()
+    async removeVertical(
+        userId: string,
+        teamId: string,
+        vertical: Vertical,
+    ): Promise<void> {
+        await this.db
+            .delete(teamUsers)
+            .where(
+                and(
+                    eq(teamUsers.userId, userId),
+                    eq(teamUsers.teamId, teamId),
+                    eq(teamUsers.vertical, vertical),
+                )
+            );
+    }
 
-    return assignment !== undefined
-}
+    // more optimized than removing each vertical
+    async removeUserFromTeam(
+        userId: string,
+        teamId: string,
+    ): Promise<void> {
+        await this.db
+            .delete(teamUsers)
+            .where(
+                and(
+                    eq(teamUsers.userId, userId),
+                    eq(teamUsers.teamId, teamId),
+                )
+            );
+    }
 
-/** Returns true if the assignment was removed, or false if it did not exist. */
-export async function removeVertical(
-    database: D1Database,
-    userId: string,
-    teamId: string,
-    vertical: Vertical,
-): Promise<boolean> {
-    const assignment = await drizzle(database)
-        .delete(teamUsers)
-        .where(
-            and(
+    async removeUserFromAllTeams(userId: string): Promise<void> {
+        await this.db
+            .delete(teamUsers)
+            .where(
                 eq(teamUsers.userId, userId),
-                eq(teamUsers.teamId, teamId),
-                eq(teamUsers.vertical, vertical),
-            ),
-        )
-        .returning({ userId: teamUsers.userId })
-        .get()
-
-    return assignment !== undefined
-}
-
-/** Lists every user; used to tell LHD members apart from unknown GitHub accounts. */
-export async function listUsers(database: D1Database): Promise<User[]> {
-    return drizzle(database).select().from(users).all()
-}
-
-/** Returns null when the team does not exist. */
-export async function getTeam(database: D1Database, teamId: string): Promise<Team | null> {
-    const team = await drizzle(database).select().from(teams).where(eq(teams.id, teamId)).get()
-
-    return team ?? null
-}
-
-export async function listTeams(database: D1Database): Promise<Team[]> {
-    return drizzle(database).select().from(teams).orderBy(teams.name).all()
-}
-
-/** Creates a team; duplicate IDs reject the promise. */
-export async function createTeam(database: D1Database, data: NewTeam): Promise<Team> {
-    const team = await drizzle(database).insert(teams).values(data).returning().get()
-
-    if (!team) {
-        throw new Error(`Team ${data.id} was not created`)
+            );
     }
 
-    return team
-}
+    async listUsers(): Promise<User[]> {
+        return this.db.select().from(users).all()
+    }
 
-/**
- * Deletes a team with its member assignments.
- * Returns false if the team did not exist.
- */
-export async function deleteTeam(database: D1Database, teamId: string): Promise<boolean> {
-    const db = drizzle(database)
-    const [, deleted] = await db.batch([
-        db.delete(teamUsers).where(eq(teamUsers.teamId, teamId)),
-        db.delete(teams).where(eq(teams.id, teamId)).returning({ id: teams.id }),
-    ])
+    async getTeam(teamId: string): Promise<Team> {
+        const team = await this.db
+            .select()
+            .from(teams)
+            .where(eq(teams.id, teamId))
+            .get()
+        if (!team) throw new RecordNotFoundError({ teamId });
 
-    return deleted.length > 0
+        return team;
+    }
+
+    async listTeams(): Promise<Team[]> {
+        return this.db.select().from(teams).orderBy(teams.name).all()
+    }
+
+    async createTeam(data: Omit<NewTeam, 'id'>): Promise<Team> {
+        const teamData = {
+            id: crypto.randomUUID(),
+            ...data
+        }
+
+        const team = await this.db
+            .insert(teams)
+            .values(teamData)
+            .returning()
+            .get()
+        if (!team) throw new InsertRecordError(teamData);
+
+        return team
+    }
+
+    // returns the old team
+    async deleteTeam(teamId: string): Promise<Team> {
+        const [, team] = await this.db.batch([
+            this.db.delete(teamUsers).where(eq(teamUsers.teamId, teamId)),
+            this.db.delete(teams).where(eq(teams.id, teamId)).returning(),
+        ]);
+
+        return team[0];
+    }
 }

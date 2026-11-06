@@ -25,8 +25,17 @@
 		}
 	],
 	"vars": {
-		"GITHUB_ORG": "Longhorn-Developers",
-		"GITHUB_EXEC_TEAM": "exec"
+		/* ===== ENVIRONMENT VARIABLES =====
+		 * Secrets do NOT live here; this is only declarations for typing and documentation purposes.
+		 * To find all applicable staging environment variables, go to the Notion.
+		 * You can set them manually or just download the provided .dev.vars file.
+		 * https://app.notion.com/p/longhorn-developers/Membership-Management-Portal-3f7d9cb37133803eb6b5cedd0048409c
+		 */
+		"GITHUB_ORG": "", // e.g. "Longhorn-Developers"
+		"GITHUB_APP_ID": "",
+		"GITHUB_APP_INSTALLATION_ID": "",
+		"GITHUB_APP_PRIVATE_KEY": "", // PKCS#8 PEM ("BEGIN PRIVATE KEY"); escaped \n is fine
+		"GITHUB_EXEC_TEAM": "" // slug of the exec team, e.g. "exec". Must be lowercase
 	}
 	/**
 	 * Smart Placement

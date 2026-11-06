@@ -1,4 +1,6 @@
-import type { Vertical } from '../db/schema'
+import type { Vertical } from './db/schema'
+import {MembershipDatabase, Team, User} from "./db/access";
+import Env = Cloudflare.Env;
 
 export const execRoles = [
     'President',
@@ -50,19 +52,19 @@ export class ServiceError extends Error {
  * - Removals are best-effort: anything already gone is skipped.
  * - Failed API calls throw ServiceError. Actions are idempotent, so re-running one is safe.
  */
-export abstract class Service<E = unknown> {
+export abstract class Service {
     abstract readonly name: string
 
-    constructor(protected readonly env: E) {}
+    constructor(protected readonly env: Env, protected readonly db: MembershipDatabase) {}
 
     abstract addUserToTeam(
-        userId: string,
-        teamId: string,
+        user: User,
+        team: Team,
         vertical: Vertical,
         isLead: boolean,
     ): Promise<NeededChange[]>
 
-    abstract removeUserFromTeam(userId: string, teamId: string): Promise<void>
+    abstract removeUserFromTeam(user: User, team: Team): Promise<void>
 
     abstract onboardUser(
         name: string,
@@ -71,22 +73,22 @@ export abstract class Service<E = unknown> {
         discord: string,
     ): Promise<NeededChange[]>
 
-    abstract deactivateUser(userId: string): Promise<void>
+    abstract deactivateUser(user: User): Promise<void>
 
-    abstract makeExec(userId: string, execRole: ExecRole): Promise<NeededChange[]>
+    abstract makeExec(user: User, execRole: ExecRole): Promise<NeededChange[]>
 
-    abstract removeExec(userId: string, execRole: ExecRole): Promise<void>
+    abstract removeExec(user: User, execRole: ExecRole): Promise<void>
 
-    abstract createTeam(teamId: string): Promise<void>
+    abstract createTeam(team: Team): Promise<void>
 
-    abstract deleteTeam(teamId: string): Promise<void>
+    abstract deleteTeam(team: Team): Promise<void>
 
     /** Checks that the team is set up in this service. Changes nothing. */
-    abstract syncTeam(teamId: string): Promise<NeededChange[]>
+    abstract syncTeam(team: Team): Promise<NeededChange[]>
 
     /** Sets up each user's access to the team as D1 says, after checking the team is set up. */
-    abstract syncUsers(teamId: string, userIds: string[]): Promise<NeededChange[]>
+    abstract syncUsers(team: Team, users: User[]): Promise<NeededChange[]>
 
     /** Makes the fixable changes reported by this service; others are ignored. */
-    abstract fixTeam(changes: NeededChange[]): Promise<void>
+    abstract autoFix(changes: NeededChange[]): Promise<void>
 }

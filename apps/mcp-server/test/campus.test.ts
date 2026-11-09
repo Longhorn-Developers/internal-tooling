@@ -7,9 +7,11 @@ import {
     isNonPhysicalLocation,
     metresBetween,
     resolveBuilding,
+    toPrecision,
     walkMinutes,
 } from "../src/tools/campus/buildings";
 import {
+    collapseSeries,
     filterEvents,
     getCalendar,
     mentionsFreeFood,
@@ -51,6 +53,11 @@ type EventsStructured = {
         freeAdmission: boolean;
         mentionsFreeFood: boolean;
         onCampus: boolean | null;
+        occurrences: number;
+        lastStart: string | null;
+        allDay: boolean;
+        end: string | null;
+        departments: string[];
         description: string | null;
     }[];
 };
@@ -141,15 +148,27 @@ describe("building data", () => {
         }
     });
 
-    it("measures a plausible distance and walking time across campus", () => {
-        const gdc = resolveBuilding("GDC")!.building;
-        const pcl = resolveBuilding("PCL")!.building;
-        const metres = metresBetween(gdc, pcl);
-        // GDC to PCL is a real walk but it is not a mile.
-        expect(metres).toBeGreaterThan(200);
-        expect(metres).toBeLessThan(1500);
-        expect(walkMinutes(metres)).toBeGreaterThanOrEqual(2);
-        expect(walkMinutes(metres)).toBeLessThan(25);
+    it("measures a known distance across campus to the metre", () => {
+        // Pinned, not bounded. A loose range let the haversine be halved and
+        // the detour factor dropped with the suite still green.
+        const d = (a: string, b: string) =>
+            metresBetween(resolveBuilding(a)!.building, resolveBuilding(b)!.building);
+        expect(d("GDC", "PCL")).toBeCloseTo(421.4, 0);
+        expect(d("WCP", "PCL")).toBeCloseTo(298.1, 0);
+        expect(d("GDC", "GRE")).toBeCloseTo(253.0, 0);
+        // Symmetric, and zero to itself.
+        expect(d("PCL", "GDC")).toBeCloseTo(d("GDC", "PCL"), 6);
+        expect(d("GDC", "GDC")).toBeCloseTo(0, 6);
+    });
+
+    it("converts distance to walking minutes with a detour allowance", () => {
+        // 1.4 m/s with a 1.3 detour factor. Without pinning these, both the
+        // pace and the factor could be changed silently.
+        expect(walkMinutes(421.4)).toBe(7);
+        expect(walkMinutes(298.1)).toBe(5);
+        expect(walkMinutes(253.0)).toBe(4);
+        // 1.0 (no detour allowance) would give 5, not 7, at 421 m.
+        expect(walkMinutes(421.4)).not.toBe(5);
     });
 
     it("never reports zero walking minutes, because arriving still takes a moment", () => {
@@ -198,7 +217,8 @@ describe("resolveBuilding", () => {
         const hit = resolveBuilding(
             "Patton Center for Marine Science Education 855 E. Cotter Ave. Port Aransas",
         );
-        expect(hit?.building.code).not.toBe("EER");
+        // `not.toBe("EER")` alone passed for any other wrong building too.
+        expect(hit).toBeNull();
     });
 
     it("resolves a surname and room number with no building type", () => {
@@ -210,8 +230,26 @@ describe("resolveBuilding", () => {
         expect(resolveBuilding("AT&T Conference Center")).not.toBeNull();
     });
 
+    it("resolves a code in parentheses even where the code is an English word", () => {
+        // UT's own feed writes this. ART is in AMBIGUOUS_CODES and sits at
+        // token 5, so the leading-word rule rejected it and the whole string
+        // resolved to nothing.
+        expect(resolveBuilding("Art Building (ART)")?.building.code).toBe("ART");
+        expect(resolveBuilding("Visual Arts Center, Art Building (ART)")?.building.code).toBe(
+            "ART",
+        );
+        expect(resolveBuilding("Ann Hartness Reading Room (SRH 1.106)")?.building.code).toBe("SRH");
+    });
+
+    it("resolves a name that is mostly a street number", () => {
+        expect(resolveBuilding("2400 Nueces")?.building.code).toBe("N24");
+    });
+
     it("treats online and unscheduled locations as absent, not unrecognised", () => {
-        for (const value of ["Online", "Zoom", "TBA", "TBD", "Virtual", ""]) {
+        // "N/A" was the miss: normalize() turns "/" into a space, so the raw
+        // list entry was unreachable and it fell through to the suggestion
+        // path, offering five buildings for a string meaning "unknown".
+        for (const value of ["Online", "Zoom", "TBA", "TBD", "Virtual", "N/A", "Off-Campus", ""]) {
             expect(isNonPhysicalLocation(value)).toBe(true);
             expect(resolveBuilding(value)).toBeNull();
         }
@@ -300,6 +338,42 @@ describe("parseWindow", () => {
         const monday = parseWindow("monday", CAMPUS_NOW)!;
         const nextMonday = parseWindow("next monday", CAMPUS_NOW)!;
         expect(nextMonday.from.getTime() - monday.from.getTime()).toBe(7 * 86_400_000);
+    });
+
+    it("reads this weekend as the coming Saturday and Sunday", () => {
+        // CAMPUS_NOW is a Monday, so Saturday is 5 days out.
+        const weekend = parseWindow("weekend", CAMPUS_NOW)!;
+        expect(weekend.from.toISOString()).toBe("2026-11-14T06:00:00.000Z");
+        expect(weekend.to.toISOString()).toBe("2026-11-16T06:00:00.000Z");
+    });
+
+    it("reads this weekend on a Saturday or Sunday as the one in progress", () => {
+        // `(5 - dayIndex + 7) % 7` is 6 on a Sunday, which is NEXT Saturday:
+        // asked on a Sunday the tool reported next weekend and missed today.
+        const sunday = new Date("2026-11-15T16:00:00Z"); // 10:00 CST, a Sunday
+        const onSunday = parseWindow("this weekend", sunday)!;
+        expect(onSunday.from.getTime()).toBe(sunday.getTime());
+        expect(onSunday.to.toISOString()).toBe("2026-11-16T06:00:00.000Z");
+
+        const saturday = new Date("2026-11-14T16:00:00Z");
+        const onSaturday = parseWindow("this weekend", saturday)!;
+        expect(onSaturday.from.getTime()).toBe(saturday.getTime());
+        expect(onSaturday.to.toISOString()).toBe("2026-11-16T06:00:00.000Z");
+    });
+
+    it("reads this week as now until midnight seven days out", () => {
+        // Not a 7x24h span: it starts at `now`, like "today", so a lecture
+        // that finished this morning is not in it.
+        const week = parseWindow("this week", CAMPUS_NOW)!;
+        expect(week.from.getTime()).toBe(CAMPUS_NOW.getTime());
+        expect(week.to.toISOString()).toBe("2026-11-16T06:00:00.000Z");
+    });
+
+    it("starts tonight in the evening, not at midnight", () => {
+        const morning = new Date("2026-11-09T15:00:00Z"); // 09:00 CST
+        const tonight = parseWindow("tonight", morning)!;
+        // 17:00 CST is 23:00 UTC.
+        expect(tonight.from.toISOString()).toBe("2026-11-09T23:00:00.000Z");
     });
 
     it("reads an ISO date", () => {
@@ -453,6 +527,7 @@ function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
         audiences: [],
         departments: [],
         tags: [],
+        canceled: false,
         freeAdmission: false,
         ticketCost: null,
         streamUrl: null,
@@ -550,51 +625,204 @@ describe("mentionsFreeFood", () => {
     });
 });
 
+describe("collapseSeries", () => {
+    const day = (n: number) =>
+        makeEvent({ id: 7, instanceId: 700 + n, start: `2026-11-${10 + n}T10:00:00-06:00` });
+
+    it("returns one row per event, not one per day it runs", () => {
+        const collapsed = collapseSeries([day(0), day(1), day(2)]);
+        expect(collapsed).toHaveLength(1);
+        expect(collapsed[0]?.occurrences).toBe(3);
+    });
+
+    it("keeps the earliest occurrence and reports the last", () => {
+        const collapsed = collapseSeries([day(0), day(1), day(2)]);
+        expect(collapsed[0]?.event.start).toBe("2026-11-10T10:00:00-06:00");
+        expect(collapsed[0]?.lastStart).toBe("2026-11-12T10:00:00-06:00");
+    });
+
+    it("leaves distinct events alone and reports no run", () => {
+        const collapsed = collapseSeries([makeEvent({ id: 1 }), makeEvent({ id: 2 })]);
+        expect(collapsed).toHaveLength(2);
+        expect(collapsed.map((c) => c.occurrences)).toEqual([1, 1]);
+        expect(collapsed.map((c) => c.lastStart)).toEqual([null, null]);
+    });
+});
+
+describe("cancelled events", () => {
+    it("is read off the feed's status field", () => {
+        const [live] = normalizeEvent({
+            event: {
+                id: 1,
+                title: "On",
+                status: "live",
+                event_instances: [
+                    { event_instance: { id: 1, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        });
+        const [off] = normalizeEvent({
+            event: {
+                id: 2,
+                title: "Off",
+                status: "canceled",
+                event_instances: [
+                    { event_instance: { id: 2, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        });
+        expect(live?.canceled).toBe(false);
+        expect(off?.canceled).toBe(true);
+    });
+
+    it("treats a missing status as live rather than cancelled", () => {
+        const [row] = normalizeEvent({
+            event: {
+                id: 3,
+                title: "No status",
+                event_instances: [
+                    { event_instance: { id: 3, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        });
+        expect(row?.canceled).toBe(false);
+    });
+
+    it("is excluded from results by default and included on request", () => {
+        const window = {
+            from: new Date("2026-11-09T06:00:00Z"),
+            to: new Date("2026-11-10T06:00:00Z"),
+        };
+        const off = makeEvent({ canceled: true, start: "2026-11-09T12:00:00-06:00" });
+        expect(filterEvents([off], window)).toHaveLength(0);
+        expect(filterEvents([off], { ...window, includeCanceled: true })).toHaveLength(1);
+    });
+});
+
 describe("find_campus_events", () => {
+    /** Asserts over every row AND that there was a row, so a fail-closed bug cannot pass. */
+    const expectAll = <T>(rows: T[], check: (row: T) => void) => {
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) check(row);
+    };
+
     it("reads every page, because page.total counts pages not events", async () => {
-        const { data } = await events({ when: "this week" });
-        const calendarCalls = log.filter((entry) => entry.url.includes("calendar.utexas.edu"));
-        expect(calendarCalls).toHaveLength(2);
-        expect(data.matched).toBeGreaterThan(20);
+        const { data } = await events({ when: "this week", limit: 40 });
+        const calls = log.filter((entry) => entry.url.includes("calendar.utexas.edu"));
+        expect(calls).toHaveLength(2);
+        expect(data.matched).toBeGreaterThan(10);
+    });
+
+    it("asks UT for only as many days as the window needs", async () => {
+        await events({ when: "today" });
+        const first = log.find((entry) => entry.url.includes("calendar.utexas.edu"))!;
+        const days = Number(new URL(first.url).searchParams.get("days"));
+        // A regression that always asked for one day, or always for 60, would
+        // otherwise ship green: the fixture answers regardless of this value.
+        expect(days).toBeLessThanOrEqual(2);
+
+        resetCache();
+        log.length = 0;
+        await events({ when: "this week" });
+        const wide = log.find((entry) => entry.url.includes("calendar.utexas.edu"))!;
+        expect(Number(new URL(wide.url).searchParams.get("days"))).toBeGreaterThan(6);
+    });
+
+    it("sends pp, not per_page, so one page is 100 events", async () => {
+        await events({ when: "today" });
+        const url = new URL(log.find((e) => e.url.includes("calendar.utexas.edu"))!.url);
+        expect(url.searchParams.get("pp")).toBe("100");
+        expect(url.searchParams.get("per_page")).toBeNull();
+    });
+
+    it("collapses a multi-day run into one row with a day count", async () => {
+        // The fixture holds real repeated rows: Localist emits a multi-day
+        // event once per day, which inflated both the count and the row list.
+        const raw = await getCalendar(30);
+        // Pick an id the feed really does repeat, rather than assuming titles
+        // are unique: two distinct UT Energy Symposium events share a title.
+        const counts = new Map<number, number>();
+        for (const event of raw.events) counts.set(event.id, (counts.get(event.id) ?? 0) + 1);
+        const repeatedId = [...counts].find(([, n]) => n > 1)?.[0];
+        expect(repeatedId).toBeDefined();
+        const repeatedTitle = raw.events.find((event) => event.id === repeatedId)!.title;
+
+        const { data, content } = await events({ when: "this week", limit: 40 });
+        const appearances = data.events.filter((event) => event.title === repeatedTitle);
+        expect(appearances).toHaveLength(1);
+        expect(appearances[0]?.occurrences).toBeGreaterThan(1);
+        expect(content[0]?.text).toContain("runs on");
+        // The run line is its own line; it used to run into the category line.
+        const runLine = content[0]!.text.split("\n").find((line) => line.includes("runs on"));
+        expect(runLine).toBeDefined();
+        expect(runLine).not.toMatch(/Arts & Humanities|uncategorised/);
+    });
+
+    it("counts events, not rows", async () => {
+        const raw = await getCalendar(30);
+        const rowCount = raw.events.length;
+        const distinct = new Set(raw.events.map((event) => event.id)).size;
+        // Guard the premise: if the fixture ever loses its repeats this test
+        // should be fixed, not quietly pass.
+        expect(distinct).toBeLessThan(rowCount);
+        const { data } = await events({ when: "this week", limit: 40 });
+        expect(data.matched).toBeLessThanOrEqual(distinct);
+    });
+
+    it("does not return a cancelled event as if it were happening", async () => {
+        const raw = await getCalendar(30);
+        const cancelled = raw.events.filter((event) => event.canceled);
+        expect(cancelled.length).toBeGreaterThan(0);
+        const { data } = await events({ when: "this week", limit: 40 });
+        for (const title of cancelled.map((event) => event.title)) {
+            expect(data.events.map((event) => event.title)).not.toContain(title);
+        }
+    });
+
+    it("decodes HTML entities in the title it shows and the query it matches", async () => {
+        const raw = await getCalendar(30);
+        // The feed really does serve "E+E Film &amp; Media Committee Meeting".
+        const withEntity = raw.events.filter((event) => /&(amp|quot|#\d+);/.test(event.title));
+        expect(withEntity).toHaveLength(0);
+        const ampersand = raw.events.find((event) => event.title.includes(" & "));
+        expect(ampersand).toBeDefined();
+
+        const { data } = await events({ when: "this week", query: "&", limit: 40 });
+        expect(data.matched).toBeGreaterThan(0);
+        expectAll(data.events, (event) => expect(event.title).not.toMatch(/&amp;|&quot;/));
     });
 
     it("lists what is on today, from now rather than from midnight", async () => {
-        const { data, content } = await events();
-        expect(data.shown).toBeGreaterThan(0);
+        const { data, content } = await events({ limit: 40 });
         expect(content[0]?.text).toContain("today");
-        for (const event of data.events) {
-            expect(Date.parse(event.start)).toBeLessThan(Date.parse(data.window.to));
-        }
+        expectAll(data.events, (event) =>
+            expect(Date.parse(event.start)).toBeLessThan(Date.parse(data.window.to)),
+        );
     });
 
     it("narrows to a single day for tomorrow", async () => {
         const { data } = await events({ when: "tomorrow", limit: 40 });
-        for (const event of data.events) {
-            expect(event.start.slice(0, 10)).toBe("2026-11-10");
-        }
-    });
-
-    it("keeps an event that has started but not finished", async () => {
-        // The window compares against the end where there is one, so a talk
-        // that began an hour ago is still on.
-        const all = await getCalendar(30);
-        const running = all.events.find(
-            (event) =>
-                Date.parse(event.start) < CAMPUS_NOW.getTime() &&
-                event.end !== null &&
-                Date.parse(event.end) > CAMPUS_NOW.getTime(),
-        );
-        if (!running) return; // fixture has none; nothing to assert
-        const { data } = await events({ when: "today", limit: 40 });
-        expect(data.events.some((event) => event.title === running.title)).toBe(true);
+        expectAll(data.events, (event) => {
+            const start = Date.parse(event.start);
+            // Same rule the filter uses: an all-day event runs to the end of
+            // its day, a timed one with no end is assumed to last an hour.
+            const end = event.end
+                ? Date.parse(event.end)
+                : start + (event.allDay ? 86_400_000 : 3_600_000);
+            expect(end).toBeGreaterThan(Date.parse(data.window.from));
+            expect(start).toBeLessThan(Date.parse(data.window.to));
+        });
     });
 
     it("backfills coordinates the feed is missing", async () => {
         const { data } = await events({ when: "this week", limit: 40 });
-        // The fixture deliberately holds events with no feed coordinates but a
-        // readable room or location, which is about half of UT's real calendar.
         expect(data.coverage.resolvedFromBuilding).toBeGreaterThan(0);
         expect(data.notes.join(" ")).toContain("resolved from the location text");
+        const backfilled = data.events.filter((e) => e.coordinateSource === "building");
+        expectAll(backfilled, (event) => {
+            expect(event.buildingCode).not.toBeNull();
+            expect(event.latitude).not.toBeNull();
+        });
     });
 
     it("reports coverage that adds up to what matched", async () => {
@@ -603,106 +831,189 @@ describe("find_campus_events", () => {
         expect(feedCoordinates + resolvedFromBuilding + noCoordinates).toBe(data.matched);
     });
 
-    it("filters by category and rejects one it does not know", async () => {
-        const { data } = await events({
-            when: "this week",
-            categories: ["Academics"],
-            limit: 40,
-        });
-        for (const event of data.events) expect(event.categories).toContain("Academics");
+    it("filters by category", async () => {
+        const all = await events({ when: "this week", limit: 40 });
+        const target = all.data.events.flatMap((event) => event.categories)[0];
+        expect(target).toBeDefined();
+        const { data } = await events({ when: "this week", categories: [target!], limit: 40 });
+        expectAll(data.events, (event) => expect(event.categories).toContain(target));
+        // The filter must actually remove something, or it proves nothing.
+        expect(data.matched).toBeLessThan(all.data.matched);
+    });
 
+    it("tolerates a category with stray whitespace or odd case", async () => {
+        // Validation trimmed and matching did not, so " Academics" validated
+        // and then matched nothing: a real answer became "nothing on".
+        const plain = await events({ when: "this week", categories: ["Academics"], limit: 40 });
+        for (const variant of [" Academics", "academics", "ACADEMICS ", "  Academics  "]) {
+            const got = await events({ when: "this week", categories: [variant], limit: 40 });
+            expect(got.data.matched).toBe(plain.data.matched);
+        }
+    });
+
+    it("errors on an unknown category instead of answering nothing", async () => {
         const bad = await events({ when: "this week", categories: ["Free Food"] });
-        expect(bad.data.matched).toBe(0);
+        expect(bad.isError).toBe(true);
         expect(bad.content[0]?.text).toContain("Unknown categor");
-        // Naming the valid values is what stops a second wrong guess.
         expect(bad.content[0]?.text).toContain("Academics");
     });
 
-    it("filters by audience and rejects one it does not know", async () => {
-        const { data } = await events({ when: "this week", audiences: ["Students"], limit: 40 });
-        for (const event of data.events) expect(event.audiences).toContain("Students");
+    it("filters by audience, and errors on one it does not know", async () => {
+        const all = await events({ when: "this week", limit: 40 });
+        const { data } = await events({
+            when: "this week",
+            audiences: ["Students"],
+            limit: 40,
+        });
+        expectAll(data.events, (event) => expect(event.audiences).toContain("Students"));
+        expect(data.matched).toBeLessThan(all.data.matched);
 
         const bad = await events({ when: "this week", audiences: ["Undergrads"] });
+        expect(bad.isError).toBe(true);
         expect(bad.content[0]?.text).toContain("Unknown audience");
     });
 
     it("filters by venue type", async () => {
+        const all = await events({ when: "this week", limit: 40 });
         const { data } = await events({ when: "this week", venue: "virtual", limit: 40 });
-        for (const event of data.events) expect(event.venue).toBe("virtual");
+        expectAll(data.events, (event) => expect(event.venue).toBe("virtual"));
+        expect(data.matched).toBeLessThan(all.data.matched);
     });
 
-    it("filters near a building and says what the radius excluded", async () => {
-        const { data } = await events({
+    it("filters by department", async () => {
+        const all = await events({ when: "this week", limit: 40 });
+        const target = all.data.events.flatMap((event) => event.departments)[0];
+        expect(target).toBeDefined();
+        const { data } = await events({ when: "this week", department: target!, limit: 40 });
+        expectAll(data.events, (event) =>
+            expect(event.departments.join(" ").toLowerCase()).toContain(target!.toLowerCase()),
+        );
+        expect(data.matched).toBeLessThan(all.data.matched);
+    });
+
+    it("filters by free admission", async () => {
+        const all = await events({ when: "this week", limit: 40 });
+        const { data } = await events({ when: "this week", freeAdmission: true, limit: 40 });
+        expectAll(data.events, (event) => expect(event.freeAdmission).toBe(true));
+        expect(data.matched).toBeLessThan(all.data.matched);
+    });
+
+    it("matches a query against the title, and excludes what does not match", async () => {
+        const all = await events({ when: "this week", limit: 40 });
+        const sample = all.data.events[0];
+        expect(sample).toBeDefined();
+        const word = sample!.title.split(/\s+/).find((w) => w.length > 5);
+        expect(word).toBeDefined();
+        const { data } = await events({ when: "this week", query: word!, limit: 40 });
+        expect(data.matched).toBeGreaterThan(0);
+        // The point the old version missed: a filter that returns everything
+        // also satisfies "matched > 0".
+        expect(data.matched).toBeLessThan(all.data.matched);
+        const nonsense = await events({ when: "this week", query: "zzqqxx", limit: 40 });
+        expect(nonsense.data.matched).toBe(0);
+    });
+
+    it("filters near a building, and the radius actually bounds it", async () => {
+        const wide = await events({
             when: "this week",
             near: "the SAC",
-            withinMetres: 600,
+            withinMetres: 5000,
             limit: 40,
         });
-        for (const event of data.events) {
+        const tight = await events({
+            when: "this week",
+            near: "the SAC",
+            withinMetres: 150,
+            limit: 40,
+        });
+        expect(wide.data.matched).toBeGreaterThan(tight.data.matched);
+        expectAll(wide.data.events, (event) => {
             expect(event.latitude).not.toBeNull();
             expect(event.walkMinutes).not.toBeNull();
-        }
-        expect(data.notes.join(" ")).toMatch(/excluded by the 600 m radius/);
+        });
+        expect(wide.data.notes.join(" ")).toMatch(/excluded by the 5000 m radius/);
     });
 
     it("refuses a near it cannot resolve rather than ignoring it", async () => {
-        // Dropping the filter here would answer about the whole campus while
-        // looking like it answered about one building.
-        const { data, content } = await events({ when: "this week", near: "Hogwarts" });
-        expect(data.matched).toBe(0);
-        expect(content[0]?.text).toContain("resolve_ut_location");
+        const result = await call("find_campus_events", { when: "this week", near: "Hogwarts" });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("resolve_ut_location");
+    });
+
+    it("refuses a blank near instead of dropping the radius", async () => {
+        // `near: "   "` used to skip the resolve-or-refuse guard entirely, so
+        // the answer covered the whole campus while looking filtered.
+        for (const blank of ["", "   "]) {
+            const result = await call("find_campus_events", { when: "this week", near: blank });
+            expect(result.isError).toBe(true);
+            expect(result.content[0]?.text).toContain("near was empty");
+        }
+    });
+
+    it("refuses withinMetres with no near to measure from", async () => {
+        const result = await call("find_campus_events", { when: "this week", withinMetres: 50 });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("only means something with near");
     });
 
     it("finds events that say food is provided, and admits it is a text match", async () => {
+        const all = await events({ when: "this week", limit: 40 });
         const { data, content } = await events({ when: "this week", freeFood: true, limit: 40 });
-        expect(data.matched).toBeGreaterThan(0);
-        for (const event of data.events) expect(event.mentionsFreeFood).toBe(true);
+        expectAll(data.events, (event) => expect(event.mentionsFreeFood).toBe(true));
+        expect(data.matched).toBeLessThan(all.data.matched);
         expect(content[0]?.text).toContain("no free-food field");
     });
 
     it("does not confuse free admission with free food", async () => {
-        // Localist's `free` flag is about the ticket price. Conflating the two
-        // would promise food at an event that only promised entry.
         const { data } = await events({ when: "this week", freeAdmission: true, limit: 40 });
-        expect(data.matched).toBeGreaterThan(0);
-        const promisesFood = data.events.every((event) => event.mentionsFreeFood);
-        expect(promisesFood).toBe(false);
-    });
-
-    it("matches a query against title, description and department", async () => {
-        const all = await events({ when: "this week", limit: 40 });
-        const sample = all.data.events[0];
-        if (!sample) return;
-        const word = sample.title.split(/\s+/).find((w) => w.length > 5);
-        if (!word) return;
-        const { data } = await events({ when: "this week", query: word, limit: 40 });
-        expect(data.matched).toBeGreaterThan(0);
-    });
-
-    it("explains an unreadable when instead of defaulting to today", async () => {
-        const { data, content } = await events({ when: "whenever" });
-        expect(data.matched).toBe(0);
-        expect(content[0]?.text).toContain("Couldn't read");
-        expect(content[0]?.text).toContain("tonight");
-    });
-
-    it("rejects an unknown argument instead of ignoring it", async () => {
-        // `date` instead of `when` would otherwise answer about today while
-        // appearing to honour the filter.
-        const result = await call("find_campus_events", { date: "tomorrow" });
-        expect(result.isError).toBe(true);
+        expectAll(data.events, (event) => expect(event.freeAdmission).toBe(true));
+        expect(data.events.every((event) => event.mentionsFreeFood)).toBe(false);
     });
 
     it("marks an away game and can exclude it", async () => {
-        // UT publishes road games on its own calendar, so "what is on campus"
-        // otherwise answers with a tennis match in Nebraska.
         const all = await events({ when: "this week", limit: 40 });
         const away = all.data.events.filter((event) => event.onCampus === false);
-        if (away.length === 0) return; // fixture window has none
+        expect(away.length).toBeGreaterThan(0);
         expect(all.content[0]?.text).toContain("NOT on campus");
-        const onlyHere = await events({ when: "this week", onCampusOnly: true, limit: 40 });
-        expect(onlyHere.data.events.every((event) => event.onCampus !== false)).toBe(true);
-        expect(onlyHere.data.matched).toBeLessThan(all.data.matched);
+        const here = await events({ when: "this week", onCampusOnly: true, limit: 40 });
+        expectAll(here.data.events, (event) => expect(event.onCampus).not.toBe(false));
+        expect(here.data.matched).toBeLessThan(all.data.matched);
+    });
+
+    it("excludes a road game written with a spelled-out state, not just an abbreviation", async () => {
+        // Abbreviations caught the tennis fixtures; "San Diego, California"
+        // and "Louisville, Kentucky" went through as campus events.
+        const raw = await getCalendar(30);
+        const spelled = raw.events.filter((event) =>
+            /\b(California|Kentucky|Georgia)\b/.test(event.locationName ?? ""),
+        );
+        expect(spelled.length).toBeGreaterThan(0);
+        const here = await events({ when: "this week", onCampusOnly: true, limit: 40 });
+        for (const title of spelled.map((event) => event.title)) {
+            expect(here.data.events.map((event) => event.title)).not.toContain(title);
+        }
+    });
+
+    it("errors on an unreadable when instead of answering about today", async () => {
+        const result = await call("find_campus_events", { when: "whenever" });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Couldn't read");
+        expect(result.content[0]?.text).toContain("tonight");
+    });
+
+    it("says it has not looked, rather than answering nothing, past its range", async () => {
+        const far = await call("find_campus_events", { when: "2027-05-01" });
+        expect(far.isError).toBe(true);
+        expect(far.content[0]?.text).toMatch(/days out and this tool reads/);
+
+        const past = await call("find_campus_events", { when: "2020-01-01" });
+        expect(past.isError).toBe(true);
+        expect(past.content[0]?.text).toContain("in the past");
+    });
+
+    it("rejects an unknown argument instead of ignoring it", async () => {
+        const result = await call("find_campus_events", { date: "tomorrow" });
+        expect(result.isError).toBe(true);
     });
 
     it("caps rows and says how many it held back", async () => {
@@ -714,38 +1025,49 @@ describe("find_campus_events", () => {
 
     it("truncates a long description rather than returning an abstract", async () => {
         const { data } = await events({ when: "this week", limit: 40 });
-        for (const event of data.events) {
+        expectAll(data.events, (event) => {
             if (event.description) expect(event.description.length).toBeLessThanOrEqual(404);
-        }
+        });
         expect(data.events.some((event) => event.description?.endsWith("..."))).toBe(true);
     });
 
-    it("renders a time a person can read, in Austin time", async () => {
-        const { data } = await events({ when: "tomorrow", limit: 5 });
-        const first = data.events[0];
-        if (!first) return;
-        expect(first.when).toMatch(/^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d+/);
+    it("falls back to the HTML description when the plain one is empty", async () => {
+        const raw = await getCalendar(30);
+        const fallback = raw.events.find((event) => event.description?.includes("markup"));
+        expect(fallback).toBeDefined();
+        // Tags stripped, entities decoded.
+        expect(fallback!.description).not.toContain("<b>");
+        expect(fallback!.description).toContain("Film & Media");
+        expect(fallback!.description).toContain("café");
+    });
+
+    it("renders the time in Austin time, not UTC", async () => {
+        const { data } = await events({ when: "this week", limit: 40 });
+        const evening = data.events.find((event) => {
+            const hour = Number(
+                new Intl.DateTimeFormat("en-US", {
+                    timeZone: "America/Chicago",
+                    hour: "numeric",
+                    hour12: false,
+                }).format(new Date(event.start)),
+            );
+            return !event.allDay && hour >= 18;
+        });
+        // An evening event is the discriminating case: rendered in UTC it
+        // shows the next calendar day.
+        expect(evening).toBeDefined();
+        const austinDay = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/Chicago",
+            day: "numeric",
+        }).format(new Date(evening!.start));
+        expect(evening!.when).toContain(austinDay);
     });
 
     it("keeps an all-day event on its own day", async () => {
-        // Localist writes an all-day event as midnight with no end time. Read
-        // literally it is over before anyone is awake, which dropped every
-        // all-day exhibition out of "today".
         const { data } = await events({ when: "today", limit: 40 });
-        const allDay = data.events.filter((event) => event.when.endsWith("all day"));
-        expect(allDay.length).toBeGreaterThan(0);
-    });
-
-    it("keeps a timed event with no end time on for an hour", async () => {
-        const all = await getCalendar(30);
-        const open = all.events.find((event) => event.end === null && !event.allDay);
-        if (!open) return;
-        const startMs = Date.parse(open.start);
-        // Half an hour in, it should still be listed.
-        vi.setSystemTime(new Date(startMs + 1_800_000));
-        resetCache();
-        const { data } = await events({ when: "today", limit: 40 });
-        expect(data.events.some((event) => event.title === open.title)).toBe(true);
+        expect(
+            data.events.filter((event) => event.when.endsWith("all day")).length,
+        ).toBeGreaterThan(0);
     });
 
     it("serves a second identical call from cache", async () => {
@@ -764,12 +1086,161 @@ describe("find_campus_events", () => {
         expect(result.content[0]?.text).toContain("calendar.utexas.edu");
     });
 
-    it("says so when the feed is not JSON, instead of throwing a parse error", async () => {
+    it("says so when the feed is not JSON, instead of a parse error", async () => {
         vi.unstubAllGlobals();
         resetCache();
         stubFetch({ "calendar.utexas.edu": "<html>maintenance</html>" });
         const result = await call("find_campus_events", { when: "today" });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("not JSON");
+    });
+
+    it("explains malformed upstream data instead of leaking a TypeError", async () => {
+        // Each of these used to surface a raw JS message to the client, e.g.
+        // "object is not iterable" or "(list ?? []).map is not a function".
+        const LEAKS = /is not iterable|is not a function|Cannot read properties/;
+
+        // No event list at all means the feed is broken, and that is an error.
+        for (const body of [
+            '{"events":{},"page":{"total":1,"total_items":0}}',
+            '{"page":{"total":1,"total_items":0}}',
+            "null",
+        ]) {
+            vi.unstubAllGlobals();
+            resetCache();
+            stubFetch({ "calendar.utexas.edu": body });
+            const result = await call("find_campus_events", { when: "today" });
+            expect(result.isError).toBe(true);
+            const text = result.content[0]?.text ?? "";
+            expect(text).not.toMatch(LEAKS);
+            expect(text).toContain("UT's calendar");
+        }
+
+        // A bad row inside a good list is skipped, not fatal: one malformed
+        // entry should not cost the user the other ninety-nine.
+        for (const body of [
+            '{"events":[null],"page":{"total":1,"total_items":1}}',
+            '{"events":[{"event":{"id":1,"title":7,"departments":"Fine Arts",' +
+                '"filters":{"event_types":{}},"event_instances":{"a":1}}}],' +
+                '"page":{"total":1,"total_items":1}}',
+        ]) {
+            vi.unstubAllGlobals();
+            resetCache();
+            stubFetch({ "calendar.utexas.edu": body });
+            const result = await call("find_campus_events", { when: "today" });
+            expect(result.content[0]?.text ?? "").not.toMatch(LEAKS);
+        }
+    });
+
+    it("rejects a feed coordinate that is out of range", async () => {
+        // A latitude and longitude swapped upstream gives latitude -97.73,
+        // which is not a latitude, and used to be passed through as "feed".
+        const [row] = normalizeEvent({
+            event: {
+                id: 99,
+                title: "Swapped",
+                geo: { latitude: "-97.73", longitude: "30.28" },
+                event_instances: [
+                    { event_instance: { id: 99, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        });
+        expect(row?.coordinateSource).not.toBe("feed");
+        expect(row?.latitude).not.toBe(-97.73);
+    });
+
+    it("counts the pages it actually fetched", async () => {
+        const result = await getCalendar(30);
+        const calls = log.filter((entry) => entry.url.includes("calendar.utexas.edu"));
+        expect(result.pagesFetched).toBe(calls.length);
+    });
+});
+
+describe("gaps found by mutation testing", () => {
+    it("trims inside filterEvents, not only at the tool boundary", () => {
+        // filterEvents is exported, so a caller that has not trimmed must
+        // still get the right answer. Trimming only in index.ts left this
+        // untested, and either fix alone hid the other's absence.
+        const window = {
+            from: new Date("2026-11-09T06:00:00Z"),
+            to: new Date("2026-11-10T06:00:00Z"),
+        };
+        const event = makeEvent({
+            start: "2026-11-09T12:00:00-06:00",
+            categories: ["Academics"],
+            audiences: ["Students"],
+            departments: ["School of Law"],
+        });
+        expect(filterEvents([event], { ...window, categories: [" Academics "] })).toHaveLength(1);
+        expect(filterEvents([event], { ...window, audiences: ["  students"] })).toHaveLength(1);
+        expect(filterEvents([event], { ...window, department: " school of law " })).toHaveLength(1);
+    });
+
+    it("prefers the room reference over the location name", () => {
+        // Both resolve here, to different buildings. The old test used a
+        // location name that resolved to nothing, so it could not detect the
+        // ordering it existed to prove.
+        const [row] = normalizeEvent({
+            event: {
+                id: 1,
+                title: "Precedence",
+                location_name: "Gates Dell Complex",
+                room_number: "Ann Hartness Reading Room (SRH 1.106)",
+                geo: { latitude: null, longitude: null },
+                event_instances: [
+                    { event_instance: { id: 1, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        });
+        // The room is the more specific claim.
+        expect(row?.buildingCode).toBe("SRH");
+    });
+
+    it("survives event_instances arriving as an object", async () => {
+        // The earlier malformed-data case had a numeric title, so it was
+        // rejected before it ever reached the instance loop, and `?? []` on a
+        // non-array went untested. An object is not iterable.
+        vi.unstubAllGlobals();
+        resetCache();
+        stubFetch({
+            "calendar.utexas.edu":
+                '{"events":[{"event":{"id":1,"title":"Bad shape",' +
+                '"event_instances":{"a":1},"tags":{"b":2}}}],' +
+                '"page":{"total":1,"total_items":1}}',
+        });
+        const result = await call("find_campus_events", { when: "today" });
+        expect(result.content[0]?.text ?? "").not.toMatch(
+            /is not iterable|is not a function|Cannot read properties/,
+        );
+    });
+
+    it("reads Austin's offset from the zone, not a fixed -6", () => {
+        // November is CST (UTC-6) and July is CDT (UTC-5). A hardcoded 360
+        // passed every test because the fixture clock is in November.
+        const july = new Date("2026-07-15T15:00:00Z");
+        const summer = parseWindow("tomorrow", july)!;
+        expect(summer.from.toISOString()).toBe("2026-07-16T05:00:00.000Z");
+
+        const november = parseWindow("tomorrow", CAMPUS_NOW)!;
+        expect(november.from.toISOString()).toBe("2026-11-10T06:00:00.000Z");
+    });
+
+    it("does not find a short building name inside a longer word", () => {
+        // With the 9-character floor dropped, "UNION" and "MAIN" become name
+        // keys and BY_NAME matches on substring, so "Reunion" resolves to the
+        // Union Building and "Remaining" to the Main Building.
+        expect(resolveBuilding("Class Reunion in the courtyard")).toBeNull();
+        expect(resolveBuilding("Remaining seats for the lecture")).toBeNull();
+    });
+
+    it("degrades an unrecognised precision to the loosest, not the tightest", () => {
+        // A bad value in the data file would otherwise be reported as an exact
+        // marker, and the "approximate" warning would be decided by a string
+        // nobody checked.
+        expect(toPrecision("marker")).toBe("marker");
+        expect(toPrecision("centroid")).toBe("centroid");
+        expect(toPrecision("geocoded")).toBe("geocoded");
+        expect(toPrecision("something-new")).toBe("geocoded");
+        expect(toPrecision("")).toBe("geocoded");
     });
 });

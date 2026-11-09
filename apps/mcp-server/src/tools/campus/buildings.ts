@@ -28,6 +28,10 @@ export interface UtBuilding {
 /**
  * Campus bounds, as a last line of defence.
  *
+ * Nothing in buildings.json fails this today, so removing it changes no
+ * behaviour and no test can catch its removal. It stays for the next
+ * regeneration of that file, which is the only way a bad coordinate gets in.
+ *
  * Every entry in the file is inside these already. The check is here to catch
  * the failure that would otherwise ship silently: a latitude and longitude
  * swapped somewhere upstream. Reversed UT coordinates land at 30N 97E, in
@@ -143,9 +147,14 @@ const PRECISIONS: readonly Precision[] = ["marker", "centroid", "geocoded"];
  * degrades to "geocoded", the loosest, so a mistake in the data over-warns
  * rather than over-promising.
  */
+/** Exported so the fallback is testable; the data file has no bad values today. */
+export function toPrecision(value: string): Precision {
+    return PRECISIONS.find((known) => known === value) ?? "geocoded";
+}
+
 const BY_CODE = new Map<string, UtBuilding>();
 for (const entry of Object.values(buildingData.buildings)) {
-    const precision = PRECISIONS.find((known) => known === entry.precision) ?? "geocoded";
+    const precision = toPrecision(entry.precision);
     const building: UtBuilding = { ...entry, precision };
     if (isPlausible(building)) BY_CODE.set(building.code.toUpperCase(), building);
 }
@@ -188,9 +197,10 @@ function nameKey(building: UtBuilding): string {
 const BY_NAME: { key: string; building: UtBuilding }[] = [];
 for (const building of BY_CODE.values()) {
     const key = nameKey(building);
-    // Short names are too loose to match inside a sentence. "2400 NUECES"
-    // normalises to seven characters and would fire on any address with that
-    // number in it.
+    // Short names are too loose to match inside a sentence: a key of a few
+    // characters fires on anything that happens to contain it. The floor is a
+    // blunt instrument and deliberately permissive, so "2400 NUECES" (11
+    // characters) is indexed and does resolve.
     if (key.length >= 9) BY_NAME.push({ key, building });
 }
 BY_NAME.sort((a, b) => b.key.length - a.key.length);
@@ -302,10 +312,18 @@ for (const [alias, code] of Object.entries(LOCATION_ALIASES)) {
 ALIAS_PHRASES.sort((a, b) => b.key.length - a.key.length);
 
 /** True for "Online", "Zoom", "TBA" and friends: absent, not unrecognised. */
+const NON_PHYSICAL_NORMALIZED = NON_PHYSICAL.map(normalize);
+
 export function isNonPhysicalLocation(location: string | null | undefined): boolean {
     if (!location || !location.trim()) return true;
     const normalized = normalize(location);
-    return NON_PHYSICAL.some(
+    // The terms are normalized too. Comparing raw terms against a normalized
+    // candidate made two of them unreachable: normalize("N/A") is "N A", which
+    // never equals "N/A", so "N/A" fell through to the suggestion path and
+    // offered five confident buildings for a string meaning "unknown".
+    // "OFF-CAMPUS" was dead the same way, harmlessly, because "OFF CAMPUS" is
+    // listed separately.
+    return NON_PHYSICAL_NORMALIZED.some(
         (term) =>
             normalized === term ||
             normalized.startsWith(`${term} `) ||
@@ -340,6 +358,17 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
     if (!location) return null;
     const normalized = normalize(location);
     if (!normalized) return null;
+
+    // A code in parentheses is an explicit statement of the building, wherever
+    // it sits in the string, so it beats the leading-word rule below. UT's own
+    // feed writes "Visual Arts Center, Art Building (ART)", where ART is at
+    // token 5 and is in AMBIGUOUS_CODES, so that resolved to nothing at all
+    // while the shorter "Art Building (ART)" resolved fine.
+    const parenthesised = /\(([A-Za-z]{2,4})\)/.exec(location);
+    if (parenthesised?.[1]) {
+        const building = BY_CODE.get(parenthesised[1].toUpperCase());
+        if (building) return { building, matchedBy: "code" };
+    }
 
     const exactAlias = ALIAS_EXACT.get(normalized);
     if (exactAlias) return { building: exactAlias, matchedBy: "alias" };

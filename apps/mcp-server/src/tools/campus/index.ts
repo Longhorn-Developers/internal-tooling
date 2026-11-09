@@ -15,12 +15,13 @@ import {
 import {
     AUDIENCES,
     EVENT_CATEGORIES,
+    MAX_WINDOW_DAYS,
     VENUE_TYPES,
+    collapseSeries,
     filterEvents,
     getCalendar,
     mentionsFreeFood,
     onCampus,
-    type CampusEvent,
     type EventFilters,
 } from "./extract.ts";
 
@@ -116,6 +117,10 @@ const EVENTS_OUTPUT = z.object({
             mentionsFreeFood: z.boolean(),
             /** null when there is no location to judge from. */
             onCampus: z.boolean().nullable(),
+            /** Days in the window this runs on. >1 is an exhibition or a series. */
+            occurrences: z.number(),
+            /** Start of its last occurrence in the window, when it runs more than once. */
+            lastStart: z.string().nullable(),
             description: z.string().nullable(),
             url: z.string(),
         }),
@@ -189,10 +194,19 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (value === "this week") return { from: now, to: dayStart(7), label: "the next 7 days" };
     if (value === "next week") return span(7, 14, "next week");
     if (value === "weekend" || value === "this weekend") {
-        // Saturday and Sunday of the current week. On a Saturday or Sunday that
-        // is this one, not the next.
-        const toSaturday = (5 - today.dayIndex + 7) % 7;
-        return span(toSaturday, toSaturday + 2, "this weekend");
+        // dayIndex is 0 = Monday, so Saturday is 5 and Sunday is 6.
+        //
+        // `(5 - dayIndex + 7) % 7` is 6 on a Sunday, which is NEXT Saturday:
+        // asked on a Sunday the tool reported next weekend's events under the
+        // label "this weekend" and missed everything happening that day. On a
+        // Sunday the weekend started yesterday, so the window opens now.
+        if (today.dayIndex === 6) return { from: now, to: dayStart(1), label: "this weekend" };
+        if (today.dayIndex === 5) {
+            // Saturday: from now, consistent with "today", rather than from
+            // midnight, which would include events that finished this morning.
+            return { from: now, to: dayStart(2), label: "this weekend" };
+        }
+        return span(5 - today.dayIndex, 7 - today.dayIndex, "this weekend");
     }
 
     const weekday = WEEKDAYS.indexOf(value.replace(/^(next|this|coming)\s+/, ""));
@@ -219,7 +233,32 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
 /** Days of calendar to request, from how far the window reaches. */
 function daysNeeded(window: Window, now: Date): number {
     const ms = window.to.getTime() - now.getTime();
-    return Math.min(60, Math.max(1, Math.ceil(ms / 86_400_000) + 1));
+    return Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.ceil(ms / 86_400_000) + 1));
+}
+
+/**
+ * Is the window something one call can actually answer for?
+ *
+ * A past date, or one past MAX_WINDOW_DAYS, used to come back as a confident
+ * "Nothing on UT's calendar 2027-05-01" plus a count of events that were never
+ * in that window. The tool had not looked, and said so nowhere.
+ */
+function outOfRange(window: Window, now: Date): string | null {
+    const dayMs = 86_400_000;
+    if (window.to.getTime() <= now.getTime() - dayMs) {
+        return (
+            "that is in the past. UT's calendar feed only serves upcoming events, so this " +
+            "tool cannot answer for a date that has gone."
+        );
+    }
+    const ahead = Math.ceil((window.from.getTime() - now.getTime()) / dayMs);
+    if (ahead > MAX_WINDOW_DAYS) {
+        return (
+            `that is ${ahead} days out and this tool reads ${MAX_WINDOW_DAYS} days ahead, so ` +
+            "it has not looked that far. Ask again nearer the date."
+        );
+    }
+    return null;
 }
 
 function describeBuilding(building: UtBuilding) {
@@ -235,16 +274,16 @@ function describeBuilding(building: UtBuilding) {
 }
 
 /** "Fri 7 Nov, 7:30pm" in Austin time, which is the only time zone anyone means. */
-function when(event: CampusEvent): string {
-    const start = new Date(event.start);
-    if (!Number.isFinite(start.getTime())) return event.start;
+function when(startIso: string, allDay: boolean): string {
+    const start = new Date(startIso);
+    if (!Number.isFinite(start.getTime())) return startIso;
     const date = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Chicago",
         weekday: "short",
         month: "short",
         day: "numeric",
     }).format(start);
-    if (event.allDay) return `${date}, all day`;
+    if (allDay) return `${date}, all day`;
     const time = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Chicago",
         hour: "numeric",
@@ -480,26 +519,16 @@ export function registerCampusTools(server: McpServer) {
                 limit?: number;
             }) => {
                 const now = new Date();
-                const nothing = (why: string) =>
-                    textWith(why, {
-                        window: { from: "", to: "", timezone: "America/Chicago" },
-                        matched: 0,
-                        shown: 0,
-                        coverage: {
-                            feedCoordinates: 0,
-                            resolvedFromBuilding: 0,
-                            noCoordinates: 0,
-                        },
-                        notes: [why],
-                        events: [],
-                    });
-
                 const window = parseWindow(input.when, now);
                 if (!window) {
-                    return nothing(
+                    throw new Error(
                         `Couldn't read when="${input.when}". Try "today", "tonight", ` +
                             '"tomorrow", "this week", "weekend", a weekday, or "2026-11-12".',
                     );
+                }
+                const unreachable = outOfRange(window, now);
+                if (unreachable) {
+                    throw new Error(`Can't answer for ${window.label}: ${unreachable}`);
                 }
 
                 const badCategories = (input.categories ?? []).filter(
@@ -509,7 +538,7 @@ export function registerCampusTools(server: McpServer) {
                         ),
                 );
                 if (badCategories.length) {
-                    return nothing(
+                    throw new Error(
                         `Unknown categor${badCategories.length > 1 ? "ies" : "y"}: ` +
                             `${badCategories.join(", ")}. Valid values are ` +
                             `${EVENT_CATEGORIES.join(", ")}.`,
@@ -522,9 +551,24 @@ export function registerCampusTools(server: McpServer) {
                         ),
                 );
                 if (badAudiences.length) {
-                    return nothing(
+                    throw new Error(
                         `Unknown audience(s): ${badAudiences.join(", ")}. Valid values are ` +
                             `${AUDIENCES.join(", ")}.`,
+                    );
+                }
+
+                // A blank `near` used to skip the guard below entirely, so the
+                // radius was computed and never applied: asking for events
+                // within 50 m returned the whole campus with no note.
+                if (input.near !== undefined && !input.near.trim()) {
+                    throw new Error(
+                        'near was empty. Give a building, e.g. "GDC" or "the SAC", or leave it out.',
+                    );
+                }
+                if (input.withinMetres !== undefined && !input.near?.trim()) {
+                    throw new Error(
+                        "withinMetres only means something with near. Give the building to " +
+                            "measure from, or drop withinMetres.",
                     );
                 }
 
@@ -532,7 +576,7 @@ export function registerCampusTools(server: McpServer) {
                 if (input.near?.trim()) {
                     const hit = resolveBuilding(input.near);
                     if (!hit) {
-                        return nothing(
+                        throw new Error(
                             `Couldn't resolve near="${input.near}" to a UT building, so the ` +
                                 "radius filter can't be applied. Call resolve_ut_location to " +
                                 "check the name.",
@@ -549,21 +593,35 @@ export function registerCampusTools(server: McpServer) {
                     from: window.from,
                     to: window.to,
                     query: input.query?.trim() || undefined,
-                    categories: input.categories,
-                    audiences: input.audiences,
+                    // Trimmed here so validation above and matching below see
+                    // the same strings; they did not, and " Academics" passed
+                    // validation then matched nothing.
+                    //
+                    // `lower()` in extract.ts trims too, deliberately: that
+                    // function is exported and a caller who has not been
+                    // through this validation still needs the right answer.
+                    // Neither is dead code, and mutation testing reports each
+                    // as survivable only because the other is there.
+                    categories: input.categories?.map((value) => value.trim()),
+                    audiences: input.audiences?.map((value) => value.trim()),
                     venue: input.venue,
                     department: input.department?.trim() || undefined,
                     freeAdmission: input.freeAdmission,
                     onCampusOnly: input.onCampusOnly,
                 };
-                let matched = filterEvents(calendar.events, filters);
-                if (input.freeFood) matched = matched.filter(mentionsFreeFood);
+                let rows = filterEvents(calendar.events, filters);
+                if (input.freeFood) rows = rows.filter(mentionsFreeFood);
+                // Collapse before anything is counted or capped. Localist
+                // repeats a multi-day event once per day, so "245 events this
+                // week" was really 153, and `limit` was spent on repeats.
+                let series = collapseSeries(rows);
+                let matched = series.map((entry) => entry.event);
 
                 const notes: string[] = [];
                 if (anchor) {
-                    const before = matched.length;
-                    matched = matched.filter(
-                        (event) =>
+                    const before = series.length;
+                    series = series.filter(
+                        ({ event }) =>
                             event.latitude !== null &&
                             event.longitude !== null &&
                             metresBetween(anchor, {
@@ -571,7 +629,8 @@ export function registerCampusTools(server: McpServer) {
                                 longitude: event.longitude,
                             }) <= radius,
                     );
-                    const dropped = before - matched.length;
+                    matched = series.map((entry) => entry.event);
+                    const dropped = before - series.length;
                     if (dropped > 0) {
                         notes.push(
                             `${dropped} event(s) in this window were excluded by the ` +
@@ -582,7 +641,8 @@ export function registerCampusTools(server: McpServer) {
                 }
 
                 const limit = input.limit ?? DEFAULT_ROWS;
-                const shown = matched.slice(0, limit);
+                const shownSeries = series.slice(0, limit);
+                const shown = shownSeries.map((entry) => entry.event);
 
                 const coverage = {
                     feedCoordinates: matched.filter((e) => e.coordinateSource === "feed").length,
@@ -631,7 +691,7 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
 
-                const rows = shown.map((event) => {
+                const out = shownSeries.map(({ event, occurrences, lastStart }) => {
                     const metres =
                         anchor && event.latitude !== null && event.longitude !== null
                             ? metresBetween(anchor, {
@@ -640,7 +700,7 @@ export function registerCampusTools(server: McpServer) {
                               })
                             : null;
                     return {
-                        when: when(event),
+                        when: when(event.start, event.allDay),
                         title: event.title,
                         start: event.start,
                         end: event.end,
@@ -659,6 +719,8 @@ export function registerCampusTools(server: McpServer) {
                         freeAdmission: event.freeAdmission,
                         mentionsFreeFood: mentionsFreeFood(event),
                         onCampus: onCampus(event),
+                        occurrences,
+                        lastStart,
                         description: event.description,
                         url: event.url,
                     };
@@ -670,7 +732,7 @@ export function registerCampusTools(server: McpServer) {
                               (anchor ? ` within ${radius} m of ${anchor.code}` : "") +
                               `, showing ${shown.length}:`,
                           "",
-                          ...rows.map((row) =>
+                          ...out.map((row) =>
                               [
                                   `${row.when} — ${row.title}`,
                                   `  ${row.room ?? row.locationName ?? "location not given"}` +
@@ -678,7 +740,14 @@ export function registerCampusTools(server: McpServer) {
                                       (row.walkMinutes !== null
                                           ? ` · ~${row.walkMinutes} min walk`
                                           : ""),
-                                  `  ${row.categories.join(", ") || "uncategorised"}` +
+                                  (row.occurrences > 1
+                                      ? `  runs on ${row.occurrences} days in this window` +
+                                        (row.lastStart
+                                            ? `, last on ${when(row.lastStart, row.allDay)}`
+                                            : "") +
+                                        "\n"
+                                      : "") +
+                                      `  ${row.categories.join(", ") || "uncategorised"}` +
                                       (row.freeAdmission ? " · free admission" : "") +
                                       (row.mentionsFreeFood ? " · says food provided" : "") +
                                       (row.onCampus === false ? " · NOT on campus" : ""),
@@ -705,7 +774,7 @@ export function registerCampusTools(server: McpServer) {
                     shown: shown.length,
                     coverage,
                     notes,
-                    events: rows,
+                    events: out,
                 });
             },
         ),

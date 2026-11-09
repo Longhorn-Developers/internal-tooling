@@ -1,0 +1,1452 @@
+{
+"events": [
+{
+"event": {
+"id": 54361007341488,
+"title": "Adraint Bereal: As It Appears",
+"description_text": "In 2019, while attending the University of Texas, artist Adraint Bereal began creating a visual and discursive archive of Black student life on campus. Seeking to counter the systemic invisibility of his peers, Bereal embedded himself within the campus community, documenting personal histories in photographs and interviews. He called this project The Black Yearbook. Adraint Bereal: As It Appears expands on The Black Yearbook, juxtaposing archival images, texts, and video from UT and Austin repositories with over thirty photographs, essays, and interviews with Black students attending American universities.",
+"event_instances": [
+{
+"event_instance": {
+"id": 54361007748038,
+"event_id": 54361007341488,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 1
+}
+}
+],
+"location_name": "Visual Arts Center, Art Building (ART)",
+"location": "Visual Arts Center, Art Building (ART)",
+"room_number": null,
+"address": "2301 San Jacinto Blvd, Austin TX 78712",
+"geo": {
+"latitude": "30.286256",
+"longitude": "-97.732996",
+"street": "2301 San Jacinto Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "adraint-bereal-as-it-appears-6538",
+"photo_url": "https://localist-images.azureedge.net/photos/53511611674391/huge/62fae2134b5d61669d97dd082b16367cdb1fc799.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748598588893,
+"name": "Visual Arts Center"
+},
+{
+"id": 47748619205969,
+"name": "Department of Art & Art History"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/Visual Arts Center",
+"id": 32750727075614
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54360999868069,
+"title": "Experimental Seeing: Russell Lee’s Pedagogical Legacy",
+"description_text": "Experimental Seeing reflects on Russell Lee&#039;s legacy in the Department of Art and Art History&#039;s photography program through a survey of works by 25 outstanding MFA graduates.",
+"event_instances": [
+{
+"event_instance": {
+"id": 54361000270523,
+"event_id": 54360999868069,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Visual Arts Center, Art Building (ART)",
+"location": "Visual Arts Center, Art Building (ART)",
+"room_number": null,
+"address": "2301 San Jacinto Blvd, Austin TX 78712",
+"geo": {
+"latitude": "30.286256",
+"longitude": "-97.732996",
+"street": "2301 San Jacinto Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "experimental-seeing-russell-lees-pedagogical-legacy-2240",
+"photo_url": "https://localist-images.azureedge.net/photos/53175403784193/huge/d7cfcb9ff1e11db04076ee65722ce67c19ff06ec.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748598588893,
+"name": "Visual Arts Center"
+},
+{
+"id": 47748619205969,
+"name": "Department of Art & Art History"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/Visual Arts Center",
+"id": 32750727075614
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54361005442928,
+"title": "Fieldwork Projects: Constructed Realities: A Slice of Time-Art Through Student Visions",
+"description_text": "Constructed Realities brings together a vast, non-linear archive from the Digital Time-Art (DTA) curriculum and the broader Transmedia field, representing a slice of more than three decades of Art Department history. The exhibition divides this moving-image work into two distinct spatial experiences",
+"event_instances": [
+{
+"event_instance": {
+"id": 54361005728646,
+"event_id": 54361005442928,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Visual Arts Center, Art Building (ART)",
+"location": "Visual Arts Center, Art Building (ART)",
+"room_number": null,
+"address": "2301 San Jacinto Blvd, Austin TX 78712",
+"geo": {
+"latitude": "30.286256",
+"longitude": "-97.732996",
+"street": "2301 San Jacinto Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "fieldwork-projects-constructed-realities-a-slice-of-time-art-through-student-visions-1654",
+"photo_url": "https://localist-images.azureedge.net/photos/54201740713885/huge/64bff7cb65982e52825030d5b061364805a6019f.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748598588893,
+"name": "Visual Arts Center"
+},
+{
+"id": 47748619205969,
+"name": "Department of Art & Art History"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/Visual Arts Center",
+"id": 32750727075614
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54361001575141,
+"title": "How to Grow the Cowpea: Survival Strategies from the U.S. South",
+"description_text": "How to Grow the Cowpea: Survival Strategies from the U.S. South is a group exhibition that considers environmental stewardship amid the climate crisis. The exhibition is a collaboration between the VAC and Planet Texas 2050 (PT2050), an initiative that supports interdisciplinary climate research at",
+"event_instances": [
+{
+"event_instance": {
+"id": 54361001855739,
+"event_id": 54361001575141,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Visual Arts Center, Art Building (ART)",
+"location": "Visual Arts Center, Art Building (ART)",
+"room_number": null,
+"address": "2301 San Jacinto Blvd, Austin TX 78712",
+"geo": {
+"latitude": "30.286256",
+"longitude": "-97.732996",
+"street": "2301 San Jacinto Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "how-to-grow-the-cowpea-survival-strategies-from-the-ussouth-4729",
+"photo_url": "https://localist-images.azureedge.net/photos/53856677152623/huge/cec6f97cdc2cc5af1b53c2ea0ae504f7dafb4fdd.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748598588893,
+"name": "Visual Arts Center"
+},
+{
+"id": 47748619205969,
+"name": "Department of Art & Art History"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/Visual Arts Center",
+"id": 32750727075614
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 52214368244435,
+"title": "Revolutions and Constitutions: Nation-Building in the Americas after 1776",
+"description_text": "Explore how the ideals of 1776 helped spark independence movements and new constitutions across Latin America, reshaping the political map of the Americas. Created in collaboration with UT Austin undergraduate history students and faculty, the exhibition combines rare documents and maps from the Ben",
+"event_instances": [
+{
+"event_instance": {
+"id": 52214368492499,
+"event_id": 52214368244435,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.23,
+"all_day": true,
+"num_attending": 2
+}
+}
+],
+"location_name": "Benson Latin American Collection",
+"location": "",
+"room_number": "Ann Hartness Reading Room (SRH 1.106)",
+"address": "2300 Red River Street, Austin, TX 78712-1469",
+"geo": {
+"latitude": "30.284239",
+"longitude": "-97.727669",
+"street": "2300 Red River Street",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "revolutions-and-constitutions-nation-building-in-the-americas-after-1776",
+"photo_url": "https://localist-images.azureedge.net/photos/52214368572416/huge/4332414a9e29bdc5bba579d4e24d69b5ced7bcae.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748479591650,
+"name": "University of Texas Libraries"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "Alumni",
+"id": 24851
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+},
+{
+"name": "World & Culture",
+"id": 24837
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53427603180845,
+"title": "Comics and Zines: Staff Picks from the Benson Collection",
+"description_text": "Comics & Zines: Staff Picks from the Benson Collection, on view from July 21, 2026 to March 12, 2027, explores Latin American and U.S. Latinx visual culture through the unique perspectives of the Benson staff who build, process, and care for these archives.\n\n \n\nThe display shows how creators combine",
+"event_instances": [
+{
+"event_instance": {
+"id": 53427603260829,
+"event_id": 53427603180845,
+"start": "2026-11-09T09:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Benson Latin American Collection",
+"location": "",
+"room_number": "Nettie Lee Benson Latin American Collection, Second Floor Gallery Space",
+"address": "2300 Red River Street, Austin, TX 78712-1469",
+"geo": {
+"latitude": "30.284239",
+"longitude": "-97.727669",
+"street": "2300 Red River Street",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "comics-and-zines-staff-picks-from-the-benson-collection",
+"photo_url": "https://localist-images.azureedge.net/photos/53427610999320/huge/5b62c95c8ca8c2ead615730dd53c3ff26a35ff88.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748479591650,
+"name": "University of Texas Libraries"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "Alumni",
+"id": 24851
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "World & Culture",
+"id": 24837
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54054287967611,
+"title": "Fortlandia",
+"description_text": "Climb upon, crawl through and explore a brand-new lineup of locally designed forts at the Lady Bird Johnson Wildflower Center this fall. From a giant cicada to a scalable armadillo, this year's secret hideouts are sure to inspire a childlike sense of wonder in visitors of all ages. Get out in nature",
+"event_instances": [
+{
+"event_instance": {
+"id": 54054288021922,
+"event_id": 54054287967611,
+"start": "2026-11-09T09:00:00-06:00",
+"end": "2026-11-09T16:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Lady Bird Johnson Wildflower Center",
+"location": "",
+"room_number": "",
+"address": "4801 La Crosse Avenue, Austin, TX 78739",
+"geo": {
+"latitude": "30.185383",
+"longitude": "-97.873199",
+"street": "4801 La Crosse Avenue",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78739"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "fortlandia-6277",
+"photo_url": "https://localist-images.azureedge.net/photos/54054288202229/huge/b4252f9b6dd33f128c9ac86e71cf91918d6c7a47.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_target_audience": [
+{
+"name": "Families",
+"id": 24852
+}
+],
+"event_types": [
+{
+"name": "Sports & Recreation",
+"id": 24836
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54364461953323,
+"title": "Hullabaloo Hooray: The History of Texas Spirit",
+"description_text": "Come see The H.J. Lutcher Stark Center's latest exhibit all about the history of UT Cheer, Pom, and Hook 'Em. Hullabaloo Hooray is a celebration of the Texas Spirit, that internalized pride carried in the hearts of those lucky enough to walk this campus. It settles inside us when we first arrive and",
+"event_instances": [
+{
+"event_instance": {
+"id": 54364461985083,
+"event_id": 54364461953323,
+"start": "2026-11-09T09:00:00-06:00",
+"end": "2026-11-09T17:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "H.J. Lutcher Stark Center for Physical Culture & Sports",
+"location": "H.J. Lutcher Stark Center for Physical Culture & Sports",
+"room_number": "NEZ 5.700",
+"address": "403 DeLoss Dodds Way, Austin, TX 78712",
+"geo": {
+"latitude": "30.284674",
+"longitude": "-97.732179",
+"street": "403 Deloss Dodds Way",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "hullabaloo-hooray-the-history-of-texas-spirit",
+"photo_url": "https://localist-images.azureedge.net/photos/54364462451266/huge/f0a0c76b94842e5724c7dd3055286d4d71b5fba1.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748708929393,
+"name": "College of Education"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "Alumni",
+"id": 24851
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+},
+{
+"name": "Arts & Humanities",
+"id": 24829
+},
+{
+"name": "Campus & Community",
+"id": 24831
+},
+{
+"name": "Health & Wellness",
+"id": 24832
+},
+{
+"name": "Research",
+"id": 24834
+},
+{
+"name": "Sports & Recreation",
+"id": 24836
+},
+{
+"name": "World & Culture",
+"id": 24837
+},
+{
+"name": "Athletics",
+"id": 51948772921376
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54372494011171,
+"title": "M.F.A. in Design Info Session",
+"description_text": "Are you considering pursuing an advanced degree in design? As a student in the M.F.A. in Design at The University of Texas at Austin, you’ll develop a design process to creatively solve complex 21st-century challenges from health and wellbeing to social justice, sustainability, education, and more.",
+"event_instances": [
+{
+"event_instance": {
+"id": 54372494012198,
+"event_id": 54372494011171,
+"start": "2026-11-09T12:00:00-06:00",
+"end": null,
+"ranking": 0.14,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "Online",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": true,
+"ticket_cost": "Free",
+"stream_url": null,
+"urlname": "mfa-in-design-info-session",
+"photo_url": "https://localist-images.azureedge.net/photos/54372493994786/huge/30716e4f7a535812322cbf64961c253786087144.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+},
+{
+"id": 53877425240724,
+"name": "Department of Design"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/Department of Design",
+"id": 53877442367595
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 51786429262019,
+"title": "Afternoon Yoga",
+"description_text": "N/A",
+"event_instances": [
+{
+"event_instance": {
+"id": 53697418927693,
+"event_id": 51786429262019,
+"start": "2026-11-09T15:00:00-06:00",
+"end": "2026-11-09T15:45:00-06:00",
+"ranking": 1.29,
+"all_day": false,
+"num_attending": 13
+}
+}
+],
+"location_name": "Center for Students in Recovery, WCP 2.112",
+"location": "Center for Students in Recovery, WCP 2.112",
+"room_number": "2.112",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "afternoon-yoga",
+"photo_url": "https://localist-images.azureedge.net/photos/53852046210746/huge/a082f6c41977b93b224465595f039b2dbf4aa4db.jpg",
+"tags": [
+"Meetings"
+],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Center for students in recovery",
+"id": 51126260183836
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Health & Wellness",
+"id": 24832
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54293747862802,
+"title": "UT Energy Symposium: Two Wrongs Can Sometimes Make a Right: The Environmental Benefits of Market Power in Oil",
+"description_text": "Charlotte De Cannière\n\nAssistant Professor at the Toulouse School of Economics\n\n \n\nSpeaker Biography:\n\nCharlotte De Cannière is an Assistant Professor of Economics at the Toulouse School of Economics. She obtained her PhD in Economics from KU Leuven in 2025 and was a visiting PhD researcher at the B",
+"event_instances": [
+{
+"event_instance": {
+"id": 54293747863827,
+"event_id": 54293747862802,
+"start": "2026-11-10T12:30:00-06:00",
+"end": "2026-11-10T13:30:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "EER 3.646",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "ut-energy-symposium-two-wrongs-can-sometimes-make-a-right-the-environmental-benefits-of-market-power-in-oil",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {}
+}
+},
+{
+"event": {
+"id": 54421200166418,
+"title": "Filming for RTF 366K Project",
+"description_text": "Day 2 of filming for RTF 366K project. 13 people max.",
+"event_instances": [
+{
+"event_instance": {
+"id": 54421200166419,
+"event_id": 54421200166418,
+"start": "2026-11-10T19:00:00-06:00",
+"end": "2026-11-11T12:00:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "CMA 2.306",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "filming-for-rtf-366k-project-6100",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {}
+}
+},
+{
+"event": {
+"id": 54139815231062,
+"title": "Longhorn Singers",
+"description_text": "Jenn Goodner, music director",
+"event_instances": [
+{
+"event_instance": {
+"id": 54139815235161,
+"event_id": 54139815231062,
+"start": "2026-11-13T00:00:00-06:00",
+"end": null,
+"ranking": 0.12,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "William C. Powers Student Activity Center Auditorium",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": "$5 – 15",
+"stream_url": null,
+"urlname": "longhorn-singers-9019",
+"photo_url": "https://localist-images.azureedge.net/photos/54290229553002/huge/59150340c5b53a176898ae4b128c9fc71519cdf0.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748626718784,
+"name": "Butler School of Music"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/School of Music",
+"id": 29757
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54414066598525,
+"title": "Carillon Concert",
+"description_text": "",
+"event_instances": [
+{
+"event_instance": {
+"id": 54414066599552,
+"event_id": 54414066598525,
+"start": "2026-11-15T17:00:00-06:00",
+"end": null,
+"ranking": 0.11,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "The University of Texas at Austin Tower",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": true,
+"ticket_cost": "Free admission",
+"stream_url": null,
+"urlname": "carillon-concert",
+"photo_url": "https://localist-images.azureedge.net/photos/54414066571900/huge/805011ec79aada7994a4a62f909f2f89952a9d17.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748626718784,
+"name": "Butler School of Music"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/School of Music",
+"id": 29757
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54316773454637,
+"title": "Pie-Luck",
+"description_text": "Come for the pie and stay for the community! \n\nJoin us for our annual Pie-Luck for an afternoon of food, connection and community. Bring your favorite pie to share, or simply come enjoy what we have and connect with fellow Longhorns! Everyone is welcome!",
+"event_instances": [
+{
+"event_instance": {
+"id": 54316773455662,
+"event_id": 54316773454637,
+"start": "2026-11-17T14:00:00-06:00",
+"end": "2026-11-17T16:00:00-06:00",
+"ranking": 0.2,
+"all_day": false,
+"num_attending": 1
+}
+}
+],
+"location_name": "Center for Students in Recovery, WCP 2.112",
+"location": "Center for Students in Recovery, WCP 2.112",
+"room_number": "WCP 2.112",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "pie-luck",
+"photo_url": "https://localist-images.azureedge.net/photos/54356156197425/huge/61d52c9e9f699d472a59ed5b83c6dc841ba8f4fe.jpg",
+"tags": [
+"events"
+],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Center for students in recovery",
+"id": 51126260183836
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Health & Wellness",
+"id": 24832
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54232195239761,
+"title": "AI for Faculty Workflows",
+"description_text": "Tuesday, Nov. 17 | 2:30 – 4:30 p.m. | Enterprise Technology’s AI Studio, PCL Learning Lab 1 | Register here \nLearn how AI can speed up the non-teaching side of faculty work, from recommendation letter requests to a daily calendar overview. Bring a laptop to this hands-on workshop.",
+"event_instances": [
+{
+"event_instance": {
+"id": 54232195240786,
+"event_id": 54232195239761,
+"start": "2026-11-17T14:30:00-06:00",
+"end": "2026-11-17T16:30:00-06:00",
+"ranking": 0.2,
+"all_day": false,
+"num_attending": 1
+}
+}
+],
+"location_name": "Enterprise Technology AI Studio",
+"location": "Enterprise Technology AI Studio",
+"room_number": "PCL Learning Lab 1",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": "",
+"stream_url": null,
+"urlname": "ai-for-faculty-workflows",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [
+"AIpedagogy"
+],
+"departments": [
+{
+"id": 47748507377165,
+"name": "Office of the Executive Vice President and Provost"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Faculty",
+"id": 24850
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54024790495775,
+"title": "University of Texas Women's Tennis vs ITF Lincoln W15",
+"description_text": "University of Texas Women's Tennis vs ITF Lincoln W15",
+"event_instances": [
+{
+"event_instance": {
+"id": 54024790496800,
+"event_id": 54024790495775,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Lincoln, Neb., Sid and Hazel Dillon Tennis Center",
+"location": "Lincoln, Neb., Sid and Hazel Dillon Tennis Center",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "university-of-texas-womens-tennis-vs-itf-lincoln-w15",
+"photo_url": "https://localist-images.azureedge.net/photos/49712861777939/huge/50fb9b37d4ae997c39696ad801bb5bd31a16fb02.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Texas Sports",
+"id": 26808
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Sports & Recreation",
+"id": 24836
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54024790593067,
+"title": "University of Texas Women's Tennis vs ITF Weston W35",
+"description_text": "University of Texas Women's Tennis vs ITF Weston W35",
+"event_instances": [
+{
+"event_instance": {
+"id": 54024790593068,
+"event_id": 54024790593067,
+"start": "2026-11-09T00:00:00-06:00",
+"end": null,
+"ranking": 0.04,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Weston, Fla., Weston Raquet Club",
+"location": "Weston, Fla., Weston Raquet Club",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "university-of-texas-womens-tennis-vs-itf-weston-w35",
+"photo_url": "https://localist-images.azureedge.net/photos/49712861777939/huge/50fb9b37d4ae997c39696ad801bb5bd31a16fb02.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Texas Sports",
+"id": 26808
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Sports & Recreation",
+"id": 24836
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54037552346976,
+"title": " Division of Health Social Work Grand Rounds",
+"description_text": "Please join us for our upcoming Grand Rounds event!\n\n \n\n📢 Featured Presentation: \"Advancing Culturally and Linguistically Congruent Health Equity\"\n🔹 Speaker: Rocío Calvo, PhD\n\n\n📅 Date: Monday, November 9, 2026\n⏰ Time: 12:00 PM – 1:00 PM CT\n📍 Location: Hybrid Event\n\nIn-Person: HDB 1.208 (Lunch Provid",
+"event_instances": [
+{
+"event_instance": {
+"id": 54037552348001,
+"event_id": 54037552346976,
+"start": "2026-11-09T12:00:00-06:00",
+"end": "2026-11-09T13:00:00-06:00",
+"ranking": 0.14,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "HDB 1.208 Auditorium and Zoom",
+"location": "HDB 1.208 Auditorium and Zoom",
+"room_number": "",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "hybrid",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "division-of-health-social-work-grand-rounds-674",
+"photo_url": "https://localist-images.azureedge.net/photos/49711241100541/huge/bcfd6db4ac6d6b3bfb81224ecbd19c43546c263f.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748550640299,
+"name": "Dell Medical School"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Health & Wellness",
+"id": 24832
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 51821814539944,
+"title": "Career Storytelling Workshop",
+"description_text": "This interactive workshop helps graduate students and postdocs transform experiences into compelling narratives for job applications. Discover how to identify meaningful stories, highlight your skills and values through storytelling techniques, and apply these strategies to resumes, CVs, and cover l",
+"event_instances": [
+{
+"event_instance": {
+"id": 51821818523560,
+"event_id": 51821814539944,
+"start": "2026-11-09T13:00:00-06:00",
+"end": "2026-11-09T14:30:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Peter T. Flawn Academic Center (FAC) 2.134 Conference Room",
+"location": "Peter T. Flawn Academic Center (FAC) 2.134 Conference Room",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "career-storytelling-workshop",
+"photo_url": "https://localist-images.azureedge.net/photos/48730284064278/huge/5ed1a21e580affc2d71247a7fa61ddeccd8af141.jpg",
+"tags": [
+"workshop",
+"storytelling",
+"resume",
+"cv",
+"resumé",
+"Career Design Series"
+],
+"departments": null,
+"filters": {}
+}
+},
+{
+"event": {
+"id": 54449456296560,
+"title": "NIH Postdoc Program Information Session",
+"description_text": "NIH Postdoc Program Information Session\n\nMonday, November 9, 2026, 3 - 4 pm ET\n\nJoin here: https://events.gcc.teams.microsoft.com/event/6da989c8-db93-492f-bb6f-e0f7f54f75e9@14b77578-9773-42d5-8507-251ca2dc2b06?source=copyLinkLegacyShareEventDialog\n\n \n\nCome learn about the NIH Postdoc Program! If you",
+"event_instances": [
+{
+"event_instance": {
+"id": 54449456297585,
+"event_id": 54449456296560,
+"start": "2026-11-09T14:00:00-06:00",
+"end": "2026-11-09T15:00:00-06:00",
+"ranking": 0.14,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Virtual",
+"location": "Virtual",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "nih-postdoc-program-information-session",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {}
+}
+}
+],
+"page": {
+"current": 1,
+"size": 21,
+"total": 2,
+"total_items": 42
+}
+}

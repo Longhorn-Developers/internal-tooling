@@ -25,6 +25,12 @@ const ROUTES: [string, string][] = [
     ["VGVhY2hlci0yOTk3MzQx", "rmp-reviews-elnozahy.json"],
     ["data_all_endpoint.php?menu=1", "foodpro-menu.json"],
     ["data_all_endpoint.php?hours=1", "foodpro-hours.txt"],
+    // UT's Localist calendar, captured 2026-11-09. Two pages so pagination is
+    // exercised: `page.total` there is a count of PAGES, not of events, and
+    // reading it as events stops the loop after one page. Matched on `pp`
+    // because the number of days requested varies with the window asked for.
+    ["pp=100&page=1", "localist-page1.json"],
+    ["pp=100&page=2", "localist-page2.json"],
     // Labels are per item, so route by recipe reference. Without this every
     // item would come back with the same nutrition and the label path would
     // look correct while being untested.
@@ -68,6 +74,13 @@ export function stubFetch(overrides: Record<string, string | number> = {}): Fetc
 
 /** 2026-10-15 15:44 America/Chicago (CDT, UTC-5), a Thursday. */
 export const FIXED_NOW = new Date("2026-10-15T20:44:00Z");
+
+/**
+ * 2026-11-09 09:00 America/Chicago, a Monday, and CST (UTC-6) because DST ended
+ * on 1 November. The campus-calendar fixture runs 9 to 17 November, so the
+ * dining fixture's October clock would put every event in the past.
+ */
+export const CAMPUS_NOW = new Date("2026-11-09T15:00:00Z");
 
 type Tool = {
     config: { inputSchema: { parse: (value: unknown) => unknown } };

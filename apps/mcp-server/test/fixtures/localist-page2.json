@@ -1,0 +1,1315 @@
+{
+"events": [
+{
+"event": {
+"id": 53626631113793,
+"title": "E+E Film &amp; Media Committee Meeting",
+"description_text": "Campus Events + Entertainment (E+E) is the premier student programming organization on campus. With over 120 events annually, there is something for everyone within E+E. Check out each of our unique committees to find out how you can get involved in planning a wide array of concerts, movies, lecture",
+"event_instances": [
+{
+"event_instance": {
+"id": 53626631211086,
+"event_id": 53626631113793,
+"start": "2026-11-09T17:00:00-06:00",
+"end": "2026-11-09T18:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Texas Union Asian Culture Room (4.224)",
+"location": "Texas Union Asian Culture Room (4.224)",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "ee-film-amp-media-committee-meeting",
+"photo_url": "https://localist-images.azureedge.net/photos/53626630537266/huge/13c10c67e81e8ff4b4cf570d771f553750e415ed.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748534813839,
+"name": "Division of Student Affairs"
+}
+],
+"filters": {}
+}
+},
+{
+"event": {
+"id": 53511621845053,
+"title": "PowerHouse Texas 2027 Energy Policy Fellowship — Applications Open",
+"description_text": "This paid, full-time, five-month fellowship from January 11, 2027 to June 1, 2027 places STEM students at the Texas Capitol in Austin. Fellows will research and analyze energy legislation alongside weekly seminars with scientists, industry leaders, and agency staff.\n\nThe program is open to undergrad",
+"event_instances": [
+{
+"event_instance": {
+"id": 53511622709386,
+"event_id": 53511621845053,
+"start": "2026-11-09T00:00:00-06:00",
+"end": "2026-11-09T23:59:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "powerhouse-texas-2027-energy-policy-fellowship-applications-open",
+"photo_url": "https://localist-images.azureedge.net/photos/49022288179999/huge/f11e99f4d662dbfe45fa51de9ec5f429c6a1095e.jpg",
+"tags": [
+"Energy-Students",
+"student-hub-featured"
+],
+"departments": [
+{
+"id": 49022280463879,
+"name": "Energy Institute"
+}
+],
+"filters": {}
+}
+},
+{
+"event": {
+"id": 53950589155450,
+"title": "ChatGPT Codex with AI Studio and OpenAI",
+"description_text": "The Education Team from OpenAI joins the AI Studio to introduce Codex to UT faculty and staff, covering what it does, how to prompt it for quality output, a live walkthrough of the product, and real-world case studies from UT Austin. No development background needed — Codex is for anyone who wants t",
+"event_instances": [
+{
+"event_instance": {
+"id": 53950589156475,
+"event_id": 53950589155450,
+"start": "2026-11-09T10:00:00-06:00",
+"end": "2026-11-09T11:30:00-06:00",
+"ranking": 0.33,
+"all_day": false,
+"num_attending": 3
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "chatgpt-codex-with-ai-studio-and-openai",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748507377165,
+"name": "Office of the Executive Vice President and Provost"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53986416113531,
+"title": "Christian Faculty and Staff Network hosts UT Women's Prayer Group",
+"description_text": "All are welcome to join.",
+"event_instances": [
+{
+"event_instance": {
+"id": 53986416124803,
+"event_id": 53986416113531,
+"start": "2026-11-09T12:00:00-06:00",
+"end": "2026-11-09T13:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "christian-faculty-and-staff-network-hosts-ut-womens-prayer-group-5134",
+"photo_url": "https://localist-images.azureedge.net/photos/49728527286832/huge/86a07ea75a17cb8e9b9f5f851366f19ec726cb93.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_types": [
+{
+"name": "Campus & Community",
+"id": 24831
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54293766195696,
+"title": "UT Energy Symposium: Two Wrongs Can Sometimes Make a Right: The Environmental Benefits of Market Power in Oil",
+"description_text": "Charlotte De Cannière\n\nAssistant Professor at the Toulouse School of Economics\n\n \n\nSpeaker Biography:\n\nCharlotte De Cannière is an Assistant Professor of Economics at the Toulouse School of Economics. She obtained her PhD in Economics from KU Leuven in 2025 and was a visiting PhD researcher at the B",
+"event_instances": [
+{
+"event_instance": {
+"id": 54293766196721,
+"event_id": 54293766195696,
+"start": "2026-11-10T12:30:00-06:00",
+"end": "2026-11-10T13:30:00-06:00",
+"ranking": 0.23,
+"all_day": false,
+"num_attending": 1
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "https://utexas.zoom.us/j/88381645899",
+"urlname": "ut-energy-symposium-two-wrongs-can-sometimes-make-a-right-the-environmental-benefits-of-market-power-in-oil-5129",
+"photo_url": "https://localist-images.azureedge.net/photos/53826099106567/huge/16d7e7a3c7d6c567e08b046b6c19cd3ae4f45f7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+},
+{
+"name": "Business & Economy",
+"id": 24830
+},
+{
+"name": "Policy & Law",
+"id": 24833
+},
+{
+"name": "Research",
+"id": 24834
+},
+{
+"name": "Science & Technology",
+"id": 24835
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54136977459390,
+"title": "Christian Faculty and Staff Network",
+"description_text": "Christian Faculty and Staff Network meets on Zoom each Tuesday from 4-5p.  For the fall 2026 semester, we are discussing chapters from A Grander Story: An Invitation to Christian Professors.  Our conversations address topics that are pertinent to all Christians who work on UT campus.  Please email j",
+"event_instances": [
+{
+"event_instance": {
+"id": 54136977467588,
+"event_id": 54136977459390,
+"start": "2026-11-10T16:00:00-06:00",
+"end": "2026-11-10T17:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "christian-faculty-and-staff-network-4823",
+"photo_url": "https://localist-images.azureedge.net/photos/49728527286832/huge/86a07ea75a17cb8e9b9f5f851366f19ec726cb93.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_types": [
+{
+"name": "Campus & Community",
+"id": 24831
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54346133888941,
+"title": "Project Management for Construction Professionals Certificate Program",
+"description_text": "Attend our free online information session to learn more about our new Project Management for Construction Professionals Certificate Program, presented by instructor Adnan Raja.\n\nThis new program will be self-paced so you can complete it at your own pace, allowing you the flexibility to continue to",
+"event_instances": [
+{
+"event_instance": {
+"id": 54346133889966,
+"event_id": 54346133888941,
+"start": "2026-11-10T18:00:00-06:00",
+"end": "2026-11-10T19:00:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "project-management-for-construction-professionals-certificate-program-5760",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {}
+}
+},
+{
+"event": {
+"id": 53694192599951,
+"title": "UTNY Information Session",
+"description_text": "Want to know more about the UTNY Program?  Start here.  This is everything you need to start exploring for a career-boosting semester or summer in New York!\n\n \n\nThis session will cover:\n\nUTNY Program overview + eligibilityWhen to apply + application processThe UTNY team + the UTNY Center in Manhatta",
+"event_instances": [
+{
+"event_instance": {
+"id": 53694192614301,
+"event_id": 53694192599951,
+"start": "2026-11-09T17:00:00-06:00",
+"end": "2026-11-09T18:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": "",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "hybrid",
+"free": false,
+"ticket_cost": null,
+"stream_url": "",
+"urlname": "utny-information-session-993",
+"photo_url": "https://localist-images.azureedge.net/photos/53694192669608/huge/f40eeabd68344bd8cd75e97dbd7427ce64ee5015.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748508087884,
+"name": "UT in New York Program (UTNY)"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+},
+{
+"name": "Business & Economy",
+"id": 24830
+},
+{
+"name": "World & Culture",
+"id": 24837
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54422912029496,
+"title": "Sunset Reset",
+"description_text": "In partnership with Humanitas and the College of Liberal Arts, Landmarks launched Sunset Reset, a new monthly wellness program designed specifically for UT Austin students. Hosted inside Landmarks’ Skyspace, The Color Inside, Sunset Reset provides free mental health breaks for graduate and undergrad",
+"event_instances": [
+{
+"event_instance": {
+"id": 54422912030522,
+"event_id": 54422912029496,
+"start": "2026-11-10T17:09:00-06:00",
+"end": null,
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Skyspace, Student Activity Center (SAC)",
+"location": "Skyspace, Student Activity Center (SAC)",
+"room_number": "William C. Powers, Jr. Student Activity Center, Third floor, Rooftop Garden",
+"address": "2201 Speedway, Austin, Texas 78712",
+"geo": {
+"latitude": "30.284765",
+"longitude": "-97.737297",
+"street": "2201 Speedway",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": true,
+"ticket_cost": "Free",
+"stream_url": null,
+"urlname": "sunset-reset-4218",
+"photo_url": "https://localist-images.azureedge.net/photos/53892070003575/huge/198ff284fb460d05555ea8c1a79fb986a08fc885.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54422912119616,
+"title": "Wellness Wednesdays",
+"description_text": "Sound healer Sonic Starchild (Jen Vu) returns to the Skyspace this fall for Wellness Wednesdays, a sound bath series hosted inside James Turrell's The Color Inside. On select Wednesday nights, Starchild will conduct sound bath mediations inside the Skyspace, with singing bowls, gongs and more. \n\nFre",
+"event_instances": [
+{
+"event_instance": {
+"id": 54422912120642,
+"event_id": 54422912119616,
+"start": "2026-11-11T17:10:00-06:00",
+"end": null,
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Skyspace, Student Activity Center (SAC)",
+"location": "Skyspace, Student Activity Center (SAC)",
+"room_number": "William C. Powers, Jr. Student Activity Center, Third floor, Rooftop Garden",
+"address": "2201 Speedway, Austin, Texas 78712",
+"geo": {
+"latitude": "30.284765",
+"longitude": "-97.737297",
+"street": "2201 Speedway",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": true,
+"ticket_cost": "Free with reservation",
+"stream_url": null,
+"urlname": "wellness-wednesdays-5520",
+"photo_url": "https://localist-images.azureedge.net/photos/53892070241154/huge/c3245979a3459204d48afd5b6ff130cf1982e504.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53750501996720,
+"title": "Hispanic Caribbean Ensemble",
+"description_text": "Robin Moore & Richard Huntley, directors",
+"event_instances": [
+{
+"event_instance": {
+"id": 53750501997747,
+"event_id": 53750501996720,
+"start": "2026-11-11T19:30:00-06:00",
+"end": null,
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Bates Recital Hall, Music Building (MRH)",
+"location": "Bates Recital Hall, Music Building (MRH)",
+"room_number": "Bates Recital Hall",
+"address": "2406 Robert Dedman Drive, Austin TX 78712",
+"geo": {
+"latitude": "30.287403",
+"longitude": "-97.730637",
+"street": "2406 Robert Dedman Drive",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": true,
+"ticket_cost": "Free admission",
+"stream_url": null,
+"urlname": "hispanic-caribbean-ensemble-691",
+"photo_url": "https://localist-images.azureedge.net/photos/53750501948591/huge/79bc960a7e7571c1cabc8435637d3da712f97326.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748626718784,
+"name": "Butler School of Music"
+},
+{
+"id": 47748653246172,
+"name": "College of Fine Arts"
+}
+],
+"filters": {
+"event_import_type": [
+{
+"name": "COFA",
+"id": 32750722016348
+},
+{
+"name": "COFA/School of Music",
+"id": 29757
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54188863879153,
+"title": "Digital Scholars in Practice: Musics of Latin America OER Textbook Initiative",
+"description_text": "Join us and Dr. Robin Moore from the Butler School of Music to learn about the creation of Musics of Latin America, the first-ever OER online textbook devoted to the music of Latin America and Latinos in the United States.\n\n \n\nThis presentation will discuss the motivations behind the project, the li",
+"event_instances": [
+{
+"event_instance": {
+"id": 54188863879154,
+"event_id": 54188863879153,
+"start": "2026-11-10T14:00:00-06:00",
+"end": "2026-11-10T15:00:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Perry-Castañeda Library (PCL)",
+"location": "",
+"room_number": "Scholars Lab, Data Lab (PCL 2.202)",
+"address": "101 21ST ST E, Austin, Texas 78705",
+"geo": {
+"latitude": "30.283442",
+"longitude": "-97.737274",
+"street": "101 East 21st Street",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "digital-scholars-in-practice-musics-of-latin-america-oer-textbook-initiative",
+"photo_url": "https://localist-images.azureedge.net/photos/54188863936506/huge/e9bbb5ff387241607c02d4c35c26c79e9cbec947.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748479591650,
+"name": "University of Texas Libraries"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Arts & Humanities",
+"id": 24829
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53887737638089,
+"title": "Longhorns in Sustainability: A Career Panel",
+"description_text": "Please join us for our Longhorns in Sustainability: A Career Panel event on 11/5/2026 at 5:30 PM in Crum Auditorium (RRH 1.400)! The discussion will run 5:30 - 6:45 PM, with a networking event focused on careers in Sustainability to follow until 7:30. Free pizza! RSVP at https://bit.ly/Sustainabilit",
+"event_instances": [
+{
+"event_instance": {
+"id": 53887737640138,
+"event_id": 53887737638089,
+"start": "2026-11-10T17:30:00-06:00",
+"end": "2026-11-10T19:30:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Robert B. Rowling Hall (RRH)",
+"location": "",
+"room_number": "Crum Auditorium (RRH 1.200)",
+"address": "300 W Martin Luther King Blvd, Austin TX, 78712",
+"geo": {
+"latitude": "30.281863",
+"longitude": "-97.741225",
+"street": "300 West Martin Luther King Junior Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78701"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "longhorns-in-sustainability-a-career-panel-5580",
+"photo_url": "https://localist-images.azureedge.net/photos/54302691533477/huge/6ae12139cdce3d9157e401ec3200140136f5f8d4.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Alumni",
+"id": 24851
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Business & Economy",
+"id": 24830
+},
+{
+"name": "Campus & Community",
+"id": 24831
+},
+{
+"name": "Sustainability",
+"id": 111259
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54257954600020,
+"title": "Faith and the Party: Freedom and State Power in China Today",
+"description_text": "On Wednesday, November 11th, the Asia Policy Program, the Clements Center for National Security, the Strauss Center for International Security and Law, and the Bech-Loughlin First Amendment Center will host Pastor Ezra Jin, founder and senior pastor of China’s Zion Church, for a discussion on how re",
+"event_instances": [
+{
+"event_instance": {
+"id": 54257954601045,
+"event_id": 54257954600020,
+"start": "2026-11-11T12:00:00-06:00",
+"end": "2026-11-11T13:00:00-06:00",
+"ranking": 0.13,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Bass Lecture Hall, LBJ School",
+"location": "Bass Lecture Hall, LBJ School",
+"room_number": "",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "faith-and-the-party-freedom-and-state-power-in-china-today",
+"photo_url": "https://localist-images.azureedge.net/photos/54257954986077/huge/3c31f441397191f3c725de594055b7d25792831e.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748506404264,
+"name": "Clements Center for National Security"
+},
+{
+"id": 47748528721488,
+"name": "LBJ School of Public Affairs"
+},
+{
+"id": 47748496948772,
+"name": "School of Law"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Staff",
+"id": 24849
+},
+{
+"name": "Faculty",
+"id": 24850
+},
+{
+"name": "Alumni",
+"id": 24851
+},
+{
+"name": "General Public",
+"id": 24853
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53927474212368,
+"title": "Voices of Recovery: Speaker Series",
+"description_text": "Join us for an inspiring conversation with Jermaine Hurling, a University of Texas at Austin graduate and dedicated member of the recovery community.\n\nJermaine earned a B.S. in Biochemistry from UT Austin in 2010 and an M.D. in 2020. Since 2021, they have worked at The University of Texas in quality",
+"event_instances": [
+{
+"event_instance": {
+"id": 53927474237974,
+"event_id": 53927474212368,
+"start": "2026-11-12T17:30:00-06:00",
+"end": "2026-11-12T18:30:00-06:00",
+"ranking": 0.22,
+"all_day": false,
+"num_attending": 1
+}
+}
+],
+"location_name": "Center for Students in Recovery, WCP 2.112",
+"location": "Center for Students in Recovery, WCP 2.112",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "voices-of-recovery-speaker-series-3465",
+"photo_url": "https://localist-images.azureedge.net/photos/53936313464348/huge/5b25b6aca8162d6a750453094d527b7f67a8ea59.jpg",
+"tags": [
+"VOR"
+],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Center for students in recovery",
+"id": 51126260183836
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Health & Wellness",
+"id": 24832
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54434003884268,
+"title": "2026 GLOBAL ANALYTICS SUMMIT",
+"description_text": "026 Global Analytics Conference\nOrganizing AI Agents: Behavior, Incentives, and Design in Human-AI Teams\n\nHosted by The University of Texas at Austin | November 12–13, 2026\n\nJoin us for keynotes, panels, and talks from leading academics and industry practitioners at the 2026 Global Analytics Confere",
+"event_instances": [
+{
+"event_instance": {
+"id": 54434003886317,
+"event_id": 54434003884268,
+"start": "2026-11-12T00:00:00-06:00",
+"end": "2026-11-12T00:00:00-06:00",
+"ranking": 0.12,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "",
+"location": "",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "virtual",
+"free": false,
+"ticket_cost": null,
+"stream_url": "https://get.mccombs.utexas.edu/catt2026/",
+"urlname": "2026-global-analytics-summit",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_types": [
+{
+"name": "Research",
+"id": 24834
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53635473534304,
+"title": "University of Texas Men's Swimming and Diving vs Texas Diving Invitational",
+"description_text": "University of Texas Men's Swimming and Diving vs Texas Diving Invitational",
+"event_instances": [
+{
+"event_instance": {
+"id": 53635473535329,
+"event_id": 53635473534304,
+"start": "2026-11-12T00:00:00-06:00",
+"end": null,
+"ranking": 0.12,
+"all_day": true,
+"num_attending": 0
+}
+}
+],
+"location_name": "Austin, Texas, Lee and Joe Jamail Texas Swimming Center",
+"location": "Austin, Texas, Lee and Joe Jamail Texas Swimming Center",
+"room_number": null,
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "university-of-texas-mens-swimming-and-diving-vs-texas-diving-invitational-7898",
+"photo_url": "https://localist-images.azureedge.net/photos/49712861777939/huge/50fb9b37d4ae997c39696ad801bb5bd31a16fb02.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_import_type": [
+{
+"name": "Texas Sports",
+"id": 26808
+}
+],
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "General Public",
+"id": 24853
+}
+],
+"event_types": [
+{
+"name": "Sports & Recreation",
+"id": 24836
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53578328409927,
+"title": "Zotero Office Hours",
+"description_text": "New to Zotero, the citation management system? Or have you been dabbling and want to improve your Zotero experience?\n\n \n\nCome by the PCL Lobby to get tailored assistance for your Zotero needs. Two Zotero-expert librarians will be on hand to assist on a first-come, first-served basis.\n\n \n\nGet started",
+"event_instances": [
+{
+"event_instance": {
+"id": 53578349411752,
+"event_id": 53578328409927,
+"start": "2026-11-09T12:00:00-06:00",
+"end": "2026-11-09T14:00:00-06:00",
+"ranking": 0.14,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Perry-Castañeda Library (PCL)",
+"location": "",
+"room_number": "PCL Lobby",
+"address": "101 21ST ST E, Austin, Texas 78705",
+"geo": {
+"latitude": "30.283442",
+"longitude": "-97.737274",
+"street": "101 East 21st Street",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78705"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "zotero-office-hours-6847",
+"photo_url": "https://localist-images.azureedge.net/photos/53578328485710/huge/0fddd72af1f02e5b3c6363dfb75f1b2062b5e942.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748479591650,
+"name": "University of Texas Libraries"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+},
+{
+"name": "Faculty",
+"id": 24850
+}
+],
+"event_types": [
+{
+"name": "Science & Technology",
+"id": 24835
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53869063873640,
+"title": "Study Sessions",
+"description_text": "Drop by the DCC anytime to study, work, read or recharge in a calm space with snacks, drinks and soft music. Come and go as your schedule allows.\n\n \n\nCo-hosted by Longhorn TIES Neurodivergence Support and the Disability Cultural Center.",
+"event_instances": [
+{
+"event_instance": {
+"id": 53869063892089,
+"event_id": 53869063873640,
+"start": "2026-11-10T14:00:00-06:00",
+"end": "2026-11-10T16:00:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "Student Services Building (SSB)",
+"location": "",
+"room_number": "2.106",
+"address": "100 DEAN KEETON ST W, Austin, Texas 78712",
+"geo": {
+"latitude": "30.289639",
+"longitude": "-97.738953",
+"street": "100 West Dean Keeton Street",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78712"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "study-sessions-1758",
+"photo_url": "https://localist-images.azureedge.net/photos/97780/huge/d4e9a7316cd952b2d879538ec8995adbfba69458.jpg",
+"tags": [],
+"departments": null,
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 54072145775140,
+"title": "McCombs Summer Institute (MSI)",
+"description_text": "Explore how the McCombs Summer Institute (MSI) can help you complete 15 credit\nhours toward the Business Foundations Minor or Elements of Business Certificate\nin just eight weeks. Learn about the courses, professional development\nopportunities, program costs, and application process, and bring your",
+"event_instances": [
+{
+"event_instance": {
+"id": 54072145779241,
+"event_id": 54072145775140,
+"start": "2026-11-10T15:00:00-06:00",
+"end": "2026-11-10T15:45:00-06:00",
+"ranking": 0.04,
+"all_day": false,
+"num_attending": 0
+}
+}
+],
+"location_name": "CBA 2.564 Big Bend",
+"location": "CBA 2.564 Big Bend",
+"room_number": "",
+"address": "",
+"geo": {
+"latitude": null,
+"longitude": null,
+"street": null,
+"city": null,
+"state": null,
+"country": null,
+"zip": null
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "mccombs-summer-institute-msi",
+"photo_url": "https://localist-images.azureedge.net/photos/50959692926893/huge/2ba6bbeec68c8aa8c5b620c33edf7d958a5b1d7c.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748522081237,
+"name": "McCombs School of Business"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Academics",
+"id": 24828
+}
+]
+}
+}
+},
+{
+"event": {
+"id": 53614053773709,
+"title": "SEED: What Comes Next - Entrepreneurship Ecoystem Panel",
+"description_text": "Please join us for our SEED: What Comes Next - Entrepreneurship Ecoystem Panel on 11/10/2026 at 5:30 PM in RRH 4.402! Dinner and networking will be followed by a panel discussion on continuing your entrepreneurship journey. RSVP at https://bit.ly/SEEDPanelFall2026",
+"event_instances": [
+{
+"event_instance": {
+"id": 53614053773710,
+"event_id": 53614053773709,
+"start": "2026-11-10T17:30:00-06:00",
+"end": "2026-11-10T19:00:00-06:00",
+"ranking": 0.23,
+"all_day": false,
+"num_attending": 1
+}
+}
+],
+"location_name": "Robert B. Rowling Hall (RRH)",
+"location": "",
+"room_number": "RRH 4.402",
+"address": "300 W Martin Luther King Blvd, Austin TX, 78712",
+"geo": {
+"latitude": "30.281863",
+"longitude": "-97.741225",
+"street": "300 West Martin Luther King Junior Boulevard",
+"city": "Austin",
+"state": "TX",
+"country": "US",
+"zip": "78701"
+},
+"experience": "inperson",
+"free": false,
+"ticket_cost": null,
+"stream_url": null,
+"urlname": "seed-what-comes-next-entrepreneurship-ecoystem-panel",
+"photo_url": "https://localist-images.azureedge.net/photos/49728527286832/huge/86a07ea75a17cb8e9b9f5f851366f19ec726cb93.jpg",
+"tags": [],
+"departments": [
+{
+"id": 47748522081237,
+"name": "McCombs School of Business"
+}
+],
+"filters": {
+"event_target_audience": [
+{
+"name": "Students",
+"id": 24848
+}
+],
+"event_types": [
+{
+"name": "Science & Technology",
+"id": 24835
+},
+{
+"name": "Entrepreneurship & Innovation",
+"id": 103583
+},
+{
+"name": "Campus & Community",
+"id": 24831
+},
+{
+"name": "Sustainability",
+"id": 111259
+}
+]
+}
+}
+}
+],
+"page": {
+"current": 2,
+"size": 21,
+"total": 2,
+"total_items": 42
+}
+}

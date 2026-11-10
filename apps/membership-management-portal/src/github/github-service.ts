@@ -385,17 +385,11 @@ export class GitHubService extends Service {
             const members = (await this.gh.team(this.reservedTeams[key].slug))?.members
             if ([...logins].some((login) => members?.has(login))) groups.add(key)
         }
-        const extra = new Set<string>()
-        for (const slug of await this.gh.teams()) {
-            const members = (await this.gh.team(slug))!.members
-            if ([...logins].some((login) => members.has(login))) extra.add(slug)
-        }
         return changes.filter((c) => {
             if (c.userId && userIds.has(c.userId)) return true
             if (['demote_owner', 'remove_org_member', 'remove_exec_member', 'remove_leads_member'].includes(c.kind) && logins.has(c.target)) return true
             if (c.kind === 'remove_repo_collaborator' && logins.has(c.target.split('/')[1])) return true
             if (c.teamId && teamIds.has(c.teamId) && !c.userId) return true
-            if (c.kind === 'delete_extra_team' && extra.has(c.target)) return true
             if (repos.size && /^create_(exec|leads)_team$/.test(c.kind)) return true
             if (/^set_(exec|leads)_repo_role$/.test(c.kind) && repos.has(lc(c.target))) return true
             return [...groups].some((key) => c.kind === `create_${key}_team` || c.kind === `set_${key}_repo_role`)
@@ -722,7 +716,7 @@ export class GitHubService extends Service {
         }
         const grants = (await this.gh.repos()).map((repo) => ({ slug, repo: repo.name, permission }))
         const errors = await this.gh.setTeamRepos(grants)
-        const failure = errors.find((error) => error instanceof GitHubBudgetExceeded) ?? errors.find((error) => error)
+        const failure = errors.find((error) => error && !(error instanceof GitHubBudgetExceeded)) ?? errors.find((error) => error)
         if (failure) throw failure
     }
 

@@ -1,4 +1,4 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import {drizzle, DrizzleD1Database} from 'drizzle-orm/d1'
 import { teams, teamUsers, users } from './schema'
 import type { Vertical } from './schema'
@@ -104,6 +104,18 @@ export class MembershipDatabase {
         if (!user) throw new UpdateRecordError({ userId }, data)
 
         return user;
+    }
+
+    async deactivateUser(userId: string): Promise<User> {
+        const activeUser = and(eq(users.id, userId), eq(users.status, 'active'))
+        const data = { status: 'inactive' as const, dateLeft: today() }
+        const [, updated] = await this.db.batch([
+            this.db.delete(teamUsers).where(inArray(teamUsers.userId,
+                this.db.select({ id: users.id }).from(users).where(activeUser))),
+            this.db.update(users).set(data).where(activeUser).returning(),
+        ])
+        if (!updated[0]) throw new UpdateRecordError({ userId }, data)
+        return updated[0]
     }
 
     async getTeamMembers(teamId: string): Promise<TeamMember[]> {

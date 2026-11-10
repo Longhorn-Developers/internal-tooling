@@ -89,7 +89,7 @@ The Worker
 | `onboardUser(name, email, github, discord)` | creates an active user; also returns `userId` |
 | `addUserToTeam(userId, teamId, vertical, isLead)` | assigns the vertical, then sets up access |
 | `removeUserFromTeam(userId, teamId)` | removes every vertical on the team and its access |
-| `deactivateUser(userId)` | marks the user inactive and removes their access |
+| `deactivateUser(userId)` | atomically marks the user inactive and removes D1 assignments, then removes external access |
 | `updateUser(userId, { name?, email?, githubId?, discordId? })` | edits the user; a changed or removed `githubId` moves their GitHub access (the old account is removed from the org, the new one set up) |
 | `makeExec(userId, execRole)` / `removeExec(userId)` | sets the exec role and exec access |
 | `createTeam(name)` / `deleteTeam(teamId)` | creates or deletes the team everywhere |
@@ -165,6 +165,10 @@ update only their own entries. Other writes use REST.
   next sync and `autoFix`) applies the rest. An invitation's role can't be changed through the API, so an exec
   invited as a member is made an owner after they accept; `removeExec` on a pending owner cancels
   and re-invites them as a member.
+- If a direct repo grant unexpectedly creates an invitation (e.g. membership changed after
+  the snapshot), it is immediately cancelled and the grant reports failure. Cancellation
+  errors propagate too. Pending repository invitations are not audited; if cancellation
+  fails, an org owner must remove the invitation manually.
 - A pending owner invitation for a non-exec is reported as the fixable, non-blocking
   `reinvite_as_member`. The fix checks their current role, cancels the invitation and sends a
   member invitation including their current teams. This is not atomic: if sending fails after
@@ -175,7 +179,8 @@ update only their own entries. Other writes use REST.
   periodically, and spread a large first import over days if the org is new.
 - Access beyond this is reported by the syncs. Changes for accounts not in D1 have no `userId`.
   Every GitHub team outside the stored D1 slugs and the two reserved groups produces a
-  selectable `delete_extra_team`; nothing is deleted just by syncing.
+  selectable `delete_extra_team` in service-wide sync only; user/team sync never offers
+  whole-team deletion. Nothing is deleted just by syncing.
 
 What actions require: `addUserToTeam` needs the team's GitHub team, the user's GitHub account and
 (for a lead) the leads team; `makeExec` needs the exec team and the account; `onboardUser` needs

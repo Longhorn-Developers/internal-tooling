@@ -3,7 +3,7 @@ import {Vertical} from './db/schema'
 import { GitHubService } from './github/github-service'
 import { handleGitHubWebhook } from './github/github-webhook'
 import type {ExecRole, FailedServices, FixResult, NeededChange, RPCResult, Service, ServiceResult} from './service'
-import {githubSlugOf, MembershipDatabase, today} from "./db/access";
+import {githubSlugOf, MembershipDatabase} from "./db/access";
 import Env = Cloudflare.Env;
 
 // TODO: eventually publish types in repo frontend can import
@@ -123,9 +123,7 @@ export class MembershipService extends WorkerEntrypoint<Env> {
 
     async deactivateUser(userId: string): Promise<RPCResult> {
         // validates the user
-        const user = await this.db.updateUser(userId,
-            { status: 'inactive', dateLeft: today() });
-        await this.db.removeUserFromAllTeams(userId);
+        const user = await this.db.deactivateUser(userId);
 
         return this.run((s) => s.deactivateUser(user))
     }

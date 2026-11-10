@@ -626,6 +626,9 @@ export class GitHubOrg {
         const res = await this.octokit.rest.repos.addCollaborator({
             owner: this.org, repo, username: login, permission: 'admin',
         })
+        if (res.status === 201) {
+            await this.octokit.rest.repos.deleteInvitation({ owner: this.org, repo, invitation_id: Number(res.data.id) })
+        }
         if (Number(res.status) !== 204) throw new Error(`GitHub invited ${login} to ${repo} instead of adding them`)
         state.direct.set(id, 'admin')
     }

@@ -94,6 +94,9 @@ export abstract class Service {
 
     abstract deactivateUser(user: User): Promise<ServiceResult>
 
+    /** The user's details changed (D1 already has `after`); move their access if the account did. */
+    abstract updateUser(before: User, after: User): Promise<ServiceResult>
+
     abstract makeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
 
     abstract removeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
@@ -104,6 +107,9 @@ export abstract class Service {
 
     /** Reports how the team differs from D1. Changes nothing. */
     abstract syncTeam(team: Team): Promise<ServiceResult>
+
+    /** Reports how one user's access differs from D1. Changes nothing. */
+    abstract syncUser(user: User): Promise<ServiceResult>
 
     /** Reports what no single team covers (groups, org-wide access). Changes nothing. */
     abstract syncService(): Promise<ServiceResult>

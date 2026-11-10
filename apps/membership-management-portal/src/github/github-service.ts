@@ -22,6 +22,7 @@ export type GitHubChangeKind =
     | 'make_org_owner'
     | 'demote_owner'
     | 'invite_to_org'
+    | 'reinvite_as_member'
     | 'remove_org_member'
     // these need a person
     | 'github_user_not_found'
@@ -105,6 +106,7 @@ export class GitHubService extends Service {
 
         // perform the changes
         const login = user.githubId!;
+        await this.inviteWithAccess(user) // no-op unless they're not in the org yet
         await this.gh.setTeamMember(slug!, login, isLead ? 'maintainer' : 'member')
 
         if (isLead) {
@@ -120,6 +122,7 @@ export class GitHubService extends Service {
             else await this.gh.removeDirect(name, login)
         }
 
+        needed.push(...(await this.pendingInvite(user)))
         return this.done(needed)
     }
 
@@ -149,7 +152,7 @@ export class GitHubService extends Service {
         return this.done([])
     }
 
-    /** Adds to the exec team and makes an org owner; a pending invite keeps its role. */
+    /** Adds to the exec team and makes an org owner; a pending invite keeps its role (reported as pending_invite). */
     async makeExec(user: User, _execRole: ExecRole): Promise<ServiceResult> {
         if (!user.githubId) return this.blocked([this.noGithub(user)])!
 
@@ -158,8 +161,10 @@ export class GitHubService extends Service {
         const blocked = this.blocked(needed)
         if (blocked) return blocked
 
+        await this.inviteWithAccess(user) // no-op unless they're not in the org yet
         await this.gh.setOrgRole(user.githubId, 'admin')
         await this.gh.setTeamMember(this.reservedTeams.exec.slug, user.githubId, 'member')
+        needed.push(...(await this.pendingInvite(user)))
         return this.done(needed)
     }
 
@@ -176,9 +181,13 @@ export class GitHubService extends Service {
         await this.gh.removeTeamMember(this.reservedTeams.exec.slug, login)
         const membership = await this.gh.member(login)
         if (membership?.role === 'admin') {
-            // pending role can't be changed; re-invite
-            if (membership.state === 'pending') await this.gh.removeFromOrg(login)
-            await this.gh.setOrgRole(login, 'member')
+            // a pending role can't be changed; cancel the invitation and invite them again
+            if (membership.state === 'pending') {
+                await this.gh.removeFromOrg(login)
+                await this.inviteWithAccess(user)
+            } else {
+                await this.gh.setOrgRole(login, 'member')
+            }
         }
 
         for (const assignment of (await this.assignments({userId: user.id}))) {
@@ -253,8 +262,10 @@ export class GitHubService extends Service {
         const members = (await this.gh.team(slug))!.members
 
         for (const [login, { userId, role }] of devs) {
+            // their team access is applied once they accept (syncService reports the invitation)
+            if ((await this.gh.member(login))?.state === 'pending') continue
+
             const entry = members.get(login)
-            if (entry?.state === 'pending' && (await this.gh.member(login))?.state === 'pending') continue
 
             if (entry && (entry.role === role || (entry.role === 'maintainer' && (await this.gh.isOwner(login))))) continue
             needed.push(
@@ -325,11 +336,18 @@ export class GitHubService extends Service {
             if (member?.state === 'active' && (member.role === 'admin' || !exec)) continue
 
             needed.push(
-                member?.state === 'pending'
+                member?.state === 'pending' && member.role === 'admin' && !exec
+                    ? this.change(
+                        'reinvite_as_member',
+                        login,
+                        `${login} was invited as an org owner but isn't an exec; their invitation can't be edited, so it's cancelled and replaced`,
+                        { userId },
+                    )
+                : member?.state === 'pending'
                     ? this.change(
                         'pending_invite',
                         login,
-                        `${login} hasn't accepted their GitHub org invitation`,
+                        `${login} hasn't accepted their GitHub org invitation${exec ? '; they can be made an org owner once they do' : ''}`,
                         { userId },
                     )
                     : await this.missing(
@@ -376,11 +394,43 @@ export class GitHubService extends Service {
     }
 
     /**
-     * Runs a user's actions again once they accept their org invitation: addUserToTeam for each
-     * of their tech teams (their teams and roles may have changed since they were invited) and
-     * makeExec if they're an exec (an invitation's own role can't change). A blocking change
-     * just fails that action, to be fixed later. Idempotent, like the actions. A user who
-     * shouldn't be in the org is only reported (`remove_org_member`).
+     * Reports how one user differs from D1: syncService's changes about them (their teams, roles,
+     * direct access, groups, org membership and ownership; an exec who hasn't accepted their
+     * invitation comes back as pending_invite, since they can't be made an owner yet), plus the
+     * blocking changes for the teams and groups they need.
+     */
+    async syncUser(user: User): Promise<ServiceResult> {
+        const teamIds = new Set((await this.assignments({ userId: user.id })).map((a) => a.teamId))
+        const isExec = user.execRole != null && user.status === 'active'
+        const isLead = (await this.assignments({ userId: user.id })).some((a) => a.isLead)
+
+        const changes = new Map<string, NeededChange>()
+        const add = (change: NeededChange) =>
+            changes.set(`${change.kind}|${change.target}|${change.teamId}|${change.userId}`, change)
+        for (const change of (await this.syncService()).changes) {
+            const needed = (change.teamId && teamIds.has(change.teamId))
+                || (change.kind === 'create_exec_team' && isExec)
+                || (change.kind === 'create_leads_team' && isLead)
+            if (change.userId === user.id || (change.blocking && needed)) add(change)
+        }
+        if (isExec && !user.githubId) add(this.noGithub(user))
+        return this.done([...changes.values()])
+    }
+
+    /**
+     * The user's details changed. A different GitHub account loses everything the old one had
+     * (cancelling a pending invitation too), and the new one is set up like a user who just joined.
+     */
+    async updateUser(before: User, after: User): Promise<ServiceResult> {
+        if (before.githubId === after.githubId) return this.done([])
+
+        if (before.githubId) await this.gh.removeFromOrg(before.githubId)
+        return this.setupUser(after)
+    }
+
+    /**
+     * Runs a user's actions again once they accept their org invitation (see setupUser). A user
+     * who shouldn't be in the org is only reported (`remove_org_member`).
      */
     async onJoinedOrg(login: string): Promise<ServiceResult> {
         const user = (await this.users()).find((u) => u.githubId === lc(login))
@@ -388,6 +438,17 @@ export class GitHubService extends Service {
             return this.done([this.change('remove_org_member', login,
                 `${login} is in the org without a tech assignment`, { userId: user?.id })])
         }
+        return this.setupUser(user)
+    }
+
+    /**
+     * addUserToTeam for each of the user's tech teams (their teams and roles may have changed
+     * since they were invited) and makeExec if they're an exec (an invitation's own role can't
+     * change). A blocking change just fails that action, to be fixed later. Idempotent, like the
+     * actions. Does nothing for a user who doesn't need access.
+     */
+    private async setupUser(user: User): Promise<ServiceResult> {
+        if (!(await this.keepsOrgAccess(user))) return this.done([])
 
         const teams = new Map((await this.teams()).map((team) => [team.id, team]))
         const changes = new Map<string, NeededChange>()
@@ -429,7 +490,7 @@ export class GitHubService extends Service {
         const phase = (change: NeededChange) =>
             change.kind.startsWith('create_')
                 ? 0
-                : change.kind === 'invite_to_org' || change.kind === 'make_org_owner'
+                : ['invite_to_org', 'reinvite_as_member', 'make_org_owner'].includes(change.kind)
                     ? 1
                     : change.kind.endsWith('_repo_role')
                         ? 2
@@ -515,8 +576,9 @@ export class GitHubService extends Service {
 
         const needed: NeededChange[] = []
         for (const [login, userId] of desired) {
-            const entry = team.members.get(login)
-            if (entry && !(entry.state === 'pending' && (await this.gh.member(login))?.state === 'active')) continue
+            // invitees get this once they accept; a team invite still pending after that is stale
+            if ((await this.gh.member(login))?.state === 'pending') continue
+            if (team.members.get(login)?.state === 'active') continue
             const reason = `${login} should be in ${slug}`
             needed.push(await this.missing(`add_${key}_member`, login, userId, reason))
         }
@@ -585,10 +647,23 @@ export class GitHubService extends Service {
             case 'remove_leads_member':
                 return this.gh.removeTeamMember(this.reservedTeams[reservedTeamKey].slug, target)
             case 'make_org_owner':
-                return this.gh.setOrgRole(target, 'admin')
+            case 'invite_to_org': {
+                if (await this.gh.member(target)) {
+                    if (kind === 'make_org_owner') await this.gh.setOrgRole(target, 'admin')
+                    return
+                }
+                return this.inviteWithAccess(await this.db.getUser(required(change.userId, change)))
+            }
+            case 'reinvite_as_member': {
+                const user = await this.db.getUser(required(change.userId, change))
+                if (user.githubId !== target || user.execRole != null || !(await this.keepsOrgAccess(user))) return
+                const membership = await this.gh.member(target)
+                if (!membership) return this.inviteWithAccess(user)
+                if (membership?.state !== 'pending' || membership.role !== 'admin') return
+                await this.gh.removeFromOrg(target)
+                return this.inviteWithAccess(user)
+            }
             case 'demote_owner':
-                return this.gh.setOrgRole(target, 'member')
-            case 'invite_to_org':
                 return this.gh.setOrgRole(target, 'member')
             case 'remove_org_member':
                 return this.gh.removeFromOrg(target)
@@ -809,6 +884,36 @@ export class GitHubService extends Service {
         return (await this.gh.exists(login))
             ? this.change(kind, login, reason, withUser)
             : this.change('github_user_not_found', login, this.notFound(login), withUser)
+    }
+
+    /**
+     * Invites a user who isn't in the org with everything D1 says they should have: owner if
+     * they're an exec, and one invitation covering all their teams (and the leads and exec teams).
+     * Roles within teams and direct repo access come after they accept.
+     */
+    private async inviteWithAccess(user: User): Promise<void> {
+        const login = user.githubId!
+        if (await this.gh.member(login)) return
+
+        const teams = new Map((await this.teams()).map((team) => [team.id, team]))
+        const slugs = new Set<string>()
+        for (const { teamId, isLead } of await this.assignments({ userId: user.id })) {
+            const team = teams.get(teamId)
+            if (!team || this.reserved(slugOf(team.name))) continue
+            slugs.add(slugOf(team.name))
+            if (isLead) slugs.add(this.reservedTeams.leads.slug)
+        }
+        if (user.execRole != null) slugs.add(this.reservedTeams.exec.slug)
+        await this.gh.invite(login, user.execRole != null ? 'admin' : 'member', [...slugs])
+    }
+
+    /** Non-blocking: a user who hasn't accepted their invitation gets the rest of their access once they do. */
+    private async pendingInvite(user: User): Promise<NeededChange[]> {
+        const login = user.githubId!
+        if ((await this.gh.member(login))?.state !== 'pending') return []
+        return [this.change('pending_invite', login,
+            `${login} hasn't accepted their GitHub org invitation; the rest of their access (team roles, direct repo access, ownership) is applied once they do`,
+            { userId: user.id })]
     }
 
     private noGithub(user: User): NeededChange {

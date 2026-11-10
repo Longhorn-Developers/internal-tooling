@@ -8,6 +8,9 @@ import Env = Cloudflare.Env;
 
 // TODO: eventually publish types in repo frontend can import
 
+/** The details of a user that can be edited; an empty `githubId` removes it. */
+type UserEdits = { name?: string; email?: string; githubId?: string | null; discordId?: string }
+
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
 
 class InactiveUserError extends Error{
@@ -48,10 +51,6 @@ export class MembershipService extends WorkerEntrypoint<Env> {
         return { changes: changes.length ? changes : undefined, failedServices }
     }
 
-    // TODO: sync user endpoint that makes sure a single user is setup properly; in github, it should be careful about stuff like if an exec is pending invitiation, it shows that as a non blocking needed change before being able to make an org owner
-    // TODO: edit user data
-    // TODO: what happens if an already pending user is added to a NEW team? (in general audit the invitation path)
-
     async onboardUser(
         name: string,
         email: string,
@@ -74,6 +73,24 @@ export class MembershipService extends WorkerEntrypoint<Env> {
             ...result,
             ...(result.changes ? { changes: result.changes.map((change) => ({ ...change, userId: user.id })) } : {}),
         }
+    }
+
+    /** Changes a user's details; a changed GitHub account moves their access in the services. */
+    async updateUser(userId: string, edits: UserEdits): Promise<RPCResult> {
+        // validates the user
+        const before = await this.db.getUser(userId);
+
+        const data = {
+            ...(edits.name !== undefined && { name: edits.name }),
+            ...(edits.email !== undefined && { email: edits.email.toLowerCase() }),
+            ...(edits.githubId !== undefined && { githubId: edits.githubId?.toLowerCase() || null }),
+            ...(edits.discordId !== undefined && { discordId: edits.discordId.toLowerCase() }),
+        }
+        if (!Object.keys(data).length) return { failedServices: {} };
+
+        const after = await this.db.updateUser(userId, data);
+
+        return this.run((s) => s.updateUser(before, after))
     }
 
     async addUserToTeam(
@@ -151,6 +168,14 @@ export class MembershipService extends WorkerEntrypoint<Env> {
         const team = await this.db.getTeam(teamId);
 
         return this.run((s) => s.syncTeam(team))
+    }
+
+    /** Reports how one user differs from D1 in every service. Changes nothing. */
+    async syncUser(userId: string): Promise<RPCResult> {
+        // validates the user
+        const user = await this.db.getUser(userId);
+
+        return this.run((s) => s.syncUser(user))
     }
 
     /** Reports what no single team covers (e.g. groups) in one service. Changes nothing. */

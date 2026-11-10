@@ -72,7 +72,7 @@ const COLLABORATOR_EDGES = `edges {
 }`
 
 const TEAM_FIELDS = `fragment TeamFields on Team {
-  id slug name
+  id databaseId slug name
   members(first: $page, membership: IMMEDIATE) { ${MEMBER_EDGES} }
   invitations(first: $page) { ${PAGE_INFO} nodes { invitee { login } } }
   repositories(first: $page) { ${PAGE_INFO} edges { permission node { name } } }
@@ -131,7 +131,7 @@ type CollaboratorEdge = {
     permissionSources: { permission: string; source: { __typename: string; id?: string } }[] | null
 }
 type GqlTeam = {
-    id: string; slug: string; name: string
+    id: string; databaseId: number; slug: string; name: string
     members: Conn<MemberEdge>
     invitations: Conn<{ invitee: { login: string } | null }> | null
     repositories: Conn<RepoEdge>
@@ -157,7 +157,7 @@ const statusOf = (type?: string) =>
 type OrgEntry = { role: 'admin' | 'member'; state: 'active' | 'pending' }
 // role is null when unknown (e.g. an owner we just demoted, or a pending invite)
 type TeamEntry = { role: TeamRole | null; state: 'active' | 'pending' }
-type TeamState = { id: string; name: string; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
+type TeamState = { id: string; dbId: number; name: string; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
 type RepoState = { id: string; name: string; archived: boolean; fork: boolean; direct: Map<string, RepoPermission> }
 type Snapshot = { members: Map<string, OrgEntry>; teams: Map<string, TeamState>; repos: Map<string, RepoState> }
 
@@ -192,7 +192,7 @@ export class GitHubOrg {
 
     private snap?: Snapshot
     private loading?: Promise<void>
-    private accounts = new Map<string, boolean>() // logins checked outside the org
+    private accounts = new Map<string, number | null>() // logins checked outside the org -> user id (null: no such account)
     private batchGrants = true // false once GitHub refuses batched team grants
     private calls = 0
 
@@ -319,7 +319,7 @@ export class GitHubOrg {
     }
 
     private async ingestTeam(s: Snapshot, t: GqlTeam) {
-        const team: TeamState = { id: t.id, name: t.name, members: new Map(), repos: new Map() }
+        const team: TeamState = { id: t.id, dbId: t.databaseId, name: t.name, members: new Map(), repos: new Map() }
         const members = await this.drain<MemberEdge>(t.members, 'edges', async (after) =>
             (await this.query(MORE.teamMembers, { id: t.id, after }, false)).node.c)
         for (const { role, node } of members) {
@@ -362,14 +362,14 @@ export class GitHubOrg {
         for (let i = 0; i < unknown.length; i += 50) {
             const chunk = unknown.slice(i, i + 50)
             const vars = chunk.map((_, n) => `$l${n}: String!`).join(', ')
-            const fields = chunk.map((_, n) => `u${n}: user(login: $l${n}) { login }`).join(' ')
+            const fields = chunk.map((_, n) => `u${n}: user(login: $l${n}) { login databaseId }`).join(' ')
             const { data, errors } = await this.gql(
                 `query Accounts(${vars}) { ${fields} }`,
                 Object.fromEntries(chunk.map((login, n) => [`l${n}`, login])),
             )
             const bad = errors.find((e: any) => e.type !== 'NOT_FOUND')
             if (bad) throw new GitHubError(statusOf(bad.type), bad.message)
-            chunk.forEach((login, n) => this.accounts.set(login, !!data[`u${n}`]))
+            chunk.forEach((login, n) => this.accounts.set(login, data[`u${n}`]?.databaseId ?? null))
         }
     }
 
@@ -380,7 +380,7 @@ export class GitHubOrg {
     async exists(login: string): Promise<boolean> {
         await this.load();
         await this.lookup([login])
-        return this.snap?.members.has(lc(login)) || this.accounts.get(lc(login)) === true
+        return this.snap?.members.has(lc(login)) || this.accounts.get(lc(login)) != null
     }
 
     /** Undefined if neither a member nor invited. */
@@ -431,12 +431,13 @@ export class GitHubOrg {
     // Writes
     // ------------------------------------------------------------
 
-    /** Sets membership or invites; pending roles left unchanged. */
+    /** Sets an active member's role, or invites a non-member with it; pending roles left unchanged. */
     async setOrgRole(login: string, role: 'admin' | 'member'): Promise<void> {
         const s = await this.state()
         const id = lc(login)
         const current = s.members.get(id)
-        if (current && (current.state === 'pending' || current.role === role)) return
+        if (!current) return this.invite(login, role, [])
+        if (current.state === 'pending' || current.role === role) return
 
         const { data } = await this.octokit.rest.orgs.setMembershipForUser({ org: this.org, username: login, role })
         const isOwner = data.role === 'admin'
@@ -446,6 +447,34 @@ export class GitHubOrg {
             const entry = team.members.get(id)
             if (entry?.state === 'active') entry.role = isOwner ? 'maintainer' : null
         }
+    }
+
+    /**
+     * Invites a non-member with an org role and teams in one invitation (as team members; roles
+     * come after they accept). A role or teams can't be edited later: cancel it and invite again.
+     * Skipped if they're a member or already invited. Counts against the invitation limit.
+     */
+    async invite(login: string, role: 'admin' | 'member', teamSlugs: string[]): Promise<void> {
+        const s = await this.state()
+        const id = lc(login)
+        if (s.members.has(id)) return
+
+        await this.lookup([login])
+        const inviteeId = this.accounts.get(id)
+        if (inviteeId == null) throw new GitHubError(404, `GitHub user ${login} does not exist`)
+
+        const teams = teamSlugs.flatMap((slug) => {
+            const team = s.teams.get(slug)
+            return team ? [{ slug, team }] : []
+        })
+        await this.octokit.rest.orgs.createInvitation({
+            org: this.org,
+            invitee_id: inviteeId,
+            role: role === 'admin' ? 'admin' : 'direct_member',
+            team_ids: teams.map(({ team }) => team.dbId),
+        })
+        s.members.set(id, { role, state: 'pending' })
+        for (const { team } of teams) team.members.set(id, { role: null, state: 'pending' })
     }
 
     /** Removes org membership, teams and repo access; skips the no-op check if nothing is loaded yet. */
@@ -460,15 +489,15 @@ export class GitHubOrg {
         for (const repo of this.snap.repos.values()) repo.direct.delete(id)
     }
 
-    /** Sets team membership; non-members invited, pending invites left until accepted. */
+    /** Sets team membership; a non-member is invited (this is what creates their invitation), a pending invitee is skipped. */
     async setTeamMember(slug: string, login: string, role: TeamRole): Promise<void> {
         const s = await this.state()
         const id = lc(login)
         const team = s.teams.get(slug)
         if (!team) throw new GitHubError(404, `Team ${slug} does not exist`)
         const current = team.members.get(id)
-        // a pending team invite changes nothing until the org invite is accepted; after that it's stale
-        if (current?.state === 'pending' && s.members.get(id)?.state === 'pending') return
+        // GitHub doesn't document adding a pending invitee to another team; it's applied once they accept
+        if (s.members.get(id)?.state === 'pending') return
         if (current?.state === 'active' && current.role === role) return
         if (current?.role === 'maintainer' && ownerIn(s, id)) return
 
@@ -501,7 +530,7 @@ export class GitHubOrg {
         if (existing) return { slug, id: existing.id }
 
         const { data } = await this.octokit.rest.teams.create({ org: this.org, name, privacy: 'closed' })
-        s.teams.set(data.slug, { id: data.node_id, name: data.name, members: new Map(), repos: new Map() })
+        s.teams.set(data.slug, { id: data.node_id, dbId: data.id, name: data.name, members: new Map(), repos: new Map() })
         return { slug: data.slug, id: data.node_id }
     }
 

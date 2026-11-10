@@ -80,9 +80,11 @@ service in `allServices` and writes D1, which is the source of truth. The Worker
 | `addUserToTeam(userId, teamId, vertical, isLead)` | assigns the vertical, then sets up access |
 | `removeUserFromTeam(userId, teamId)` | removes every vertical on the team and its access |
 | `deactivateUser(userId)` | marks the user inactive and removes their access |
+| `updateUser(userId, { name?, email?, githubId?, discordId? })` | edits the user; a changed or removed `githubId` moves their GitHub access (the old account is removed from the org, the new one set up) |
 | `makeExec(userId, execRole)` / `removeExec(userId)` | sets the exec role and exec access |
 | `createTeam(name)` / `deleteTeam(teamId)` | creates or deletes the team everywhere |
 | `syncTeam(teamId)` | reports how the team differs from D1 in every service; changes nothing |
+| `syncUser(userId)` | reports how one user differs from D1 in every service; changes nothing |
 | `syncService(service)` / `syncAll()` | reports what isn't about one team (groups, org-wide access) in one or every service; changes nothing |
 | `autoFix(changes)` | attempts up to 10 changes per service; also returns `failedChanges: FailedChange[]`, and the deferred changes as `changes` |
 
@@ -140,10 +142,23 @@ update only their own entries. Other writes use REST.
   org, nobody else. Joining a tech team invites them; leaving their last tech assignment, losing
   exec with no tech assignment, or being deactivated removes them (owners too). `onboardUser`
   only checks the account exists.
-- Only org invitations are ever sent, never repository invitations. Team memberships can be set
-  while an org invitation is pending, but direct repository access is only granted to active org
-  members. While an invitation is pending `syncService` reports `pending_invite` (needs the
-  invitee); `grant_repo_admin` / `make_org_owner` are reported once they accept.
+- Only org invitations are ever sent, never repository invitations. New users get one
+  `POST /orgs/{org}/invitations` with their org role and all existing teams D1 assigns them
+  (including the leads and exec teams when applicable). GitHub doesn't document adding someone with a
+  pending invitation to another team, so nothing else is sent until they accept: team roles,
+  direct repository access and ownership wait. Actions and `syncUser`/`syncService` report that
+  as a non-blocking `pending_invite` (needs the invitee); once they accept, the webhook (or the
+  next sync and `autoFix`) applies the rest. An invitation's role can't be changed through the API, so an exec
+  invited as a member is made an owner after they accept; `removeExec` on a pending owner cancels
+  and re-invites them as a member.
+- A pending owner invitation for a non-exec is reported as the fixable, non-blocking
+  `reinvite_as_member`. The fix checks their current role, cancels the invitation and sends a
+  member invitation including their current teams. This is not atomic: if sending fails after
+  cancellation, retrying the change sends the missing invitation.
+- Invitations expire after 7 days, and an org can send only 50 per 24 hours (500 once it is a
+  month old or on a paid plan; GitHub answers `GITHUB_VALIDATION_FAILED`). An expired invitation
+  is just a missing member again, so the next sync reports `invite_to_org`; run the syncs
+  periodically, and spread a large first import over days if the org is new.
 - Access beyond this is reported by the syncs. Changes for accounts not in D1 have no `userId`.
   GitHub teams are only deleted by `deleteTeam`.
 
@@ -165,7 +180,7 @@ and a user who shouldn't be in the org is only reported (`remove_org_member`).
 Change kinds: `create_team`, `set_team_member`, `remove_team_member`, `set_team_repo_role`,
 `grant_repo_admin`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
 `set_{exec,leads}_repo_role`, `add_{exec,leads}_member`, `remove_{exec,leads}_member`,
-`make_org_owner`, `demote_owner`, `invite_to_org`, `remove_org_member` are fixable;
+`make_org_owner`, `demote_owner`, `invite_to_org`, `reinvite_as_member`, `remove_org_member` are fixable;
 `github_user_not_found`, `pending_invite`, `orphan_repo`, `team_slug_conflict` need a person.
 A change's `target` is a login, repository, or team name, or `repo/login` for per-user
 repository access.
@@ -176,7 +191,7 @@ repository access.
 | `GITHUB_NOT_FOUND` | something was deleted since the check | run `syncTeam`, then `autoFix` |
 | `GITHUB_FORBIDDEN` | the GitHub App lacks a permission | fix the app, then retry |
 | `GITHUB_RATE_LIMITED` | too many requests | retry after a few minutes |
-| `GITHUB_VALIDATION_FAILED` | GitHub rejected it (e.g. no free seats) | fix in GitHub by hand |
+| `GITHUB_VALIDATION_FAILED` | GitHub rejected it (e.g. no free seats, or the daily invitation limit) | fix in GitHub by hand, or wait |
 | `GITHUB_UNAVAILABLE` | GitHub outage | retry |
 | `GITHUB_ERROR` | anything else | see the message |
 

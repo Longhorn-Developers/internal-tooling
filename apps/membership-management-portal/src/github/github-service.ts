@@ -334,7 +334,7 @@ export class GitHubService extends Service {
 
         const desiredTeams = new Set([...teams.map((t) => t.githubSlug), ...Object.values(this.reservedTeams).map((t) => t.slug)])
         for (const slug of await this.gh.teams()) {
-            if (!desiredTeams.has(slug)) needed.push(this.change('delete_extra_team', slug, `${slug} has no team in D1`))
+            if (!desiredTeams.has(slug)) needed.push(this.change('delete_extra_team', slug, `${slug} has no team in the database`))
         }
 
         const owned = new Set<string>()

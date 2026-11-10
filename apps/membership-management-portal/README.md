@@ -157,7 +157,10 @@ non-blocking, including the repository roles a team or group lacks (`set_team_re
 `syncTeam` reports the team's GitHub team, member roles, repository roles, and direct repository
 access. `syncService("github")` reports the exec and leads teams, org owners and members, and
 repositories no team owns (with anyone holding direct access to them). When a user accepts their
-org invitation the webhook runs both for them and applies their changes.
+org invitation the webhook runs `addUserToTeam` for each of their tech teams and `makeExec` if
+they're an exec. That also covers teams, roles or an exec role changed while they were pending
+(an invitation's own role can't change). A blocking change fails that action, to be fixed later,
+and a user who shouldn't be in the org is only reported (`remove_org_member`).
 
 Change kinds: `create_team`, `set_team_member`, `remove_team_member`, `set_team_repo_role`,
 `grant_repo_admin`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
@@ -185,7 +188,7 @@ needs its own app (e.g. LHD-Staging for testing, Longhorn-Developers for product
 Webhook: set the app's webhook URL to `https://webhook.longhorndevelopers.org/mmp-github`
 (`webhook.staging.…` for staging), choose a secret, store it as `GITHUB_WEBHOOK_SECRET`, and
 subscribe the app to the **Organization** event. On `member_added` (an org invitation was
-accepted) the Worker applies the user's team, repository and owner access
+accepted) the Worker re-applies the user's team, repository and owner access
 (`GitHubService.onJoinedOrg`), after replying `202` since GitHub gives up after 10 seconds.
 Deliveries are rejected unless their `X-Hub-Signature-256` matches. This is the Worker's only HTTP
 surface; the RPC methods are on `MembershipService`, reachable only through service bindings.

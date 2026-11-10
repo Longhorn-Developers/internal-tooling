@@ -66,9 +66,9 @@ export async function handleGitHubWebhook(
     ctx.waitUntil(
         service
             .onJoinedOrg(login)
-            .then(({ changes, failedChanges }) => {
-                if (changes?.length || failedChanges.length) {
-                    console.warn(`github webhook: ${login} not fully applied`, { changes, failedChanges })
+            .then(({ changes, failed }) => {
+                if (failed || changes.length) {
+                    console.warn(`github webhook: ${login} not fully applied`, { changes, failed })
                 }
             })
             .catch((error) => console.error(`github webhook: ${login} failed`, error)),

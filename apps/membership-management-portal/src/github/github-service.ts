@@ -254,7 +254,7 @@ export class GitHubService extends Service {
 
         for (const [login, { userId, role }] of devs) {
             const entry = members.get(login)
-            if (entry?.state === 'pending') continue
+            if (entry?.state === 'pending' && (await this.gh.member(login))?.state === 'pending') continue
 
             if (entry && (entry.role === role || (entry.role === 'maintainer' && (await this.gh.isOwner(login))))) continue
             needed.push(
@@ -376,24 +376,35 @@ export class GitHubService extends Service {
     }
 
     /**
-     * Fixes what the syncs report for a user who just accepted their org invitation (team roles,
-     * direct repo access, leads and exec membership, ownership).
+     * Runs a user's actions again once they accept their org invitation: addUserToTeam for each
+     * of their tech teams (their teams and roles may have changed since they were invited) and
+     * makeExec if they're an exec (an invitation's own role can't change). A blocking change
+     * just fails that action, to be fixed later. Idempotent, like the actions. A user who
+     * shouldn't be in the org is only reported (`remove_org_member`).
      */
-    // TODO: fix
-    async onJoinedOrg(login: string): Promise<FixServiceResult> {
+    async onJoinedOrg(login: string): Promise<ServiceResult> {
         const user = (await this.users()).find((u) => u.githubId === lc(login))
-        if (!user || user.status !== 'active') return { failed: false,
-            changes: [this.change('remove_org_member', login, `${login} is in the org without a tech assignment`, {userId: user?.id})], failedChanges: [] }
-
-        const teamIds = new Set((await this.assignments({userId: user.id})).map((a) => a.teamId))
-
-        const found: NeededChange[] = []
-        for (const team of await this.teams()) {
-            if (teamIds.has(team.id)) found.push(...((await this.syncTeam(team)).changes ?? []))
+        if (!user || !(await this.keepsOrgAccess(user))) {
+            return this.done([this.change('remove_org_member', login,
+                `${login} is in the org without a tech assignment`, { userId: user?.id })])
         }
-        found.push(...((await this.syncService()).changes ?? []))
 
-        return this.autoFix(found.filter((change) => change.userId === user.id))
+        const teams = new Map((await this.teams()).map((team) => [team.id, team]))
+        const changes = new Map<string, NeededChange>()
+        let failed = false
+        const add = (result: ServiceResult) => {
+            failed ||= result.failed
+            for (const change of result.changes) {
+                changes.set(`${change.kind}|${change.target}|${change.teamId}|${change.userId}`, change)
+            }
+        }
+
+        for (const { teamId, isLead } of await this.assignments({ userId: user.id })) {
+            const team = teams.get(teamId)
+            if (team) add(await this.addUserToTeam(user, team, 'tech', isLead))
+        }
+        if (user.execRole) add(await this.makeExec(user, user.execRole))
+        return { changes: [...changes.values()], failed }
     }
 
     /** Up to ten fixes; batched repo roles. Failures are returned, and so are deferred changes (as `changes`). */
@@ -504,7 +515,8 @@ export class GitHubService extends Service {
 
         const needed: NeededChange[] = []
         for (const [login, userId] of desired) {
-            if (team.members.has(login)) continue
+            const entry = team.members.get(login)
+            if (entry && !(entry.state === 'pending' && (await this.gh.member(login))?.state === 'active')) continue
             const reason = `${login} should be in ${slug}`
             needed.push(await this.missing(`add_${key}_member`, login, userId, reason))
         }

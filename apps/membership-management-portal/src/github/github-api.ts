@@ -460,14 +460,16 @@ export class GitHubOrg {
         for (const repo of this.snap.repos.values()) repo.direct.delete(id)
     }
 
-    /** Sets team membership; non-members invited, pending invites preserved. */
+    /** Sets team membership; non-members invited, pending invites left until accepted. */
     async setTeamMember(slug: string, login: string, role: TeamRole): Promise<void> {
         const s = await this.state()
         const id = lc(login)
         const team = s.teams.get(slug)
         if (!team) throw new GitHubError(404, `Team ${slug} does not exist`)
         const current = team.members.get(id)
-        if (current && (current.state === 'pending' || current.role === role)) return
+        // a pending team invite changes nothing until the org invite is accepted; after that it's stale
+        if (current?.state === 'pending' && s.members.get(id)?.state === 'pending') return
+        if (current?.state === 'active' && current.role === role) return
         if (current?.role === 'maintainer' && ownerIn(s, id)) return
 
         const { data } = await this.octokit.rest.teams.addOrUpdateMembershipForUserInOrg({

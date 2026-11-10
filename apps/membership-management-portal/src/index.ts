@@ -1,11 +1,14 @@
 import {WorkerEntrypoint} from 'cloudflare:workers'
 import {Vertical} from './db/schema'
 import { GitHubService } from './github/github-service'
-import type {ExecRole, NeededChange, Service} from './service'
+import { handleGitHubWebhook } from './github/github-webhook'
+import type {ExecRole, FailedServices, FixResult, NeededChange, RPCResult, Service, ServiceResult} from './service'
 import {MembershipDatabase, today} from "./db/access";
 import Env = Cloudflare.Env;
 
 // TODO: eventually publish types in repo frontend can import
+
+const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
 
 class InactiveUserError extends Error{
     constructor(public readonly userId: string){
@@ -13,50 +16,63 @@ class InactiveUserError extends Error{
     }
 }
 
+// Public HTTP goes only to the GitHub webhook; MembershipService has no fetch, so its RPC
+// methods are reachable only through service bindings.
+export default { fetch: handleGitHubWebhook } satisfies ExportedHandler<Env>
+
 // The Worker: other Workers call these methods through the MembershipService RPC binding.
-// Each action updates D1 and every service (see services/all-services.ts).
-// GitHub App credentials are secrets (see README); GITHUB_ORG/GITHUB_EXEC_TEAM are wrangler vars.
+// Each action updates D1 and then runs on every service; every RPC returns the changes the
+// services need and the names of those that didn't complete (see RpcResult).
+// GitHub App credentials are secrets (see README); GITHUB_ORG/GITHUB_EXEC_TEAM/GITHUB_LEADS_TEAM
+// are wrangler vars.
 export class MembershipService extends WorkerEntrypoint<Env> {
-    allServices: Service[] = [new GitHubService(this.env, this.db)];
+    // instance (so services) per RPC call
+    private readonly db = new MembershipDatabase(this.env.membership_db!);
+    private readonly allServices: Service[] = [new GitHubService(this.env, this.db)];
 
-    private async collect(
-        run: (service: Service) => Promise<NeededChange[]>,
-    ): Promise<NeededChange[]> {
-        const needed: NeededChange[] = []
-        for (const service of this.allServices) needed.push(...(await run(service)))
-        return needed
+    private async run(
+        action: (service: Service) => Promise<ServiceResult>,
+        services = this.allServices,
+    ): Promise<RPCResult> {
+        const changes: NeededChange[] = []
+        const failedServices: FailedServices = {}
+        for (const service of services) {
+            try {
+                const result = await action(service)
+                changes.push(...(result.changes ?? []))
+                if (result.failed) failedServices[service.name] = undefined
+            } catch (error) {
+                failedServices[service.name] = toError(error)
+            }
+        }
+        return { changes: changes.length ? changes : undefined, failedServices }
     }
 
-    private async onEach(run: (service: Service) => Promise<void>): Promise<void> {
-        for (const service of this.allServices) await run(service)
-    }
-
-    database: MembershipDatabase|undefined = undefined;
-    private get db(): MembershipDatabase {
-        return (this.database ??= new MembershipDatabase(this.env.membership_db));
-    }
+    // TODO: sync user endpoint that makes sure a single user is setup properly; in github, it should be careful about stuff like if an exec is pending invitiation, it shows that as a non blocking needed change before being able to make an org owner
+    // TODO: edit user data
+    // TODO: what happens if an already pending user is added to a NEW team? (in general audit the invitation path)
 
     async onboardUser(
         name: string,
         email: string,
-        github: string,
+        github: string | undefined,
         discord: string,
-    ): Promise<{ userId: string; neededChanges: NeededChange[] }> {
+    ): Promise<RPCResult & { userId: string }> {
         // *could* error, but really shouldn't
         const user = await this.db.createUser({
             name,
             email: email.toLowerCase(),
-            githubId: github.toLowerCase(),
+            githubId: github?.toLowerCase(),
             discordId: discord.toLowerCase(),
             status: 'active',
         });
 
-        const needed = await this.collect(
-            (s) => s.onboardUser(name, email, github, discord))
+        const result = await this.run((s) => s.onboardUser(name, email, github, discord))
 
         return {
             userId: user.id,
-            neededChanges: needed.map((change) => ({ ...change, userId: user.id })),
+            ...result,
+            ...(result.changes ? { changes: result.changes.map((change) => ({ ...change, userId: user.id })) } : {}),
         }
     }
 
@@ -65,104 +81,109 @@ export class MembershipService extends WorkerEntrypoint<Env> {
         teamId: string,
         vertical: Vertical,
         isLead: boolean,
-    ): Promise<NeededChange[]> {
+    ): Promise<RPCResult> {
         // validates the user and team
         const user = await this.db.getUser(userId);
         if (user.status != 'active') throw new InactiveUserError(userId);
 
-        const team = await this.db.getTeam(userId);
+        const team = await this.db.getTeam(teamId);
 
         // validates the vertical
         await this.db.assignVertical(userId, teamId, vertical, isLead);
 
-        return this.collect((s) =>
-            s.addUserToTeam(user, team, vertical, isLead))
+        return this.run((s) => s.addUserToTeam(user, team, vertical, isLead))
     }
 
-    async removeUserFromTeam(userId: string, teamId: string): Promise<void> {
+    async removeUserFromTeam(userId: string, teamId: string): Promise<RPCResult> {
         // validates the user and team
         const user = await this.db.getUser(userId);
-        const team = await this.db.getTeam(userId);
+        const team = await this.db.getTeam(teamId);
 
         await this.db.removeUserFromTeam(userId, teamId);
 
-        await this.onEach((s) => s.removeUserFromTeam(user, team))
+        return this.run((s) => s.removeUserFromTeam(user, team))
     }
 
-    async deactivateUser(userId: string): Promise<void> {
+    async deactivateUser(userId: string): Promise<RPCResult> {
         // validates the user
         const user = await this.db.updateUser(userId,
             { status: 'inactive', dateLeft: today() });
         await this.db.removeUserFromAllTeams(userId);
 
-        await this.onEach((s) => s.deactivateUser(user))
+        return this.run((s) => s.deactivateUser(user))
     }
 
-    async makeExec(userId: string, execRole: ExecRole): Promise<NeededChange[]> {
+    async makeExec(userId: string, execRole: ExecRole): Promise<RPCResult> {
         // validates the user and exec role
         const user = await this.db.updateUser(userId,
             { execRole: execRole });
 
-        return this.collect((s) => s.makeExec(user, execRole))
+        return this.run((s) => s.makeExec(user, execRole))
     }
 
-    async removeExec(userId: string): Promise<void> {
+    async removeExec(userId: string): Promise<RPCResult> {
         // validates the user
         const {execRole} = await this.db.getUser(userId);
-        if (!execRole) return;
+        if (!execRole) return { failedServices: {} };
 
         // validates the exec role
         const user = await this.db.updateUser(userId, { execRole: null });
 
-        await this.onEach((s) => s.removeExec(user, execRole))
+        return this.run((s) => s.removeExec(user, execRole))
     }
 
-    async createTeam(name: string): Promise<void> {
+    async createTeam(name: string): Promise<RPCResult> {
         const team = await this.db.createTeam({ name });
 
-        await this.onEach((s) => s.createTeam(team))
+        return this.run((s) => s.createTeam(team))
     }
 
-    async deleteTeam(teamId: string): Promise<void> {
+    async deleteTeam(teamId: string): Promise<RPCResult> {
         const team = await this.db.deleteTeam(teamId)
-        if (team == null) return;
+        if (team == null) return { failedServices: {} };
 
-        await this.onEach((s) => s.deleteTeam(team))
+        return this.run((s) => s.deleteTeam(team))
     }
 
-    /** Checks the team in every service. Changes nothing. */
-    async syncTeam(teamId: string): Promise<NeededChange[]> {
+    /** Reports how the team differs from D1 in every service. Changes nothing. */
+    async syncTeam(teamId: string): Promise<RPCResult> {
         // validates the team
         const team = await this.db.getTeam(teamId);
 
-        return this.collect((s) => s.syncTeam(team))
+        return this.run((s) => s.syncTeam(team))
     }
 
-    /** Sets up every user D1 assigns to the team. */
-    async syncUsers(teamId: string): Promise<NeededChange[]> {
-        // validates the team
-        const team = await this.db.getTeam(teamId);
-        const users = (await this.db.getTeamMembers(teamId))
-            .map(({ user }) => user)
+    /** Reports what no single team covers (e.g. groups) in one service. Changes nothing. */
+    async syncService(service: string): Promise<RPCResult> {
+        const found = this.allServices.find((s) => s.name === service);
+        if (!found) throw new Error(`Unknown service: ${service}`);
 
-        return this.collect((s) => s.syncUsers(team, users))
+        return this.run((s) => s.syncService(), [found])
     }
 
-    /** Makes the fixable needed changes returned by the other methods. */
-    async autoFix(changes: NeededChange[]): Promise<void> {
-        await this.onEach((s) =>
-            s.autoFix(changes.filter((change) => change.service === s.name)))
+    /** Runs syncService on every service. */
+    async syncAll(): Promise<RPCResult> {
+        return this.run((s) => s.syncService())
     }
 
-    // GitHub-only: orphaned repositories and the exec team.
-
-    /** Reports org repositories that no team's GitHub team has access to. Changes nothing. */
-    async auditGithubRepos(): Promise<NeededChange[]> {
-        return new GitHubService(this.env).auditRepos()
-    }
-
-    /** Checks the exec team's members and repository access. Changes nothing. */
-    async syncGithubExecTeam(): Promise<NeededChange[]> {
-        return new GitHubService(this.env).syncExecTeam()
+    /**
+     * Makes the fixable changes; `changes` are those deferred (resubmit them) and `failedChanges`
+     * those that errored.
+     */
+    async autoFix(changes: NeededChange[]): Promise<FixResult> {
+        const result: FixResult = { failedServices: {}, failedChanges: [] };
+        const deferred: NeededChange[] = []
+        for (const s of this.allServices) {
+            try {
+                const next = await s.autoFix(changes.filter((change) => change.service === s.name))
+                deferred.push(...(next.changes ?? []))
+                result.failedChanges.push(...next.failedChanges)
+                if (next.failed) result.failedServices[s.name] = undefined
+            } catch (error) {
+                result.failedServices[s.name] = toError(error)
+            }
+        }
+        if (deferred.length) result.changes = deferred
+        return result
     }
 }

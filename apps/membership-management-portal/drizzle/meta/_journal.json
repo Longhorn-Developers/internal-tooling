@@ -15,6 +15,13 @@
       "when": 1793910556185,
       "tag": "0001_busy_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793995047763,
+      "tag": "0002_github_id_lowercase_check",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,8 @@ export type TeamMember = {
     verticals: VerticalAssignment[]
 }
 
+export type TechAssignment = { user: User; teamId: string; isLead: boolean }
+
 export function today() { return new Date().toISOString().slice(0, 10) }
 
 export class RecordNotFoundError extends Error{
@@ -79,7 +81,7 @@ export class MembershipDatabase {
     ): Promise<User> {
         const user = await this.db
             .update(users)
-            .set(data)
+            .set(data.githubId ? { ...data, githubId: data.githubId.toLowerCase() } : data)
             .where(and(
                 eq(users.id, userId),
                 eq(users.status, 'active')
@@ -116,6 +118,16 @@ export class MembershipDatabase {
         }
 
         return [...members.values()]
+    }
+
+    /** Every tech assignment of an active user, across all teams. */
+    async listTechAssignments(): Promise<TechAssignment[]> {
+        return this.db
+            .select({ user: users, teamId: teamUsers.teamId, isLead: teamUsers.isLead })
+            .from(teamUsers)
+            .innerJoin(users, eq(teamUsers.userId, users.id))
+            .where(and(eq(teamUsers.vertical, 'tech'), eq(users.status, 'active')))
+            .all()
     }
 
     /**

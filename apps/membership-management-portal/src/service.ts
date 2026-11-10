@@ -13,9 +13,9 @@ export const execRoles = [
 export type ExecRole = (typeof execRoles)[number]
 
 /**
- * Something a service needs before it can finish an action, e.g. a missing GitHub team.
- * Services return these instead of making partial changes. Pass them to fixTeam to make the
- * fixable ones; the rest need a person (e.g. a wrong github_id in D1).
+ * Something a service reports: an entity an action needs that doesn't exist, a setup problem,
+ * or drift a sync found. Pass them to autoFix to make the fixable ones; the rest need a person
+ * (e.g. a wrong github_id in D1).
  */
 export type NeededChange = {
     service: string // Service.name of the service that reported it
@@ -24,13 +24,28 @@ export type NeededChange = {
     userId?: string // D1 user it is for
     target: string // what is missing or wrong, e.g. a GitHub team slug or repository name
     reason: string // human-readable
-    fixable: boolean // whether fixTeam can make it
+    fixable: boolean // whether autoFix can make it
+    blocking: boolean // an action can't run until it's fixed: a required entity is missing
 }
 
-/**
- * A failed call to an external service. `code` is also the start of the message, since only
- * the message survives Workers RPC.
- */
+/** A change autoFix could not make, with the error thrown. */
+export type FailedChange = { change: NeededChange; error: Error }
+
+/** What a service returns for one action. `failed` means it didn't run (or finish). */
+export type ServiceResult = { changes: NeededChange[]; failed: boolean }
+
+/** What a service's autoFix returns; `changes` are those it deferred, to resubmit. */
+export type FixServiceResult = ServiceResult & { failedChanges: FailedChange[] }
+
+/** Services that didn't complete, by name. The error is there if the service threw one. */
+export type FailedServices = { [service: string]: Error | undefined }
+
+/** What every RPC returns: every service's changes, and the services that didn't complete. */
+export type RPCResult = { changes?: NeededChange[]; failedServices: FailedServices }
+
+export type FixResult = RPCResult & { failedChanges: FailedChange[] }
+
+/** A failed call to an external service; its fields survive Workers RPC. */
 export class ServiceError extends Error {
     constructor(
         public service: string,
@@ -44,11 +59,15 @@ export class ServiceError extends Error {
 
 /**
  * One external service (GitHub, Discord, ...) kept in sync with D1. Every service implements
- * all of these; services/all-services.ts runs each action on every service.
+ * all of these; index.ts runs each action on every service.
  *
- * Services only read D1; all-services.ts writes it.
+ * Services only read D1; index.ts writes it.
  *
- * - Actions that return NeededChange[] check first and change nothing if anything is missing.
+ * - Actions first check the entities they need. If a required one doesn't exist they change
+ *   nothing and return it as a blocking change with `failed: true`. Entities that exist but
+ *   aren't set up right come back as non-blocking changes, and the action still runs. They never
+ *   check memberships; the syncs do.
+ * - Syncs only report what differs from D1 (`failed` stays false); autoFix makes the changes.
  * - Removals are best-effort: anything already gone is skipped.
  * - Failed API calls throw ServiceError. Actions are idempotent, so re-running one is safe.
  */
@@ -62,33 +81,33 @@ export abstract class Service {
         team: Team,
         vertical: Vertical,
         isLead: boolean,
-    ): Promise<NeededChange[]>
+    ): Promise<ServiceResult>
 
-    abstract removeUserFromTeam(user: User, team: Team): Promise<void>
+    abstract removeUserFromTeam(user: User, team: Team): Promise<ServiceResult>
 
     abstract onboardUser(
         name: string,
         email: string,
-        github: string,
+        github: string | undefined,
         discord: string,
-    ): Promise<NeededChange[]>
+    ): Promise<ServiceResult>
 
-    abstract deactivateUser(user: User): Promise<void>
+    abstract deactivateUser(user: User): Promise<ServiceResult>
 
-    abstract makeExec(user: User, execRole: ExecRole): Promise<NeededChange[]>
+    abstract makeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
 
-    abstract removeExec(user: User, execRole: ExecRole): Promise<void>
+    abstract removeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
 
-    abstract createTeam(team: Team): Promise<void>
+    abstract createTeam(team: Team): Promise<ServiceResult>
 
-    abstract deleteTeam(team: Team): Promise<void>
+    abstract deleteTeam(team: Team): Promise<ServiceResult>
 
-    /** Checks that the team is set up in this service. Changes nothing. */
-    abstract syncTeam(team: Team): Promise<NeededChange[]>
+    /** Reports how the team differs from D1. Changes nothing. */
+    abstract syncTeam(team: Team): Promise<ServiceResult>
 
-    /** Sets up each user's access to the team as D1 says, after checking the team is set up. */
-    abstract syncUsers(team: Team, users: User[]): Promise<NeededChange[]>
+    /** Reports what no single team covers (groups, org-wide access). Changes nothing. */
+    abstract syncService(): Promise<ServiceResult>
 
-    /** Makes the fixable changes reported by this service; others are ignored. */
-    abstract autoFix(changes: NeededChange[]): Promise<void>
+    /** Bounded fixes; failures and deferred work returned. */
+    abstract autoFix(changes: NeededChange[]): Promise<FixServiceResult>
 }

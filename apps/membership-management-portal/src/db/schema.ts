@@ -1,4 +1,4 @@
-import {inArray, sql} from 'drizzle-orm'
+import {sql} from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const statusNames = ['applicant', 'active', 'inactive', 'alum'] as const
@@ -34,7 +34,7 @@ export const users = sqliteTable(
         id: text('id').primaryKey().notNull(),
         name: text('name').notNull(),
         email: text('email').notNull(),
-        githubId: text('github_id').notNull(),
+        githubId: text('github_id'),
         discordId: text('discord_id').notNull(),
         status: text('status', { enum: statusNames }).notNull().default('active'),
         execRole: text('exec_role', { enum: execRoles }),
@@ -43,7 +43,8 @@ export const users = sqliteTable(
     },
     (table) => [
         check('valid_status', sqlInArray(table.status, statusNames)),
-        check('valid_exec_role', sqlInArray(table.execRole, execRoles))
+        check('valid_exec_role', sqlInArray(table.execRole, execRoles)),
+        check('github_id_lowercase', sql`${table.githubId} = lower(${table.githubId})`),
     ],
 )
 

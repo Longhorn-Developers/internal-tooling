@@ -6,12 +6,20 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "membership-worker",
 	"main": "src/index.ts",
-	"routes": [],
+	"keep_vars": true, // we specify vars in the dashboard and .dev.vars, not here
+	"routes": [
+		{ "pattern": "webhook.longhorndevelopers.org/mmp-github", "zone_name": "longhorndevelopers.org" }
+	],
+	"workers_dev": false,
+	"preview_urls": false,
 	"compatibility_date": "2026-10-06",
-	//	"assets": {
-	//		"binding": "ASSETS",
-	//		"directory": "./public"
-	//	},
+	"env": {
+		"staging": {
+			"routes": [
+				{ "pattern": "webhook.staging.longhorndevelopers.org/mmp-github", "zone_name": "longhorndevelopers.org" }
+			]
+		}
+	},
 	"observability": {
 		"enabled": true
 	},
@@ -24,6 +32,16 @@
 			"migrations_dir": "drizzle"
 		}
 	],
+	"previews": {
+		"d1_databases": [
+			{
+				"binding": "membership_db",
+				"database_name": "membership-db-staging",
+				"database_id": "ba637e2c-967c-4d16-911d-adb644a0a3c6",
+				"migrations_dir": "drizzle"
+			}
+		]
+	},
 	"vars": {
 		/* ===== ENVIRONMENT VARIABLES =====
 		 * Secrets do NOT live here; this is only declarations for typing and documentation purposes.
@@ -35,29 +53,8 @@
 		"GITHUB_APP_ID": "",
 		"GITHUB_APP_INSTALLATION_ID": "",
 		"GITHUB_APP_PRIVATE_KEY": "", // PKCS#8 PEM ("BEGIN PRIVATE KEY"); escaped \n is fine
-		"GITHUB_EXEC_TEAM": "" // slug of the exec team, e.g. "exec". Must be lowercase
+		"GITHUB_EXEC_TEAM": "", // name of the exec team
+		"GITHUB_LEADS_TEAM": "", // name of the leads team
+		"GITHUB_WEBHOOK_SECRET": "" // secret used for validating GitHub webhook
 	}
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
-	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
 }

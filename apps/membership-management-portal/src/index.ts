@@ -66,7 +66,7 @@ export class MembershipService extends WorkerEntrypoint<Env> {
             status: 'active',
         });
 
-        const result = await this.run((s) => s.onboardUser(name, email, github, discord))
+        const result = await this.run((s) => s.onboardUser(user.name, user.email, user.githubId ?? undefined, user.discordId))
 
         return {
             userId: user.id,

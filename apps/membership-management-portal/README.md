@@ -184,9 +184,12 @@ the account. A missing one is a `blocking` change (`create_team`, `create_{exec,
 non-blocking, including the repository roles a team or group lacks (`set_team_repo_role`,
 `set_{exec,leads}_repo_role`).
 
-All sync scopes use one read-only audit. `syncTeam` includes the team's setup, memberships,
-every direct grant on its attached repositories, and the related users' org/group access and
-group setup. `syncUser` includes the user's desired and extra memberships, org role, direct
+All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup,
+memberships and roles, every direct grant on its attached repositories, and account/invitation
+issues affecting its active tech members. It excludes other teams' memberships, reserved-group
+setup and org-wide corrections. Direct grants are still evaluated against all D1 assignments,
+so a lead of another team sharing a repository keeps their deserved Admin access.
+`syncUser` includes the user's desired and extra memberships, org role, direct
 grants, related team setup and required group setup. `syncService("github")` audits every D1
 team and relevant account, both reserved groups, all org memberships/invitations, every extra
 GitHub team and every direct repository grant, including owners, archived repos and forks.

@@ -243,18 +243,14 @@ export class GitHubService extends Service {
     }
 
     async syncTeam(team: Team): Promise<ServiceResult> {
-        const members = await this.db.getTeamMembers(team.id)
-        const users = new Map(members.map(({ user }) => [user.id, user]))
-        const known = new Map((await this.users()).filter((u) => u.githubId).map((u) => [u.githubId!, u]))
-        const logins = new Set((await this.gh.team(team.githubSlug))?.members.keys())
-        for (const repo of await this.gh.teamRepos(team.githubSlug)) {
-            for (const login of (await this.gh.collaborators(repo.name)).keys()) logins.add(login)
-        }
-        for (const login of logins) {
-            const user = known.get(login)
-            if (user) users.set(user.id, user)
-        }
-        return this.done(await this.scoped(await this.audit(), [...users.values()], [team], true, logins))
+        const userIds = new Set((await this.assignments({ teamId: team.id })).map(({ user }) => user.id))
+        const repos = new Set((await this.gh.teamRepos(team.githubSlug)).map((repo) => lc(repo.name)))
+        return this.done((await this.audit()).filter((change) => {
+            if (change.teamId) return change.teamId === team.id
+            if (['grant_repo_admin', 'remove_repo_collaborator'].includes(change.kind)) return repos.has(lc(change.target.split('/')[0]))
+            return ['no_github_account', 'github_user_not_found', 'pending_invite'].includes(change.kind) &&
+                change.userId !== undefined && userIds.has(change.userId)
+        }))
     }
 
     async syncService(): Promise<ServiceResult> {
@@ -267,7 +263,7 @@ export class GitHubService extends Service {
         for (const team of await this.teams()) {
             if (ids.has(team.id) || user.githubId && (await this.gh.team(team.githubSlug))?.members.has(user.githubId)) teams.push(team)
         }
-        return this.done(await this.scoped(await this.audit(), [user], teams, false))
+        return this.done(await this.scoped(await this.audit(), [user], teams))
     }
 
     private async audit(): Promise<NeededChange[]> {
@@ -376,9 +372,9 @@ export class GitHubService extends Service {
         return needed.filter((change, i) => needed.findIndex((other) => sameChange(change, other)) === i)
     }
 
-    private async scoped(changes: NeededChange[], users: User[], teams: Team[], includeMembers: boolean, logins = new Set<string>()) {
+    private async scoped(changes: NeededChange[], users: User[], teams: Team[]) {
         const userIds = new Set(users.map((u) => u.id))
-        for (const user of users) if (user.githubId) logins.add(user.githubId)
+        const logins = new Set(users.flatMap((user) => user.githubId ? [user.githubId] : []))
         const teamIds = new Set(teams.map((t) => t.id))
         const repos = new Set<string>()
         for (const team of teams) for (const repo of await this.gh.teamRepos(team.githubSlug)) repos.add(lc(repo.name))
@@ -398,8 +394,7 @@ export class GitHubService extends Service {
             if (c.userId && userIds.has(c.userId)) return true
             if (['demote_owner', 'remove_org_member', 'remove_exec_member', 'remove_leads_member'].includes(c.kind) && logins.has(c.target)) return true
             if (c.kind === 'remove_repo_collaborator' && logins.has(c.target.split('/')[1])) return true
-            if (c.teamId && teamIds.has(c.teamId) && (includeMembers || !c.userId)) return true
-            if (includeMembers && ['grant_repo_admin', 'remove_repo_collaborator', 'orphan_repo'].includes(c.kind) && repos.has(lc(c.target.split('/')[0]))) return true
+            if (c.teamId && teamIds.has(c.teamId) && !c.userId) return true
             if (c.kind === 'delete_extra_team' && extra.has(c.target)) return true
             if (repos.size && /^create_(exec|leads)_team$/.test(c.kind)) return true
             if (/^set_(exec|leads)_repo_role$/.test(c.kind) && repos.has(lc(c.target))) return true

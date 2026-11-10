@@ -23,6 +23,18 @@ export type TechAssignment = { user: User; teamId: string; isLead: boolean }
 
 export function today() { return new Date().toISOString().slice(0, 10) }
 
+export const githubSlugOf = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+function normalizeUser<T extends Partial<NewUser>>(data: T): T {
+    return {
+        ...data,
+        ...(data.email !== undefined && { email: data.email.trim().toLowerCase() }),
+        ...(data.githubId !== undefined && { githubId: data.githubId?.trim().toLowerCase() || null }),
+        ...(data.discordId !== undefined && { discordId: data.discordId.trim().toLowerCase() }),
+    }
+}
+
 export class RecordNotFoundError extends Error{
     selectionCriteria;
     constructor(selectionCriteria: object) {
@@ -62,7 +74,7 @@ export class MembershipDatabase {
         const newUser: NewUser = {
             id: crypto.randomUUID(),
             dateJoined: today(),
-            ...data
+            ...normalizeUser(data)
         };
 
         const user = await this.db
@@ -81,7 +93,7 @@ export class MembershipDatabase {
     ): Promise<User> {
         const user = await this.db
             .update(users)
-            .set(data.githubId ? { ...data, githubId: data.githubId.toLowerCase() } : data)
+            .set(normalizeUser(data))
             .where(and(
                 eq(users.id, userId),
                 eq(users.status, 'active')
@@ -209,10 +221,11 @@ export class MembershipDatabase {
         return this.db.select().from(teams).orderBy(teams.name).all()
     }
 
-    async createTeam(data: Omit<NewTeam, 'id'>): Promise<Team> {
+    async createTeam(data: Omit<NewTeam, 'id' | 'githubSlug'>): Promise<Team> {
         const teamData = {
             id: crypto.randomUUID(),
-            ...data
+            ...data,
+            githubSlug: githubSlugOf(data.name),
         }
 
         const team = await this.db

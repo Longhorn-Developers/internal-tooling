@@ -4,6 +4,7 @@
     "type": "module",
     "main": "src/index.ts",
     "scripts": {
+        "test": "tsx --test tests/*.test.ts",
         "dev": "wrangler dev",
         "deploy": "wrangler deploy --minify",
         "cf-typegen": "wrangler types --env-interface CloudflareBindings",
@@ -21,6 +22,7 @@
     "devDependencies": {
         "@types/node": "^26.6.5",
         "drizzle-kit": "^0.31.11",
+        "tsx": "^4.23.15",
         "wrangler": "^4.151.0"
     }
 }

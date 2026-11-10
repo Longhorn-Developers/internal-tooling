@@ -1,4 +1,5 @@
 import type { Team, User } from '../db/access'
+import { githubSlugOf as slugOf } from '../db/access'
 import type { Vertical } from '../db/schema'
 import { Service } from '../service'
 import type { ExecRole, FailedChange, FixServiceResult, NeededChange, ServiceResult } from '../service'
@@ -10,6 +11,7 @@ type ReservedTeamKey = 'exec' | 'leads'
 /** The NeededChange kinds GitHubService reports; see the README for what each means. */
 export type GitHubChangeKind =
     | 'create_team'
+    | 'delete_extra_team'
     | 'set_team_member'
     | 'remove_team_member'
     | 'set_team_repo_role'
@@ -49,14 +51,6 @@ const manualKinds = new Set<string>([
     'team_slug_conflict',
 ])
 
-// A team's GitHub team is found by name: GitHub derives the slug from it, e.g.
-// "UT Dining" -> "ut-dining". Renaming a team in D1 needs the GitHub team renamed to match.
-const slugOf = (name: string) =>
-    name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-
 const lc = (value: string) => value.toLowerCase()
 
 type DevMember = { userId: string; role: TeamRole }
@@ -64,12 +58,22 @@ type ReservedTeam = { name: string; slug: string; permission: RepoPermission }
 type Ids = { teamId?: string; userId?: string }
 type Dictionary = Map<string, string>
 
+export class StaleNeededChangeError extends Error {
+    constructor(public readonly change: NeededChange) {
+        super(`${change.kind}: ${change.target} is no longer a required correction`)
+    }
+}
+
+const sameChange = (a: NeededChange, b: NeededChange) =>
+    a.service === b.service && a.kind === b.kind && a.target === b.target &&
+    a.teamId === b.teamId && a.userId === b.userId
+
 /**
  * Keeps the GitHub org in sync with D1 (D1 logins are lowercase):
  * - each team: GitHub team with Write on its repos (set in GitHub); tech leads are maintainers
  *   with direct Admin on those repos, tech fellows members
- * - leads team: every tech lead, Maintain on every non-archived repo
- * - exec team: every active exec, Admin on every non-archived repo; execs are the org owners
+ * - leads team: every tech lead, Maintain on every repo
+ * - exec team: every active exec, Admin on every repo; execs are the org owners
  * - org members: users with a tech assignment, plus execs
  * - changes for accounts not in D1 have no userId
  *
@@ -200,19 +204,19 @@ export class GitHubService extends Service {
     }
 
     /**
-     * Creates the team's GitHub team unless one with its name exists. Repositories are added to
+     * Creates the team's GitHub team unless its stored slug exists. Repositories are added to
      * it in GitHub; members are added by autoFix after syncTeam.
      */
     async createTeam(team: Team): Promise<ServiceResult> {
-        const slug = slugOf(team.name)
+        const slug = team.githubSlug
         if (this.reserved(slug)) {
             return this.blocked([this.change('team_slug_conflict', slug,
-                `${team.name} would use the reserved team ${slug}; rename the team`, { teamId: team.id })])!
+                `${team.name} uses the reserved team ${slug}; correct its githubSlug`, { teamId: team.id })])!
         }
-        const created = await this.gh.createTeam(team.name, slug)
+        const created = await this.gh.createTeam(slugOf(team.name) === slug ? team.name : slug, slug)
         if (created.slug !== slug) {
             throw new Error(
-                `GitHub named ${team.name}'s team ${created.slug}; rename the team so it slugifies to the GitHub team`,
+                `GitHub created slug ${created.slug} instead of the stored slug ${slug}`,
             )
         }
         return this.done([])
@@ -220,7 +224,7 @@ export class GitHubService extends Service {
 
     /** Removes members' access (see removeMember), then deletes the GitHub team; its repos become orphans. */
     async deleteTeam(team: Team): Promise<ServiceResult> {
-        const slug = slugOf(team.name)
+        const slug = team.githubSlug
         if (this.reserved(slug)) return this.done([]) // shouldn't be possible, but just a safeguard
 
         const gitHubTeam = await this.gh.team(slug)
@@ -238,95 +242,58 @@ export class GitHubService extends Service {
         return this.done([])
     }
 
-    /**
-     * Reports whether the GitHub team exists with Write on its repos, has exactly the D1 dev
-     * members in the right roles, and only its leads have direct repo access.
-     */
     async syncTeam(team: Team): Promise<ServiceResult> {
-        const { slug, needed } = await this.checkTeamSetup(team)
-        if (!slug) return this.done(needed)
-
-        const ids = { teamId: team.id }
-
-        const devs = new Map<string, DevMember>()
-        for (const { user, isLead } of await this.assignments({teamId: team.id})) {
-            if (!user.githubId) {
-                needed.push(this.noGithub(user));
-                continue
-            }
-            devs.set(user.githubId, { userId: user.id, role: isLead ? 'maintainer' : 'member' })
+        const members = await this.db.getTeamMembers(team.id)
+        const users = new Map(members.map(({ user }) => [user.id, user]))
+        const known = new Map((await this.users()).filter((u) => u.githubId).map((u) => [u.githubId!, u]))
+        const logins = new Set((await this.gh.team(team.githubSlug))?.members.keys())
+        for (const repo of await this.gh.teamRepos(team.githubSlug)) {
+            for (const login of (await this.gh.collaborators(repo.name)).keys()) logins.add(login)
         }
-
-        const known = await this.knownLogins()
-        await this.gh.ensureAccounts([...devs.keys()])
-        const members = (await this.gh.team(slug))!.members
-
-        for (const [login, { userId, role }] of devs) {
-            // their team access is applied once they accept (syncService reports the invitation)
-            if ((await this.gh.member(login))?.state === 'pending') continue
-
-            const entry = members.get(login)
-
-            if (entry && (entry.role === role || (entry.role === 'maintainer' && (await this.gh.isOwner(login))))) continue
-            needed.push(
-                await this.missing(
-                    'set_team_member',
-                    login,
-                    userId,
-                    `${login} should be a ${role} of ${slug}`,
-                    ids,
-                ),
-            )
+        for (const login of logins) {
+            const user = known.get(login)
+            if (user) users.set(user.id, user)
         }
-        for (const login of members.keys()) {
-            if (devs.has(login)) continue
-            needed.push(this.stray('remove_team_member', login,
-                `${login} is on ${slug} but is not a dev member of ${team.name}`, known, ids))
-        }
-
-        const leadRepos = await this.leadRepos()
-        for (const { name } of (await this.gh.teamRepos(slug))) {
-            const direct = (await this.gh.collaborators(name))
-            for (const [login, { userId, role }] of devs) {
-                if (role !== 'maintainer' || direct.get(login) === 'admin') continue
-                // repo access only after joining the org
-                if ((await this.gh.member(login))?.state !== 'active') continue
-                needed.push(
-                    this.change('grant_repo_admin', `${name}/${login}`,
-                        `${login} leads ${team.name} and needs direct Admin on ${name}`, { ...ids, userId }),
-                )
-            }
-            for (const [login, permission] of direct) {
-                if (leadRepos.get(login)?.has(lc(name))) continue
-                needed.push(
-                    this.stray('remove_repo_collaborator', login,
-                        `${login} has direct ${permission} access to ${name} but is not its lead`,
-                        known, ids, `${name}/${login}`),
-                )
-            }
-        }
-        return this.done(needed)
+        return this.done(await this.scoped(await this.audit(), [...users.values()], [team], true, logins))
     }
 
-    /**
-     * Reports what no single team covers: exec and leads teams, org owners and members, and
-     * repos no team owns (with their direct collaborators).
-     */
     async syncService(): Promise<ServiceResult> {
+        return this.done(await this.audit())
+    }
+
+    async syncUser(user: User): Promise<ServiceResult> {
+        const ids = new Set((await this.assignments({ userId: user.id })).map((a) => a.teamId))
+        const teams: Team[] = []
+        for (const team of await this.teams()) {
+            if (ids.has(team.id) || user.githubId && (await this.gh.team(team.githubSlug))?.members.has(user.githubId)) teams.push(team)
+        }
+        return this.done(await this.scoped(await this.audit(), [user], teams, false))
+    }
+
+    private async audit(): Promise<NeededChange[]> {
         const known = await this.knownLogins()
+        const teams = await this.teams()
+        const users = await this.users()
+        const assignments = await this.assignments()
         const execs: Dictionary = new Map(
-            (await this.users())
+            users
                 .filter((user) => user.execRole && user.githubId && user.status === 'active')
                 .map((user) => [user.githubId!, user.id]))
         const leadLogins = await this.leads()
         const techs: Dictionary = new Map(
-            (await this.assignments())
+            assignments
                 .filter(u=>u.user.githubId)
                 .map(({ user }) => [user.githubId!, user.id]))
         const wanted = new Map([...techs, ...execs])
-        await this.gh.ensureAccounts(wanted.keys().toArray())
+        await this.gh.ensureAccounts(users.flatMap((user) => user.githubId ? [user.githubId] : []))
 
         const needed = [...(await this.checkReservedTeam('exec')), ...(await this.checkReservedTeam('leads'))]
+        for (const user of users) {
+            if (user.githubId) needed.push(...await this.checkGitHubExists(user))
+            if (!user.githubId && (user.status === 'active' && user.execRole != null || assignments.some((a) => a.user.id === user.id))) {
+                needed.push(this.noGithub(user))
+            }
+        }
         needed.push(...(await this.checkMembers('exec', execs, known)))
         needed.push(...(await this.checkMembers('leads', leadLogins, known)))
 
@@ -363,58 +330,81 @@ export class GitHubService extends Service {
             if (execs.has(login)) continue
             needed.push(this.stray('demote_owner', login, `${login} owns the org but is not an exec`, known))
         }
-        for (const login of [...(await this.gh.orgLogins('member')), ...(await this.gh.pendingLogins())]) {
+        for (const login of [...owners, ...(await this.gh.orgLogins('member')), ...(await this.gh.pendingLogins())]) {
             if (wanted.has(login)) continue
             needed.push(this.stray('remove_org_member', login,
                 `${login} is in the org (or invited) without a tech assignment`, known))
         }
 
-        const owned = new Set<string>()
-        for (const team of await this.teams()) {
-            for (const repo of (await this.gh.teamRepos(slugOf(team.name)))) owned.add(lc(repo.name))
+        const desiredTeams = new Set([...teams.map((t) => t.githubSlug), ...Object.values(this.reservedTeams).map((t) => t.slug)])
+        for (const slug of await this.gh.teams()) {
+            if (!desiredTeams.has(slug)) needed.push(this.change('delete_extra_team', slug, `${slug} has no team in D1`))
         }
-        for (const repo of (await this.gh.repos()).filter((r) => !r.fork && !owned.has(lc(r.name)))) {
-            const reason = `${repo.name} isn't on any team's GitHub team; add it to one in GitHub`
-            needed.push(this.change('orphan_repo', repo.name, reason))
+
+        const owned = new Set<string>()
+        for (const team of teams) {
+            const { slug, needed: setup } = await this.checkTeamSetup(team)
+            needed.push(...setup)
+            if (!slug) continue
+            const devs = await this.devMembers(team)
+            const members = (await this.gh.team(slug))!.members
+            for (const [login, { userId, role }] of devs) {
+                if ((await this.gh.member(login))?.state === 'pending') continue
+                const entry = members.get(login)
+                if (entry?.state === 'active' && (entry.role === role || entry.role === 'maintainer' && await this.gh.isOwner(login))) continue
+                needed.push(await this.missing('set_team_member', login, userId, `${login} should be a ${role} of ${slug}`, { teamId: team.id }))
+            }
+            for (const login of members.keys()) {
+                if (!devs.has(login)) needed.push(this.stray('remove_team_member', login, `${login} should not be on ${slug}`, known, { teamId: team.id }))
+            }
+            for (const repo of await this.gh.teamRepos(slug)) owned.add(lc(repo.name))
+        }
+
+        const led = await this.leadRepos()
+        for (const repo of await this.gh.repos()) {
+            if (!owned.has(lc(repo.name))) needed.push(this.change('orphan_repo', repo.name, `${repo.name} isn't attached to an LHD team`))
+            const direct = await this.gh.collaborators(repo.name)
+            for (const [login, repos] of led) {
+                if (!repos.has(lc(repo.name)) || direct.get(login) === 'admin' || (await this.gh.member(login))?.state !== 'active') continue
+                needed.push(this.change('grant_repo_admin', `${repo.name}/${login}`, `${login} needs direct Admin on ${repo.name}`, { userId: known.get(login) }))
+            }
             for (const [login, permission] of (await this.gh.collaborators(repo.name))) {
-                if (owners.has(login)) continue
-                needed.push(
-                    this.stray('remove_repo_collaborator', login,
-                        `${login} has direct ${permission} access to unowned ${repo.name}`,
-                        known, {}, `${repo.name}/${login}`),
-                )
+                if (!led.get(login)?.has(lc(repo.name))) needed.push(this.stray('remove_repo_collaborator', login,
+                    `${login} has unexpected direct ${permission} access to ${repo.name}`, known, {}, `${repo.name}/${login}`))
             }
         }
-
-        for (const team of await this.teams()) {
-            needed.push(...(await this.syncTeam(team)).changes)
-        }
-
-        return this.done(needed)
+        return needed.filter((change, i) => needed.findIndex((other) => sameChange(change, other)) === i)
     }
 
-    /**
-     * Reports how one user differs from D1: syncService's changes about them (their teams, roles,
-     * direct access, groups, org membership and ownership; an exec who hasn't accepted their
-     * invitation comes back as pending_invite, since they can't be made an owner yet), plus the
-     * blocking changes for the teams and groups they need.
-     */
-    async syncUser(user: User): Promise<ServiceResult> {
-        const teamIds = new Set((await this.assignments({ userId: user.id })).map((a) => a.teamId))
-        const isExec = user.execRole != null && user.status === 'active'
-        const isLead = (await this.assignments({ userId: user.id })).some((a) => a.isLead)
-
-        const changes = new Map<string, NeededChange>()
-        const add = (change: NeededChange) =>
-            changes.set(`${change.kind}|${change.target}|${change.teamId}|${change.userId}`, change)
-        for (const change of (await this.syncService()).changes) {
-            const needed = (change.teamId && teamIds.has(change.teamId))
-                || (change.kind === 'create_exec_team' && isExec)
-                || (change.kind === 'create_leads_team' && isLead)
-            if (change.userId === user.id || (change.blocking && needed)) add(change)
+    private async scoped(changes: NeededChange[], users: User[], teams: Team[], includeMembers: boolean, logins = new Set<string>()) {
+        const userIds = new Set(users.map((u) => u.id))
+        for (const user of users) if (user.githubId) logins.add(user.githubId)
+        const teamIds = new Set(teams.map((t) => t.id))
+        const repos = new Set<string>()
+        for (const team of teams) for (const repo of await this.gh.teamRepos(team.githubSlug)) repos.add(lc(repo.name))
+        const groups = new Set<ReservedTeamKey>()
+        if (users.some((u) => u.status === 'active' && u.execRole != null)) groups.add('exec')
+        if ((await this.assignments()).some((a) => a.isLead && userIds.has(a.user.id))) groups.add('leads')
+        for (const key of ['exec', 'leads'] as const) {
+            const members = (await this.gh.team(this.reservedTeams[key].slug))?.members
+            if ([...logins].some((login) => members?.has(login))) groups.add(key)
         }
-        if (isExec && !user.githubId) add(this.noGithub(user))
-        return this.done([...changes.values()])
+        const extra = new Set<string>()
+        for (const slug of await this.gh.teams()) {
+            const members = (await this.gh.team(slug))!.members
+            if ([...logins].some((login) => members.has(login))) extra.add(slug)
+        }
+        return changes.filter((c) => {
+            if (c.userId && userIds.has(c.userId)) return true
+            if (['demote_owner', 'remove_org_member', 'remove_exec_member', 'remove_leads_member'].includes(c.kind) && logins.has(c.target)) return true
+            if (c.kind === 'remove_repo_collaborator' && logins.has(c.target.split('/')[1])) return true
+            if (c.teamId && teamIds.has(c.teamId) && (includeMembers || !c.userId)) return true
+            if (includeMembers && ['grant_repo_admin', 'remove_repo_collaborator', 'orphan_repo'].includes(c.kind) && repos.has(lc(c.target.split('/')[0]))) return true
+            if (c.kind === 'delete_extra_team' && extra.has(c.target)) return true
+            if (repos.size && /^create_(exec|leads)_team$/.test(c.kind)) return true
+            if (/^set_(exec|leads)_repo_role$/.test(c.kind) && repos.has(lc(c.target))) return true
+            return [...groups].some((key) => c.kind === `create_${key}_team` || c.kind === `set_${key}_repo_role`)
+        })
     }
 
     /**
@@ -526,10 +516,10 @@ export class GitHubService extends Service {
         team: Team,
     ): Promise<{ slug: string | null; needed: NeededChange[] }> {
         const ids = { teamId: team.id }
-        const slug = slugOf(team.name)
+        const slug = team.githubSlug
         if (this.reserved(slug)) {
             return { slug: null, needed: [this.change('team_slug_conflict', slug,
-                    `${team.name}'s name matches a reserved team; rename the team`, ids)] }
+                    `${team.name}'s stored slug matches a reserved team; correct its githubSlug`, ids)] }
         }
         if (!(await this.gh.team(slug))) {
             return { slug: null, needed: [this.change('create_team', team.name,
@@ -578,7 +568,8 @@ export class GitHubService extends Service {
         for (const [login, userId] of desired) {
             // invitees get this once they accept; a team invite still pending after that is stale
             if ((await this.gh.member(login))?.state === 'pending') continue
-            if (team.members.get(login)?.state === 'active') continue
+            const entry = team.members.get(login)
+            if (entry?.state === 'active' && (entry.role === 'member' || await this.gh.isOwner(login))) continue
             const reason = `${login} should be in ${slug}`
             needed.push(await this.missing(`add_${key}_member`, login, userId, reason))
         }
@@ -613,10 +604,11 @@ export class GitHubService extends Service {
     // ============================================================
 
     private async fix(change: NeededChange): Promise<void> {
+        await this.assertNeeded(change)
         const { kind, target } = change
         const [repo, login = target] = target.split('/') // "repo/login" targets
         const team = async () => this.db.getTeam(required(change.teamId, change))
-        const slug = async () => slugOf((await team()).name)
+        const slug = async () => (await team()).githubSlug
         const reservedTeamKey = /_(exec|leads)_/.exec(kind)?.[1] as ReservedTeamKey;
 
         switch (kind) {
@@ -628,9 +620,13 @@ export class GitHubService extends Service {
             case 'set_team_member': {
                 const current = await team()
                 const dev = (await this.devMembers(current)).get(login)
-                if (dev) await this.gh.setTeamMember(slugOf(current.name), login, dev.role)
+                if (!dev) throw new StaleNeededChangeError(change)
+                await this.inviteWithAccess(await this.db.getUser(dev.userId))
+                await this.gh.setTeamMember(current.githubSlug, login, dev.role)
                 return
             }
+            case 'delete_extra_team':
+                return this.gh.deleteTeam(target)
             case 'remove_team_member':
                 return this.gh.removeTeamMember(await slug(), login)
             case 'grant_repo_admin':
@@ -641,8 +637,10 @@ export class GitHubService extends Service {
             case 'create_leads_team':
                 return this.createReservedTeam(reservedTeamKey)
             case 'add_exec_member':
-            case 'add_leads_member':
+            case 'add_leads_member': {
+                await this.inviteWithAccess(await this.db.getUser(required(change.userId, change)))
                 return this.gh.setTeamMember(this.reservedTeams[reservedTeamKey].slug, target, 'member')
+            }
             case 'remove_exec_member':
             case 'remove_leads_member':
                 return this.gh.removeTeamMember(this.reservedTeams[reservedTeamKey].slug, target)
@@ -656,10 +654,9 @@ export class GitHubService extends Service {
             }
             case 'reinvite_as_member': {
                 const user = await this.db.getUser(required(change.userId, change))
-                if (user.githubId !== target || user.execRole != null || !(await this.keepsOrgAccess(user))) return
+                if (user.githubId !== target || user.execRole != null || !(await this.keepsOrgAccess(user))) throw new StaleNeededChangeError(change)
                 const membership = await this.gh.member(target)
-                if (!membership) return this.inviteWithAccess(user)
-                if (membership?.state !== 'pending' || membership.role !== 'admin') return
+                if (membership?.state !== 'pending' || membership.role !== 'admin') throw new StaleNeededChangeError(change)
                 await this.gh.removeFromOrg(target)
                 return this.inviteWithAccess(user)
             }
@@ -672,38 +669,53 @@ export class GitHubService extends Service {
         }
     }
 
+    private async assertNeeded(change: NeededChange): Promise<void> {
+        this.memo.clear()
+        const current = await this.audit()
+        if (!current.some((c) => c.fixable && sameChange(c, change))) throw new StaleNeededChangeError(change)
+    }
+
     /** Makes all the team repo role changes in one batch (a few requests, not one per repo). */
     private async fixRepoRoles(
         changes: NeededChange[],
         failedChanges: FailedChange[],
         deferred: NeededChange[],
     ): Promise<void> {
-        deferred.push(...changes.slice(this.gh.callsLeft * 50))
-        changes = changes.slice(0, this.gh.callsLeft * 50)
+        const capacity = Math.max(0, this.gh.callsLeft) * 50
+        deferred.push(...changes.slice(capacity))
+        changes = changes.slice(0, capacity)
         if (!changes.length) return
 
         const items: { change: NeededChange; grant: TeamRepoGrant }[] = []
         for (const change of changes) {
             try {
+                await this.assertNeeded(change)
+                if (items.some((item) => sameChange(item.change, change))) throw new StaleNeededChangeError(change)
                 if (change.kind === 'set_team_repo_role') {
                     const team = await this.db.getTeam(required(change.teamId, change))
-                    items.push({ change, grant: { slug: slugOf(team.name), repo: change.target, permission: 'push' } })
+                    items.push({ change, grant: { slug: team.githubSlug, repo: change.target, permission: 'push' } })
                 } else {
                     const group = this.reservedTeams[/_(exec|leads)_/.exec(change.kind)![1] as ReservedTeamKey]
                     items.push({ change, grant: { slug: group.slug, repo: change.target, permission: group.permission } })
                 }
             } catch (error) {
-                failedChanges.push({ change, error: error instanceof Error ? error : new Error(String(error)) })
+                if (error instanceof GitHubBudgetExceeded) deferred.push(change)
+                else failedChanges.push({ change, error: error instanceof Error ? error : new Error(String(error)) })
             }
         }
-        const errors = await this.gh.setTeamRepos(items.map((item) => item.grant))
+        let errors: (Error | null)[]
+        try {
+            errors = await this.gh.setTeamRepos(items.map((item) => item.grant))
+        } catch (error) {
+            errors = items.map(() => error instanceof Error ? error : new Error(String(error)))
+        }
         errors.forEach((error, i) => {
             if (error instanceof GitHubBudgetExceeded) deferred.push(items[i].change)
             else if (error) failedChanges.push({ change: items[i].change, error })
         })
     }
 
-    /** Creates a group team with its role on every non-archived repo. */
+    /** Creates a group team with its role on every repo. */
     private async createReservedTeam(key: ReservedTeamKey): Promise<void> {
         const { slug, name, permission } = this.reservedTeams[key]
 
@@ -729,7 +741,7 @@ export class GitHubService extends Service {
         // if not keeping org access, remove from org and be done with it
         if (!(await this.keepsOrgAccess(user))) return this.gh.removeFromOrg(login)
 
-        const slug = slugOf(team.name)
+        const slug = team.githubSlug
 
         // if we're not deleting the team, remove their membership
         if (leaveTeam) await this.gh.removeTeamMember(slug, login)
@@ -826,7 +838,7 @@ export class GitHubService extends Service {
             const team = teams.get(teamId)
             if (!isLead || !team) continue
             const repos = result.get(user.githubId) ?? new Set<string>()
-            for (const repo of (await this.gh.teamRepos(slugOf(team.name)))) repos.add(lc(repo.name))
+            for (const repo of (await this.gh.teamRepos(team.githubSlug))) repos.add(lc(repo.name))
             result.set(user.githubId, repos)
         }
         return result
@@ -892,6 +904,7 @@ export class GitHubService extends Service {
      * Roles within teams and direct repo access come after they accept.
      */
     private async inviteWithAccess(user: User): Promise<void> {
+        if (!(await this.keepsOrgAccess(user)) || !user.githubId) throw new Error('User is not eligible for GitHub access')
         const login = user.githubId!
         if (await this.gh.member(login)) return
 
@@ -899,8 +912,8 @@ export class GitHubService extends Service {
         const slugs = new Set<string>()
         for (const { teamId, isLead } of await this.assignments({ userId: user.id })) {
             const team = teams.get(teamId)
-            if (!team || this.reserved(slugOf(team.name))) continue
-            slugs.add(slugOf(team.name))
+            if (!team || this.reserved(team.githubSlug)) continue
+            slugs.add(team.githubSlug)
             if (isLead) slugs.add(this.reservedTeams.leads.slug)
         }
         if (user.execRole != null) slugs.add(this.reservedTeams.exec.slug)

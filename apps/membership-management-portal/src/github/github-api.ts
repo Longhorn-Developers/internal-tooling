@@ -408,18 +408,22 @@ export class GitHubOrg {
         return (await this.state()).teams.get(slug)
     }
 
-    /** Non-archived repos a team can access, with its permission. */
+    async teams() {
+        return [...(await this.state()).teams.keys()]
+    }
+
+    /** Attached repos and permissions. */
     async teamRepos(slug: string) {
         const s = await this.state()
         return [...(s.teams.get(slug)?.repos ?? [])].flatMap(([key, permission]) => {
             const repo = s.repos.get(key)
-            return repo && !repo.archived ? [{ name: repo.name, permission }] : []
+            return repo ? [{ name: repo.name, permission }] : []
         })
     }
 
-    /** Non-archived org repos. */
+    /** All org repos, including archived repos and forks. */
     async repos() {
-        return [...(await this.state()).repos.values()].filter((repo) => !repo.archived)
+        return [...(await this.state()).repos.values()]
     }
 
     /** Direct (not through a team) collaborators of a repo: lowercased login -> permission. */
@@ -489,7 +493,7 @@ export class GitHubOrg {
         for (const repo of this.snap.repos.values()) repo.direct.delete(id)
     }
 
-    /** Sets team membership; a non-member is invited (this is what creates their invitation), a pending invitee is skipped. */
+    /** Sets team membership after org invitation; pending invitees are skipped. */
     async setTeamMember(slug: string, login: string, role: TeamRole): Promise<void> {
         const s = await this.state()
         const id = lc(login)
@@ -543,12 +547,16 @@ export class GitHubOrg {
         s.teams.delete(slug)
     }
 
-    /** Batched grants with REST fallback; ordered errors, null for success or no-op. */
+    /** Last grant per target wins; ordered errors, null for success or superseded input. */
     async setTeamRepos(grants: TeamRepoGrant[]): Promise<(Error | null)[]> {
         const s = await this.state()
         const results: (Error | null)[] = grants.map(() => null)
         const todo: number[] = []
+        const last = new Map<string, number>()
+        const key = (g: TeamRepoGrant) => `${g.slug}/${lc(g.repo)}`
+        grants.forEach((grant, i) => last.set(key(grant), i))
         grants.forEach(({ slug, repo, permission }, i) => {
+            if (last.get(key(grants[i])) !== i) return
             const team = s.teams.get(slug)
             if (!team || !s.repos.has(lc(repo))) {
                 results[i] = new GitHubError(404, `Team ${slug} or repository ${repo} does not exist`)

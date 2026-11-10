@@ -111,7 +111,7 @@ export abstract class Service {
     /** Reports how one user's access differs from D1. Changes nothing. */
     abstract syncUser(user: User): Promise<ServiceResult>
 
-    /** Reports what no single team covers (groups, org-wide access). Changes nothing. */
+    /** Audits all modeled state, including every team and org-wide access. Changes nothing. */
     abstract syncService(): Promise<ServiceResult>
 
     /** Bounded fixes; failures and deferred work returned. */

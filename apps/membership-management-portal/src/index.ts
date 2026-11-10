@@ -3,7 +3,7 @@ import {Vertical} from './db/schema'
 import { GitHubService } from './github/github-service'
 import { handleGitHubWebhook } from './github/github-webhook'
 import type {ExecRole, FailedServices, FixResult, NeededChange, RPCResult, Service, ServiceResult} from './service'
-import {MembershipDatabase, today} from "./db/access";
+import {githubSlugOf, MembershipDatabase, today} from "./db/access";
 import Env = Cloudflare.Env;
 
 // TODO: eventually publish types in repo frontend can import
@@ -150,6 +150,10 @@ export class MembershipService extends WorkerEntrypoint<Env> {
     }
 
     async createTeam(name: string): Promise<RPCResult> {
+        const slug = githubSlugOf(name)
+        if (!slug || [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].some((n) => githubSlugOf(n) === slug)) {
+            throw new Error(`Invalid or reserved GitHub team slug: ${slug}`)
+        }
         const team = await this.db.createTeam({ name });
 
         return this.run((s) => s.createTeam(team))
@@ -178,7 +182,7 @@ export class MembershipService extends WorkerEntrypoint<Env> {
         return this.run((s) => s.syncUser(user))
     }
 
-    /** Reports what no single team covers (e.g. groups) in one service. Changes nothing. */
+    /** Audits all modeled state in one service. Changes nothing. */
     async syncService(service: string): Promise<RPCResult> {
         const found = this.allServices.find((s) => s.name === service);
         if (!found) throw new Error(`Unknown service: ${service}`);

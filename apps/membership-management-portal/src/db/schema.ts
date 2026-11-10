@@ -1,5 +1,5 @@
 import {sql} from 'drizzle-orm'
-import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const statusNames = ['applicant', 'active', 'inactive', 'alum'] as const
 export type Status = (typeof statusNames)[number]
@@ -26,7 +26,10 @@ const sqlInArray = (column: any, allowedValues: readonly string[]) => {
 export const teams = sqliteTable('teams', {
     id: text('id').primaryKey().notNull(),
     name: text('name').notNull(),
-})
+    githubSlug: text('github_slug').notNull().unique(),
+}, (table) => [
+    check('valid_github_slug', sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*'`),
+])
 
 export const users = sqliteTable(
     'users',
@@ -34,8 +37,8 @@ export const users = sqliteTable(
         id: text('id').primaryKey().notNull(),
         name: text('name').notNull(),
         email: text('email').notNull(),
-        githubId: text('github_id'),
-        discordId: text('discord_id').notNull(),
+        githubId: text('github_id').unique(),
+        discordId: text('discord_id').notNull().unique(),
         status: text('status', { enum: statusNames }).notNull().default('active'),
         execRole: text('exec_role', { enum: execRoles }),
         dateJoined: text('date_joined'), // YYYY-MM-DD; null when not yet known.
@@ -45,6 +48,7 @@ export const users = sqliteTable(
         check('valid_status', sqlInArray(table.status, statusNames)),
         check('valid_exec_role', sqlInArray(table.execRole, execRoles)),
         check('github_id_lowercase', sql`${table.githubId} = lower(${table.githubId})`),
+        uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),
     ],
 )
 

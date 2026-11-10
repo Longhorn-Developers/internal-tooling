@@ -15,6 +15,8 @@ npm run cf-typegen
 
 # Membership Management Portal
 
+Run the offline reconciliation and in-memory SQLite tests with `pnpm test` (Node 24+).
+
 ## Purpose
 
 LHD frequently has new members joining in that need access to software and old members graduating that should be removed from said software. This portal attempts to ease this process of editing permissions for, adding, or removing members of LHD.
@@ -30,8 +32,14 @@ belong to multiple teams, with one or more verticals (`product`, `tech`,
 `design`) per team. Each assignment has an `isLead` flag, so a vertical can have
 co-leads, but a user is either a lead or not within one team and vertical. Users
 have a `status` (`applicant`, `active`, `inactive`, `alum`; defaults to
-`applicant`), an `isExec` flag, and optional `dateJoined` / `dateLeft` fields
+`active`), an optional `execRole`, and optional `dateJoined` / `dateLeft` fields
 (`YYYY-MM-DD`). Status and vertical values are enforced with CHECK constraints.
+
+Teams store a unique, non-null `githubSlug`, generated on insertion and independent of
+their display names. GitHub IDs (nullable) and Discord IDs are unique; email uniqueness
+uses `lower(email)`. Names are not unique. User creation and editing trim identities and
+lowercase email and GitHub IDs; an empty GitHub ID becomes null. Team creation rejects
+empty slugs and slugs reserved for the exec and leads groups.
 
 Run these commands from this app's directory to initialize remote D1 using the
 database binding in `wrangler.jsonc`. No `.env` file is needed with Wrangler login:
@@ -51,27 +59,29 @@ The deployed Worker accesses D1 through `this.env.membership_db`.
 
 ## Database access helpers
 
-Import from `src/db/access.ts` and pass the D1 binding first:
+Use `MembershipDatabase` from `src/db/access.ts` with the D1 binding:
 
 ```ts
-import { getUserById, assignVertical } from './db/access';
+import { MembershipDatabase } from './db/access';
 
-const user = await getUserById(this.env.membership_db, userId);
-await assignVertical(this.env.membership_db, userId, teamId, 'tech', true); // as lead
+const db = new MembershipDatabase(this.env.membership_db);
+const user = await db.getUser(userId);
+await db.assignVertical(userId, teamId, 'tech', true); // as lead
 ```
 
-Available helpers include `createUser`, `updateUser`, `getUserById`,
+Available helpers include `createUser`, `updateUser`, `getUser`,
 `getTeamMembers`, `assignVertical`, `removeVertical`, `createTeam`, and `deleteTeam`. Create users and teams before assigning
 verticals. `getTeamMembers` returns `{ user, verticals: { vertical, isLead }[] }[]`.
 `assignVertical` inserts the assignment or updates `isLead` on an existing one;
-assignment/removal helpers return whether a row changed. Database errors reject
-the promise.
+assignment/removal helpers return no value. Database errors reject the promise.
 
 ## Services
 
 Each external service is a subclass of `Service` (`src/service.ts`), which declares
 the same actions for every service. `src/index.ts` runs each action on every
-service in `allServices` and writes D1, which is the source of truth. The Worker
+service in `allServices` after writing D1, which is always the source of truth. Failed
+external operations do not roll back D1: run sync and apply its current corrections to recover.
+The Worker
 (`src/index.ts`) exposes them through the `MembershipService` RPC binding:
 
 | Method | Does |
@@ -85,13 +95,13 @@ service in `allServices` and writes D1, which is the source of truth. The Worker
 | `createTeam(name)` / `deleteTeam(teamId)` | creates or deletes the team everywhere |
 | `syncTeam(teamId)` | reports how the team differs from D1 in every service; changes nothing |
 | `syncUser(userId)` | reports how one user differs from D1 in every service; changes nothing |
-| `syncService(service)` / `syncAll()` | reports what isn't about one team (groups, org-wide access) in one or every service; changes nothing |
+| `syncService(service)` / `syncAll()` | comprehensively audits all modeled state in one or every service; changes nothing |
 | `autoFix(changes)` | attempts up to 10 changes per service; also returns `failedChanges: FailedChange[]`, and the deferred changes as `changes` |
 
 Every RPC returns `RPCResult`: `{ changes?: NeededChange[], failedServices: { [service]: Error? } }`
 (`src/service.ts`). A service that didn't complete is a key in `failedServices`; its value is the
 error if the service threw one, and undefined if it was blocked by a missing entity. Services
-return `ServiceResult`, `{ changes?, failed: boolean }`. A `NeededChange` is
+return `ServiceResult`, `{ changes: NeededChange[], failed: boolean }`. A `NeededChange` is
 `{ service, kind, teamId?, userId?, target, reason, fixable, blocking }`.
 
 Before an action changes anything, each service checks the entities it needs:
@@ -106,14 +116,16 @@ Before an action changes anything, each service checks the entities it needs:
 Pass `changes` to `autoFix`, which makes the `fixable` ones; the others need a person (e.g. a
 wrong `github_id`). Only some kinds are `blocking` (below); let the user choose which of the rest
 to pass. A change with no `userId` is for an account that isn't in D1.
-Removals never fail over something already missing. Resubmit the changes `autoFix` returns (they
+Selected fixes are revalidated against fresh D1 reads and the per-RPC GitHub snapshot before
+writing. A correction no longer justified throws `StaleNeededChangeError`, returned in
+`failedChanges`, including already-completed removals. Resubmit the changes `autoFix` returns (they
 were deferred); a request-budget guard can defer work before ten changes finish. Completed
 writes are not rolled back if a later write fails.
 
 Failed API calls throw a `ServiceError` (fields `service`, `code`, `retryable`; GitHub's adds
 `status`) whose message starts with its code. Its fields survive Workers RPC, and `autoFix`
-returns the thrown error itself in each `failedChanges` entry. Actions are idempotent, so retrying one
-is safe.
+returns the thrown error itself in each `failedChanges` entry. Recover failed actions by syncing
+current state, not by replaying an old RPC or correction.
 
 ## GitHub
 
@@ -124,21 +136,23 @@ Writes skip unchanged state and update the snapshot only after remote success. T
 grants are batched with GraphQL, falling back to REST for rejected mutations. Partial successes
 update only their own entries. Other writes use REST.
 
-- Every team has a GitHub team, found by the slug of the team's name (e.g. `UT Dining` →
-  `ut-dining`). Renaming a team in D1 needs its GitHub team renamed to match.
+- Every team has a GitHub team identified by its stored `githubSlug` (initially e.g.
+  `UT Dining` → `ut-dining`). Changing the D1 display name does not change its identity.
+  When recreating a missing team after a display-name change, its stored slug is used as
+  the GitHub name if necessary to preserve that identity.
 - GitHub is the source of truth for repositories: a team's repositories are the ones its GitHub
   team has access to. Add or remove them in the GitHub team's settings.
 - The team has Write on its repositories. Active `tech` members are on it: leads as maintainers
   with direct Admin on the team's repositories, fellows as members. Other verticals get no GitHub
   access.
-- Every tech lead of any team is on the leads team, which has Maintain on every non-archived
-  repository.
-- Every active exec is on the exec team, which has Admin on every non-archived repository, and
+- Every active tech lead of any team is on the leads team, which has Maintain on every
+  repository, including archived repositories and forks.
+- Every active exec is on the exec team, which has Admin on every repository, and
   is an org owner. Every exec role gets the same access. An exec who also leads a team gets all
   of it; owners get no exemptions.
 - `GITHUB_EXEC_TEAM` and `GITHUB_LEADS_TEAM` are team *names*: slugified to find the team, used
   as-is to create it.
-- Org membership follows tech assignments: users with a tech assignment (and execs) are in the
+- Org membership follows active tech assignments: active users with a tech assignment (and active execs) are in the
   org, nobody else. Joining a tech team invites them; leaving their last tech assignment, losing
   exec with no tech assignment, or being deactivated removes them (owners too). `onboardUser`
   only checks the account exists.
@@ -154,13 +168,14 @@ update only their own entries. Other writes use REST.
 - A pending owner invitation for a non-exec is reported as the fixable, non-blocking
   `reinvite_as_member`. The fix checks their current role, cancels the invitation and sends a
   member invitation including their current teams. This is not atomic: if sending fails after
-  cancellation, retrying the change sends the missing invitation.
+  cancellation, a new sync reports the missing invitation; the old correction is stale.
 - Invitations expire after 7 days, and an org can send only 50 per 24 hours (500 once it is a
   month old or on a paid plan; GitHub answers `GITHUB_VALIDATION_FAILED`). An expired invitation
   is just a missing member again, so the next sync reports `invite_to_org`; run the syncs
   periodically, and spread a large first import over days if the org is new.
 - Access beyond this is reported by the syncs. Changes for accounts not in D1 have no `userId`.
-  GitHub teams are only deleted by `deleteTeam`.
+  Every GitHub team outside the stored D1 slugs and the two reserved groups produces a
+  selectable `delete_extra_team`; nothing is deleted just by syncing.
 
 What actions require: `addUserToTeam` needs the team's GitHub team, the user's GitHub account and
 (for a lead) the leads team; `makeExec` needs the exec team and the account; `onboardUser` needs
@@ -169,19 +184,28 @@ the account. A missing one is a `blocking` change (`create_team`, `create_{exec,
 non-blocking, including the repository roles a team or group lacks (`set_team_repo_role`,
 `set_{exec,leads}_repo_role`).
 
-`syncTeam` reports the team's GitHub team, member roles, repository roles, and direct repository
-access. `syncService("github")` reports the exec and leads teams, org owners and members, and
-repositories no team owns (with anyone holding direct access to them). When a user accepts their
+All sync scopes use one read-only audit. `syncTeam` includes the team's setup, memberships,
+every direct grant on its attached repositories, and the related users' org/group access and
+group setup. `syncUser` includes the user's desired and extra memberships, org role, direct
+grants, related team setup and required group setup. `syncService("github")` audits every D1
+team and relevant account, both reserved groups, all org memberships/invitations, every extra
+GitHub team and every direct repository grant, including owners, archived repos and forks.
+Orphan repositories remain informational: attach them manually rather than guessing a team.
+After an account replacement or team deletion, use service-wide sync to find access belonging
+to identities no longer represented in D1. A sync failure is not a clean bill of health;
+inspect `failedServices`. Snapshots are not atomic with concurrent external edits.
+
+When a user accepts their
 org invitation the webhook runs `addUserToTeam` for each of their tech teams and `makeExec` if
 they're an exec. That also covers teams, roles or an exec role changed while they were pending
 (an invitation's own role can't change). A blocking change fails that action, to be fixed later,
 and a user who shouldn't be in the org is only reported (`remove_org_member`).
 
-Change kinds: `create_team`, `set_team_member`, `remove_team_member`, `set_team_repo_role`,
+Change kinds: `create_team`, `delete_extra_team`, `set_team_member`, `remove_team_member`, `set_team_repo_role`,
 `grant_repo_admin`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
 `set_{exec,leads}_repo_role`, `add_{exec,leads}_member`, `remove_{exec,leads}_member`,
 `make_org_owner`, `demote_owner`, `invite_to_org`, `reinvite_as_member`, `remove_org_member` are fixable;
-`github_user_not_found`, `pending_invite`, `orphan_repo`, `team_slug_conflict` need a person.
+`github_user_not_found`, `no_github_account`, `pending_invite`, `orphan_repo`, `team_slug_conflict` need a person.
 A change's `target` is a login, repository, or team name, or `repo/login` for per-user
 repository access.
 

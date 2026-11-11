@@ -2,7 +2,7 @@ import { MembershipDatabase } from '../db/access'
 import { GitHubService } from './github-service'
 import Env = Cloudflare.Env
 
-const PATH = '/mmp-github'
+const PATH = '/github'
 
 type OrganizationEvent = {
     action: string

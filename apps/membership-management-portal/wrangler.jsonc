@@ -8,18 +8,11 @@
 	"main": "src/index.ts",
 	"keep_vars": true, // we specify vars in the dashboard and .dev.vars, not here
 	"routes": [
-		{ "pattern": "webhook.longhorndevelopers.org/mmp-github", "zone_name": "longhorndevelopers.org" }
+		{ "pattern": "mmp.webhook.longhorndevelopers.org", "custom_domain": true }
 	],
 	"workers_dev": false,
 	"preview_urls": false,
 	"compatibility_date": "2026-10-06",
-	"env": {
-		"staging": {
-			"routes": [
-				{ "pattern": "webhook.staging.longhorndevelopers.org/mmp-github", "zone_name": "longhorndevelopers.org" }
-			]
-		}
-	},
 	"observability": {
 		"enabled": true
 	},

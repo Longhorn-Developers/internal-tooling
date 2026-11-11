@@ -3,7 +3,7 @@ import {Vertical} from './db/schema'
 import { GitHubService } from './github/github-service'
 import { handleGitHubWebhook } from './github/github-webhook'
 import type {ExecRole, FailedServices, FixResult, NeededChange, RPCResult, Service, ServiceResult} from './service'
-import {githubSlugOf, MembershipDatabase} from "./db/access";
+import {githubSlugOf, MembershipDatabase, slugUnavailable} from "./db/access";
 import Env = Cloudflare.Env;
 
 // TODO: eventually publish types in repo frontend can import
@@ -149,7 +149,7 @@ export class MembershipService extends WorkerEntrypoint<Env> {
 
     async createTeam(name: string): Promise<RPCResult> {
         const slug = githubSlugOf(name)
-        if (!slug || [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].some((n) => githubSlugOf(n) === slug)) {
+        if (slugUnavailable(slug, [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].map(githubSlugOf))) {
             throw new Error(`Invalid or reserved GitHub team slug: ${slug}`)
         }
         const team = await this.db.createTeam({ name });
@@ -194,17 +194,19 @@ export class MembershipService extends WorkerEntrypoint<Env> {
     }
 
     /**
-     * Makes the fixable changes; `changes` are those deferred (resubmit them) and `failedChanges`
-     * those that errored.
+     * Makes the fixable changes; `changes` are those deferred (resubmit them), `failedChanges`
+     * those that errored, and `rejected` those that need a person or aren't supported.
      */
     async autoFix(changes: NeededChange[]): Promise<FixResult> {
-        const result: FixResult = { failedServices: {}, failedChanges: [] };
+        const result: FixResult = { failedServices: {}, failedChanges: [], rejected: [] };
+        result.rejected.push(...changes.filter((change) => !this.allServices.some((s) => s.name === change.service)))
         const deferred: NeededChange[] = []
         for (const s of this.allServices) {
             try {
                 const next = await s.autoFix(changes.filter((change) => change.service === s.name))
                 deferred.push(...(next.changes ?? []))
                 result.failedChanges.push(...next.failedChanges)
+                result.rejected.push(...next.rejected)
                 if (next.failed) result.failedServices[s.name] = undefined
             } catch (error) {
                 result.failedServices[s.name] = toError(error)

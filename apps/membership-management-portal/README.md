@@ -39,7 +39,9 @@ Teams store a unique, non-null `githubSlug`, generated on insertion and independ
 their display names. GitHub IDs (nullable) and Discord IDs are unique; email uniqueness
 uses `lower(email)`. Names are not unique. User creation and editing trim identities and
 lowercase email and GitHub IDs; an empty GitHub ID becomes null. Team creation rejects
-empty slugs and slugs reserved for the exec and leads groups.
+empty slugs, slugs ending in `-leads` (reserved for each team's GitHub leads subteam; a CHECK
+constraint enforces this too), and slugs that equal, or whose subteam slug equals, the exec or
+leads group's slug.
 
 Run these commands from this app's directory to initialize remote D1 using the
 database binding in `wrangler.jsonc`. No `.env` file is needed with Wrangler login:
@@ -96,7 +98,7 @@ The Worker
 | `syncTeam(teamId)` | reports how the team differs from D1 in every service; changes nothing |
 | `syncUser(userId)` | reports how one user differs from D1 in every service; changes nothing |
 | `syncService(service)` / `syncAll()` | comprehensively audits all modeled state in one or every service; changes nothing |
-| `autoFix(changes)` | attempts up to 10 changes per service; also returns `failedChanges: FailedChange[]`, and the deferred changes as `changes` |
+| `autoFix(changes)` | attempts up to 10 valid changes per service; also returns `failedChanges: FailedChange[]`, `rejected: NeededChange[]` (manual or unsupported; never attempted), and the deferred changes as `changes` |
 
 Every RPC returns `RPCResult`: `{ changes?: NeededChange[], failedServices: { [service]: Error? } }`
 (`src/service.ts`). A service that didn't complete is a key in `failedServices`; its value is the
@@ -114,11 +116,16 @@ Before an action changes anything, each service checks the entities it needs:
   gate anything: a sync's `changes` are drift, almost all `fixable`.
 
 Pass `changes` to `autoFix`, which makes the `fixable` ones; the others need a person (e.g. a
-wrong `github_id`). Only some kinds are `blocking` (below); let the user choose which of the rest
+wrong `github_id`) and come back in `rejected`, never attempted. Only `failedChanges` mark a
+service as failed (`failedServices`); deferred and rejected changes are just returned. Only some kinds are `blocking` (below); let the user choose which of the rest
 to pass. A change with no `userId` is for an account that isn't in D1.
-Selected fixes are revalidated against fresh D1 reads and the per-RPC GitHub snapshot before
-writing. A correction no longer justified throws `StaleNeededChangeError`, returned in
-`failedChanges`, including already-completed removals. Resubmit the changes `autoFix` returns (they
+Unknown kinds and service names are also rejected, not silently discarded or treated as stale.
+Every selected fix is validated once, up front, against fresh D1 reads and the per-RPC GitHub
+snapshot, before anything is written. A correction no longer justified (or selected twice) is
+returned as a `StaleNeededChangeError` in `failedChanges`, including already-completed removals.
+Stale and duplicate selections do not consume the ten valid-fix slots.
+A selection that an earlier fix in the same call happens to satisfy (an invitation covering a
+team membership) is not a failure. Resubmit the changes `autoFix` returns (they
 were deferred); a request-budget guard can defer work before ten changes finish. Completed
 writes are not rolled back if a later write fails.
 
@@ -142,10 +149,16 @@ update only their own entries. Other writes use REST.
   the GitHub name if necessary to preserve that identity.
 - GitHub is the source of truth for repositories: a team's repositories are the ones its GitHub
   team has access to. Add or remove them in the GitHub team's settings.
-- The team has Write on its repositories. Active `tech` members are on it: leads as maintainers
-  with direct Admin on the team's repositories, fellows as members. Other verticals get no GitHub
-  access.
-- Every active tech lead of any team is on the leads team, which has Maintain on every
+- The team has Write on its repositories. Every active `tech` member, lead or not, is a plain
+  member of it. Each team also has a child GitHub team, `<githubSlug>-leads` ("<name> Leads"),
+  holding exactly the team's tech leads, with Admin on the same repositories. Team slugs ending
+  in `-leads` are rejected so the two never collide. Other verticals get no GitHub access.
+  When the parent drops a repository, sync reports a non-blocking, fixable `remove_subteam_repo`
+  for any access its leads subteam retains. Applying it removes only that subteam's grant;
+  other teams' access stays intact.
+- Repositories have team access only: any direct collaborator is reported as
+  `remove_repo_collaborator`. (The leads subteam's parent link is set on creation, not audited.)
+- Every active tech lead of any team is also on the org-wide leads group, which has Maintain on every
   repository, including archived repositories and forks.
 - Every active exec is on the exec team, which has Admin on every repository, and
   is an org owner. Every exec role gets the same access. An exec who also leads a team gets all
@@ -158,17 +171,13 @@ update only their own entries. Other writes use REST.
   only checks the account exists.
 - Only org invitations are ever sent, never repository invitations. New users get one
   `POST /orgs/{org}/invitations` with their org role and all existing teams D1 assigns them
-  (including the leads and exec teams when applicable). GitHub doesn't document adding someone with a
-  pending invitation to another team, so nothing else is sent until they accept: team roles,
-  direct repository access and ownership wait. Actions and `syncUser`/`syncService` report that
+  (including leads subteams and the leads and exec groups when applicable). GitHub doesn't document
+  adding someone with a pending invitation to another team, so nothing else is sent until they
+  accept: further team memberships and ownership wait. Actions and `syncUser`/`syncService` report that
   as a non-blocking `pending_invite` (needs the invitee); once they accept, the webhook (or the
   next sync and `autoFix`) applies the rest. An invitation's role can't be changed through the API, so an exec
   invited as a member is made an owner after they accept; `removeExec` on a pending owner cancels
   and re-invites them as a member.
-- If a direct repo grant unexpectedly creates an invitation (e.g. membership changed after
-  the snapshot), it is immediately cancelled and the grant reports failure. Cancellation
-  errors propagate too. Pending repository invitations are not audited; if cancellation
-  fails, an org owner must remove the invitation manually.
 - A pending owner invitation for a non-exec is reported as the fixable, non-blocking
   `reinvite_as_member`. The fix checks their current role, cancels the invitation and sends a
   member invitation including their current teams. This is not atomic: if sending fails after
@@ -183,17 +192,17 @@ update only their own entries. Other writes use REST.
   whole-team deletion. Nothing is deleted just by syncing.
 
 What actions require: `addUserToTeam` needs the team's GitHub team, the user's GitHub account and
-(for a lead) the leads team; `makeExec` needs the exec team and the account; `onboardUser` needs
-the account. A missing one is a `blocking` change (`create_team`, `create_{exec,leads}_team`,
-`github_user_not_found`, `team_slug_conflict`) and the action doesn't run. Every other kind is
-non-blocking, including the repository roles a team or group lacks (`set_team_repo_role`,
-`set_{exec,leads}_repo_role`).
+(for a lead) the team's leads subteam and the leads group; `makeExec` needs the exec team and the
+account; `onboardUser` needs the account. A missing one is a `blocking` change (`create_team`,
+`create_subteam`, `create_{exec,leads}_team`, `github_user_not_found`, `team_slug_conflict`) and the
+action doesn't run. Blocking depends only on the kind; an action just doesn't check what it doesn't
+need, so adding a fellow never reports `create_subteam`. Every other kind is non-blocking, including the repository roles a team,
+subteam or group lacks (`set_team_repo_role`, `set_subteam_repo_role`, `set_{exec,leads}_repo_role`).
 
-All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup,
-memberships and roles, every direct grant on its attached repositories, and account/invitation
+All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup (team and
+subteam), memberships, every direct grant on its attached repositories, and account/invitation
 issues affecting its active tech members. It excludes other teams' memberships, reserved-group
-setup and org-wide corrections. Direct grants are still evaluated against all D1 assignments,
-so a lead of another team sharing a repository keeps their deserved Admin access.
+setup and org-wide corrections.
 `syncUser` includes the user's desired and extra memberships, org role, direct
 grants, related team setup and required group setup. `syncService("github")` audits every D1
 team and relevant account, both reserved groups, all org memberships/invitations, every extra
@@ -203,14 +212,18 @@ After an account replacement or team deletion, use service-wide sync to find acc
 to identities no longer represented in D1. A sync failure is not a clean bill of health;
 inspect `failedServices`. Snapshots are not atomic with concurrent external edits.
 
+GitHub account existence is checked only for active users. Inactive users' remaining access is
+still reported for removal; an unwanted owner is removed rather than also being offered a demotion.
+
 When a user accepts their
 org invitation the webhook runs `addUserToTeam` for each of their tech teams and `makeExec` if
 they're an exec. That also covers teams, roles or an exec role changed while they were pending
 (an invitation's own role can't change). A blocking change fails that action, to be fixed later,
 and a user who shouldn't be in the org is only reported (`remove_org_member`).
 
-Change kinds: `create_team`, `delete_extra_team`, `set_team_member`, `remove_team_member`, `set_team_repo_role`,
-`grant_repo_admin`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
+Change kinds: `create_team`, `create_subteam`, `delete_extra_team`, `set_team_member`,
+`remove_team_member`, `set_subteam_member`, `remove_subteam_member`, `set_team_repo_role`,
+`set_subteam_repo_role`, `remove_subteam_repo`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
 `set_{exec,leads}_repo_role`, `add_{exec,leads}_member`, `remove_{exec,leads}_member`,
 `make_org_owner`, `demote_owner`, `invite_to_org`, `reinvite_as_member`, `remove_org_member` are fixable;
 `github_user_not_found`, `no_github_account`, `pending_invite`, `orphan_repo`, `team_slug_conflict` need a person.

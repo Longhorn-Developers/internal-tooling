@@ -34,8 +34,12 @@ export type FailedChange = { change: NeededChange; error: Error }
 /** What a service returns for one action. `failed` means it didn't run (or finish). */
 export type ServiceResult = { changes: NeededChange[]; failed: boolean }
 
-/** What a service's autoFix returns; `changes` are those it deferred, to resubmit. */
-export type FixServiceResult = ServiceResult & { failedChanges: FailedChange[] }
+/**
+ * What a service's autoFix returns: `changes` are those it deferred, to resubmit; `failedChanges`
+ * errored; `rejected` weren't attempted because they need a person or their kind/service isn't supported.
+ * Only failedChanges make it `failed`; deferred and rejected changes are returned for the caller.
+ */
+export type FixServiceResult = ServiceResult & { failedChanges: FailedChange[]; rejected: NeededChange[] }
 
 /** Services that didn't complete, by name. The error is there if the service threw one. */
 export type FailedServices = { [service: string]: Error | undefined }
@@ -43,7 +47,7 @@ export type FailedServices = { [service: string]: Error | undefined }
 /** What every RPC returns: every service's changes, and the services that didn't complete. */
 export type RPCResult = { changes?: NeededChange[]; failedServices: FailedServices }
 
-export type FixResult = RPCResult & { failedChanges: FailedChange[] }
+export type FixResult = RPCResult & { failedChanges: FailedChange[]; rejected: NeededChange[] }
 
 /** A failed call to an external service; its fields survive Workers RPC. */
 export class ServiceError extends Error {

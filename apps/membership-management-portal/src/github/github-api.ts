@@ -72,14 +72,14 @@ const COLLABORATOR_EDGES = `edges {
 }`
 
 const TEAM_FIELDS = `fragment TeamFields on Team {
-  id databaseId slug name
+  id databaseId slug
   members(first: $page, membership: IMMEDIATE) { ${MEMBER_EDGES} }
   invitations(first: $page) { ${PAGE_INFO} nodes { invitee { login } } }
   repositories(first: $page) { ${PAGE_INFO} edges { permission node { name } } }
 }`
 
 const REPO_FIELDS = `fragment RepoFields on Repository {
-  id name isArchived isFork
+  id name
   collaborators(first: $page, affiliation: DIRECT) { ${PAGE_INFO} ${COLLABORATOR_EDGES} }
 }`
 
@@ -131,13 +131,13 @@ type CollaboratorEdge = {
     permissionSources: { permission: string; source: { __typename: string; id?: string } }[] | null
 }
 type GqlTeam = {
-    id: string; databaseId: number; slug: string; name: string
+    id: string; databaseId: number; slug: string
     members: Conn<MemberEdge>
     invitations: Conn<{ invitee: { login: string } | null }> | null
     repositories: Conn<RepoEdge>
 }
 type GqlRepo = {
-    id: string; name: string; isArchived: boolean; isFork: boolean
+    id: string; name: string
     collaborators: Conn<CollaboratorEdge> | null
 }
 
@@ -157,8 +157,8 @@ const statusOf = (type?: string) =>
 type OrgEntry = { role: 'admin' | 'member'; state: 'active' | 'pending' }
 // role is null when unknown (e.g. an owner we just demoted, or a pending invite)
 type TeamEntry = { role: TeamRole | null; state: 'active' | 'pending' }
-type TeamState = { id: string; dbId: number; name: string; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
-type RepoState = { id: string; name: string; archived: boolean; fork: boolean; direct: Map<string, RepoPermission> }
+type TeamState = { id: string; dbId: number; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
+type RepoState = { id: string; name: string; direct: Map<string, RepoPermission> }
 type Snapshot = { members: Map<string, OrgEntry>; teams: Map<string, TeamState>; repos: Map<string, RepoState> }
 
 export type TeamRepoGrant = { slug: string; repo: string; permission: RepoPermission }
@@ -319,7 +319,7 @@ export class GitHubOrg {
     }
 
     private async ingestTeam(s: Snapshot, t: GqlTeam) {
-        const team: TeamState = { id: t.id, dbId: t.databaseId, name: t.name, members: new Map(), repos: new Map() }
+        const team: TeamState = { id: t.id, dbId: t.databaseId, members: new Map(), repos: new Map() }
         const members = await this.drain<MemberEdge>(t.members, 'edges', async (after) =>
             (await this.query(MORE.teamMembers, { id: t.id, after }, false)).node.c)
         for (const { role, node } of members) {
@@ -337,7 +337,7 @@ export class GitHubOrg {
     }
 
     private async ingestRepo(s: Snapshot, r: GqlRepo) {
-        const repo: RepoState = { id: r.id, name: r.name, archived: r.isArchived, fork: r.isFork, direct: new Map() }
+        const repo: RepoState = { id: r.id, name: r.name, direct: new Map() }
         const collaborators = await this.drain<CollaboratorEdge>(r.collaborators, 'edges', async (after) =>
             (await this.query(MORE.collaborators, { id: r.id, after }, false)).node.c)
         for (const { permission, node, permissionSources } of collaborators) {
@@ -494,7 +494,7 @@ export class GitHubOrg {
     }
 
     /** Sets team membership after org invitation; pending invitees are skipped. */
-    async setTeamMember(slug: string, login: string, role: TeamRole): Promise<void> {
+    async setTeamMember(slug: string, login: string): Promise<void> {
         const s = await this.state()
         const id = lc(login)
         const team = s.teams.get(slug)
@@ -502,14 +502,14 @@ export class GitHubOrg {
         const current = team.members.get(id)
         // GitHub doesn't document adding a pending invitee to another team; it's applied once they accept
         if (s.members.get(id)?.state === 'pending') return
-        if (current?.state === 'active' && current.role === role) return
-        if (current?.role === 'maintainer' && ownerIn(s, id)) return
+        // owners always show as maintainers
+        if (current?.state === 'active' && (current.role === 'member' || ownerIn(s, id))) return
 
         const { data } = await this.octokit.rest.teams.addOrUpdateMembershipForUserInOrg({
             org: this.org,
             team_slug: slug,
             username: login,
-            role,
+            role: 'member',
         })
         team.members.set(id, { role: data.role, state: data.state })
         if (!s.members.has(id)) s.members.set(id, { role: 'member', state: 'pending' })
@@ -527,14 +527,18 @@ export class GitHubOrg {
         team.members.delete(id)
     }
 
-    /** Creates a visible team unless one with this slug exists (GitHub derives the slug from the name). */
-    async createTeam(name: string, slug: string): Promise<{ slug: string; id: string }> {
+    /** Creates a visible team, optionally under a parent, unless one with this slug exists (GitHub derives the slug from the name). */
+    async createTeam(name: string, slug: string, parentSlug?: string): Promise<{ slug: string; id: string }> {
         const s = await this.state()
         const existing = s.teams.get(slug)
         if (existing) return { slug, id: existing.id }
 
-        const { data } = await this.octokit.rest.teams.create({ org: this.org, name, privacy: 'closed' })
-        s.teams.set(data.slug, { id: data.node_id, dbId: data.id, name: data.name, members: new Map(), repos: new Map() })
+        const parent = parentSlug ? s.teams.get(parentSlug) : undefined
+        if (parentSlug && !parent) throw new GitHubError(404, `Team ${parentSlug} does not exist`)
+        const { data } = await this.octokit.rest.teams.create({
+            org: this.org, name, privacy: 'closed', parent_team_id: parent?.dbId,
+        })
+        s.teams.set(data.slug, { id: data.node_id, dbId: data.id, members: new Map(), repos: new Map() })
         return { slug: data.slug, id: data.node_id }
     }
 
@@ -545,6 +549,15 @@ export class GitHubOrg {
 
         await orNull(this.octokit.rest.teams.deleteInOrg({ org: this.org, team_slug: slug }))
         s.teams.delete(slug)
+    }
+
+    /** Removes a team's repository grant; other teams' access is unaffected. */
+    async removeTeamRepo(slug: string, repo: string): Promise<void> {
+        const team = (await this.state()).teams.get(slug)
+        if (!team?.repos.has(lc(repo))) return
+
+        await orNull(this.octokit.rest.teams.removeRepoInOrg({ org: this.org, team_slug: slug, owner: this.org, repo }))
+        team.repos.delete(lc(repo))
     }
 
     /** Last grant per target wins; ordered errors, null for success or superseded input. */
@@ -613,24 +626,6 @@ export class GitHubOrg {
             }
         }
         return results
-    }
-
-    /** Direct Admin for active org members only; no repo invitations. */
-    async grantDirectAdmin(repo: string, login: string): Promise<void> {
-        const s = await this.state()
-        const id = lc(login)
-        const state = s.repos.get(lc(repo))
-        if (!state) throw new GitHubError(404, `Repository ${repo} does not exist`)
-        if (s.members.get(id)?.state !== 'active' || state.direct.get(id) === 'admin') return
-
-        const res = await this.octokit.rest.repos.addCollaborator({
-            owner: this.org, repo, username: login, permission: 'admin',
-        })
-        if (res.status === 201) {
-            await this.octokit.rest.repos.deleteInvitation({ owner: this.org, repo, invitation_id: Number(res.data.id) })
-        }
-        if (Number(res.status) !== 204) throw new Error(`GitHub invited ${login} to ${repo} instead of adding them`)
-        state.direct.set(id, 'admin')
     }
 
     /** Removes a user's direct access to a repo (team and org access are unaffected). */

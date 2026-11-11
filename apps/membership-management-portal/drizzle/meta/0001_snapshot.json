@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0699a5ae-0e68-4537-b0bb-334a5ecb3f59",
+  "id": "e595a868-6adc-41ce-9552-629bbd905dfd",
   "prevId": "fd5aba88-70b1-4f54-9734-505650fce955",
   "tables": {
     "team_users": {
@@ -108,13 +108,33 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "github_slug": {
+          "name": "github_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "teams_github_slug_unique": {
+          "name": "teams_github_slug_unique",
+          "columns": [
+            "github_slug"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "valid_github_slug": {
+          "name": "valid_github_slug",
+          "value": "length(\"teams\".\"github_slug\") > 0 AND \"teams\".\"github_slug\" NOT GLOB '*[^a-z0-9-]*' AND \"teams\".\"github_slug\" NOT GLOB '*-leads'"
+        }
+      }
     },
     "users": {
       "name": "users",
@@ -144,7 +164,7 @@
           "name": "github_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "discord_id": {
@@ -184,7 +204,29 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "users_github_id_unique": {
+          "name": "users_github_id_unique",
+          "columns": [
+            "github_id"
+          ],
+          "isUnique": true
+        },
+        "users_discord_id_unique": {
+          "name": "users_discord_id_unique",
+          "columns": [
+            "discord_id"
+          ],
+          "isUnique": true
+        },
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "lower(\"email\")"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -196,6 +238,10 @@
         "valid_exec_role": {
           "name": "valid_exec_role",
           "value": "\"users\".\"exec_role\" IN ('President', 'Product Director', 'SWE Director', 'Communications Director', 'Membership Director', 'UX Design Director')"
+        },
+        "github_id_lowercase": {
+          "name": "github_id_lowercase",
+          "value": "\"users\".\"github_id\" = lower(\"users\".\"github_id\")"
         }
       }
     }
@@ -208,6 +254,14 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "users_email_unique": {
+        "columns": {
+          "lower(\"email\")": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

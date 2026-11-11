@@ -26,6 +26,13 @@ export function today() { return new Date().toISOString().slice(0, 10) }
 export const githubSlugOf = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
+// A team's leads are the members of its GitHub child team with this slug.
+export const leadsSlugOf = (slug: string) => `${slug}-leads`
+
+/** Whether a team can't take this slug: empty, ending in the reserved "-leads", or colliding with a group (or a group colliding with its subteam). */
+export const slugUnavailable = (slug: string, groupSlugs: string[]) =>
+    !slug || slug.endsWith('-leads') || groupSlugs.some((group) => group === slug || group === leadsSlugOf(slug))
+
 function normalizeUser<T extends Partial<NewUser>>(data: T): T {
     return {
         ...data,

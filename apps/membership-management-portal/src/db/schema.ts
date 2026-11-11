@@ -28,7 +28,8 @@ export const teams = sqliteTable('teams', {
     name: text('name').notNull(),
     githubSlug: text('github_slug').notNull().unique(),
 }, (table) => [
-    check('valid_github_slug', sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*'`),
+    // "-leads" is reserved for each team's GitHub leads subteam, so no slug can collide with one
+    check('valid_github_slug', sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*' AND ${table.githubSlug} NOT GLOB '*-leads'`),
 ])
 
 export const users = sqliteTable(

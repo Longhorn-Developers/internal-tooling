@@ -12,22 +12,8 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1793910556185,
-      "tag": "0001_busy_orphan",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1793995047763,
-      "tag": "0002_github_id_lowercase_check",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1794348228019,
-      "tag": "0003_stored_team_slugs_and_unique_identities",
+      "when": 1794361552126,
+      "tag": "0001_exec_roles_github_slugs_unique_identities",
       "breakpoints": true
     }
   ]

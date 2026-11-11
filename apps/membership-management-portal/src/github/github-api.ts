@@ -25,7 +25,6 @@ const retryableCodes = new Set<GitHubErrorCode>([
     'GITHUB_ERROR',
 ])
 
-// Octokit only gives the HTTP status; the codes are ours
 function codeFor(status: number, message: string): GitHubErrorCode {
     if (status === 401) return 'GITHUB_BAD_CREDENTIALS'
     if (status === 404) return 'GITHUB_NOT_FOUND'
@@ -38,7 +37,6 @@ function codeFor(status: number, message: string): GitHubErrorCode {
     return 'GITHUB_ERROR'
 }
 
-/** A failed GitHub call; `code` says what kind (see the README's table). */
 export class GitHubError extends ServiceError {
     declare code: GitHubErrorCode
 
@@ -53,16 +51,14 @@ export class GitHubError extends ServiceError {
 
 const lc = (value: string) => value.toLowerCase()
 
-/** Null instead of throwing on a 404, so deleting what is already gone counts as done. */
+// Already-missing resources count as successfully removed.
 const orNull = <T>(request: Promise<T>) =>
     request.catch((error) => {
         if (error instanceof GitHubError && error.status === 404) return null
         throw error
     })
 
-// ============================================================
-// GraphQL: one query reads the whole org
-// ============================================================
+// GraphQL snapshot and pagination
 
 const PAGE_INFO = 'pageInfo { hasNextPage endCursor }'
 const MEMBER_EDGES = `${PAGE_INFO} edges { role node { login } }`
@@ -94,7 +90,6 @@ const SNAPSHOT = `query Snapshot($org: String!, $page: Int!) {
 ${TEAM_FIELDS}
 ${REPO_FIELDS}`
 
-// follow-up pages, only for lists longer than one page
 const orgPage = (name: string, field: string, selection: string, fragments = '') =>
     `query ${name}($org: String!, $page: Int!, $after: String) {
   organization(login: $org) { c: ${field}(first: $page, after: $after) { ${PAGE_INFO} ${selection} } }
@@ -143,19 +138,14 @@ type GqlRepo = {
 
 const EMPTY = { pageInfo: { hasNextPage: false, endCursor: null } }
 
-// GraphQL error types -> the HTTP status they mean
 const statusOf = (type?: string) =>
     type === 'NOT_FOUND' ? 404
     : type === 'FORBIDDEN' || type === 'INSUFFICIENT_SCOPES' ? 403
     : type === 'RATE_LIMITED' || type === 'RATE_LIMIT' ? 429
     : 500
 
-// ============================================================
-// The snapshot
-// ============================================================
-
 type OrgEntry = { role: 'admin' | 'member'; state: 'active' | 'pending' }
-// role is null when unknown (e.g. an owner we just demoted, or a pending invite)
+// Team roles are unknown after owner demotion or while an invitation is pending.
 type TeamEntry = { role: TeamRole | null; state: 'active' | 'pending' }
 type TeamState = { id: string; dbId: number; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
 type RepoState = { id: string; name: string; direct: Map<string, RepoPermission> }
@@ -165,7 +155,7 @@ export type TeamRepoGrant = { slug: string; repo: string; permission: RepoPermis
 
 const CALL_BUDGET = 36
 const HARD_CALL_BUDGET = 44
-// mutations per GraphQL request (a request with mutations costs 5 secondary-limit points)
+// Mutations per GraphQL request.
 const BATCH = 50
 const PAGE = 100
 
@@ -180,7 +170,7 @@ const ownerIn = (s: Snapshot, id: string) => {
 
 const GitHub = Octokit.plugin(paginateRest, restEndpointMethods)
 
-// one auth per app installation, so its installation token outlives a call
+// Share installation tokens across RPCs.
 const auths = new Map<string, ReturnType<typeof createAppAuth>>()
 
 /** Per-RPC snapshot; writes skip no-ops and update memory only after remote success. */
@@ -192,7 +182,7 @@ export class GitHubOrg {
 
     private snap?: Snapshot
     private loading?: Promise<void>
-    private accounts = new Map<string, number | null>() // logins checked outside the org -> user id (null: no such account)
+    private accounts = new Map<string, number | null>() // login -> user ID; null means not found
     private batchGrants = true // false once GitHub refuses batched team grants
     private calls = 0
 
@@ -200,55 +190,42 @@ export class GitHubOrg {
         return this.env.GITHUB_ORG
     }
 
-    /** The snapshot, read from GitHub on first use. */
     private async state(): Promise<Snapshot> {
-        await this.load()
-        return this.snap!
-    }
-
-    private _octokit?: InstanceType<typeof GitHub>
-    private get octokit() {
-        if (!this._octokit) {
-            const { GITHUB_APP_ID: appId, GITHUB_APP_INSTALLATION_ID: installationId } = this.env
-            const privateKey = this.env.GITHUB_APP_PRIVATE_KEY
-            const key = `${appId}:${installationId}:${privateKey}`
-            let auth = auths.get(key)
-            if (!auth) auths.set(key, (auth = createAppAuth({ appId, privateKey, installationId })))
-            const client = new GitHub({
-                authStrategy: () => auth!,
-                userAgent: 'lhd-membership-worker',
-            })
-            client.hook.before('request', (options) => {
-                if (this.calls >= HARD_CALL_BUDGET) throw new GitHubBudgetExceeded()
-                this.calls++
-                options.headers['x-github-api-version'] = '2026-03-10'
-            })
-            client.hook.error('request', (error) => {
-                throw error instanceof RequestError ? new GitHubError(error.status, error.message) : error
-            })
-            this._octokit = client
-        }
-        return this._octokit
-    }
-
-    /** Remote calls left before the subrequest budget is spent. */
-    get callsLeft() {
-        return CALL_BUDGET - this.calls
-    }
-
-    // ------------------------------------------------------------
-    // Loading
-    // ------------------------------------------------------------
-
-    private async load(): Promise<void> {
         this.loading ??= this.fetchSnapshot().catch((error) => {
             this.loading = undefined
             throw error
         })
         await this.loading
+        return this.snap!
     }
 
-    /** Runs a GraphQL document. Partial results are returned with their errors instead of thrown. */
+    private _octokit?: InstanceType<typeof GitHub>
+    private get octokit() {
+        if (this._octokit) return this._octokit
+
+        const { GITHUB_APP_ID: appId, GITHUB_APP_INSTALLATION_ID: installationId, GITHUB_APP_PRIVATE_KEY: privateKey } = this.env
+        const key = `${appId}:${installationId}:${privateKey}`
+        let auth = auths.get(key)
+        if (!auth) auths.set(key, (auth = createAppAuth({ appId, privateKey, installationId })))
+
+        const client = new GitHub({ authStrategy: () => auth!, userAgent: 'lhd-membership-worker' })
+        client.hook.before('request', (options) => {
+            if (this.calls >= HARD_CALL_BUDGET) throw new GitHubBudgetExceeded()
+            this.calls++
+            options.headers['x-github-api-version'] = '2026-03-10'
+        })
+        client.hook.error('request', (error) => {
+            throw error instanceof RequestError ? new GitHubError(error.status, error.message) : error
+        })
+        this._octokit = client
+        return client
+    }
+
+    get callsLeft() {
+        return CALL_BUDGET - this.calls
+    }
+
+    // Reads reject partial results; batched writes inspect each mutation's errors.
     private async gql(query: string, variables: Record<string, unknown> = {}) {
         try {
             return { data: await this.octokit.graphql<any>(query, variables), errors: [] as any[] }
@@ -325,11 +302,13 @@ export class GitHubOrg {
         for (const { role, node } of members) {
             team.members.set(lc(node.login), { role: role === 'MAINTAINER' ? 'maintainer' : 'member', state: 'active' })
         }
+
         const invites = await this.drain<{ invitee: { login: string } | null }>(t.invitations, 'nodes', async (after) =>
             (await this.query(MORE.teamInvites, { id: t.id, after }, false)).node.c)
         for (const { invitee } of invites) {
             if (invitee) team.members.set(lc(invitee.login), { role: null, state: 'pending' })
         }
+
         const repos = await this.drain<RepoEdge>(t.repositories, 'edges', async (after) =>
             (await this.query(MORE.teamRepos, { id: t.id, after }, false)).node.c)
         for (const { permission, node } of repos) team.repos.set(lc(node.name), fromGraphQL[permission] ?? 'pull')
@@ -348,13 +327,11 @@ export class GitHubOrg {
         s.repos.set(lc(r.name), repo)
     }
 
-    /** Used as an optimization for `exists` to batch lookups; `exists` may be used standalone */
     async ensureAccounts(logins: string[]): Promise<void> {
-        await this.load()
+        await this.state()
         await this.lookup(logins)
     }
 
-    // doesn't load the snapshot, so a lone existence check stays one request
     private async lookup(logins: string[]): Promise<void> {
         const unknown = [...new Set(logins.map(lc))].filter(
             (login) => !this.snap?.members.has(login) && !this.accounts.has(login),
@@ -373,17 +350,14 @@ export class GitHubOrg {
         }
     }
 
-    // ------------------------------------------------------------
-    // Reads (the first one loads the snapshot)
-    // ------------------------------------------------------------
+    // Snapshot access
 
     async exists(login: string): Promise<boolean> {
-        await this.load();
+        const s = await this.state()
         await this.lookup([login])
-        return this.snap?.members.has(lc(login)) || this.accounts.get(lc(login)) != null
+        return s.members.has(lc(login)) || this.accounts.get(lc(login)) != null
     }
 
-    /** Undefined if neither a member nor invited. */
     async member(login: string) {
         return (await this.state()).members.get(lc(login))
     }
@@ -392,13 +366,11 @@ export class GitHubOrg {
         return ownerIn(await this.state(), lc(login))
     }
 
-    /** Lowercased logins of active members with this role. */
     async orgLogins(role: 'admin' | 'member') {
         const { members } = await this.state()
         return [...members].filter(([, m]) => m.state === 'active' && m.role === role).map(([login]) => login)
     }
 
-    /** Lowercased logins of pending org invitees. */
     async pendingLogins() {
         const { members } = await this.state()
         return [...members].filter(([, m]) => m.state === 'pending').map(([login]) => login)
@@ -412,7 +384,6 @@ export class GitHubOrg {
         return [...(await this.state()).teams.keys()]
     }
 
-    /** Attached repos and permissions. */
     async teamRepos(slug: string) {
         const s = await this.state()
         return [...(s.teams.get(slug)?.repos ?? [])].flatMap(([key, permission]) => {
@@ -421,21 +392,16 @@ export class GitHubOrg {
         })
     }
 
-    /** All org repos, including archived repos and forks. */
     async repos() {
         return [...(await this.state()).repos.values()]
     }
 
-    /** Direct (not through a team) collaborators of a repo: lowercased login -> permission. */
     async collaborators(repo: string): Promise<ReadonlyMap<string, RepoPermission>> {
         return (await this.state()).repos.get(lc(repo))?.direct ?? new Map()
     }
 
-    // ------------------------------------------------------------
-    // Writes
-    // ------------------------------------------------------------
+    // Writes update the snapshot only after success.
 
-    /** Sets an active member's role, or invites a non-member with it; pending roles left unchanged. */
     async setOrgRole(login: string, role: 'admin' | 'member'): Promise<void> {
         const s = await this.state()
         const id = lc(login)
@@ -453,11 +419,7 @@ export class GitHubOrg {
         }
     }
 
-    /**
-     * Invites a non-member with an org role and teams in one invitation (as team members; roles
-     * come after they accept). A role or teams can't be edited later: cancel it and invite again.
-     * Skipped if they're a member or already invited. Counts against the invitation limit.
-     */
+    /** Invitations carry the initial role and teams; changes wait until acceptance. */
     async invite(login: string, role: 'admin' | 'member', teamSlugs: string[]): Promise<void> {
         const s = await this.state()
         const id = lc(login)
@@ -467,21 +429,17 @@ export class GitHubOrg {
         const inviteeId = this.accounts.get(id)
         if (inviteeId == null) throw new GitHubError(404, `GitHub user ${login} does not exist`)
 
-        const teams = teamSlugs.flatMap((slug) => {
-            const team = s.teams.get(slug)
-            return team ? [{ slug, team }] : []
-        })
+        const teams = teamSlugs.flatMap((slug) => s.teams.has(slug) ? [s.teams.get(slug)!] : [])
         await this.octokit.rest.orgs.createInvitation({
             org: this.org,
             invitee_id: inviteeId,
             role: role === 'admin' ? 'admin' : 'direct_member',
-            team_ids: teams.map(({ team }) => team.dbId),
+            team_ids: teams.map((team) => team.dbId),
         })
         s.members.set(id, { role, state: 'pending' })
-        for (const { team } of teams) team.members.set(id, { role: null, state: 'pending' })
+        for (const team of teams) team.members.set(id, { role: null, state: 'pending' })
     }
 
-    /** Removes org membership, teams and repo access; skips the no-op check if nothing is loaded yet. */
     async removeFromOrg(login: string): Promise<void> {
         const id = lc(login)
         if (this.snap && !this.snap.members.has(id)) return
@@ -493,16 +451,14 @@ export class GitHubOrg {
         for (const repo of this.snap.repos.values()) repo.direct.delete(id)
     }
 
-    /** Sets team membership after org invitation; pending invitees are skipped. */
     async setTeamMember(slug: string, login: string): Promise<void> {
         const s = await this.state()
         const id = lc(login)
         const team = s.teams.get(slug)
         if (!team) throw new GitHubError(404, `Team ${slug} does not exist`)
         const current = team.members.get(id)
-        // GitHub doesn't document adding a pending invitee to another team; it's applied once they accept
+        // Team changes wait for the org invitation to be accepted.
         if (s.members.get(id)?.state === 'pending') return
-        // owners always show as maintainers
         if (current?.state === 'active' && (current.role === 'member' || ownerIn(s, id))) return
 
         const { data } = await this.octokit.rest.teams.addOrUpdateMembershipForUserInOrg({
@@ -515,7 +471,6 @@ export class GitHubOrg {
         if (!s.members.has(id)) s.members.set(id, { role: 'member', state: 'pending' })
     }
 
-    /** Removes from a team (they stay in the org) or cancels their team invite. */
     async removeTeamMember(slug: string, login: string): Promise<void> {
         const id = lc(login)
         const team = (await this.state()).teams.get(slug)
@@ -527,7 +482,6 @@ export class GitHubOrg {
         team.members.delete(id)
     }
 
-    /** Creates a visible team, optionally under a parent, unless one with this slug exists (GitHub derives the slug from the name). */
     async createTeam(name: string, slug: string, parentSlug?: string): Promise<{ slug: string; id: string }> {
         const s = await this.state()
         const existing = s.teams.get(slug)
@@ -535,6 +489,7 @@ export class GitHubOrg {
 
         const parent = parentSlug ? s.teams.get(parentSlug) : undefined
         if (parentSlug && !parent) throw new GitHubError(404, `Team ${parentSlug} does not exist`)
+
         const { data } = await this.octokit.rest.teams.create({
             org: this.org, name, privacy: 'closed', parent_team_id: parent?.dbId,
         })
@@ -542,7 +497,6 @@ export class GitHubOrg {
         return { slug: data.slug, id: data.node_id }
     }
 
-    /** Deletes a team (its memberships go with it); members and repos stay in the org. */
     async deleteTeam(slug: string): Promise<void> {
         const s = await this.state()
         if (!s.teams.has(slug)) return
@@ -551,7 +505,6 @@ export class GitHubOrg {
         s.teams.delete(slug)
     }
 
-    /** Removes a team's repository grant; other teams' access is unaffected. */
     async removeTeamRepo(slug: string, repo: string): Promise<void> {
         const team = (await this.state()).teams.get(slug)
         if (!team?.repos.has(lc(repo))) return
@@ -628,7 +581,6 @@ export class GitHubOrg {
         return results
     }
 
-    /** Removes a user's direct access to a repo (team and org access are unaffected). */
     async removeDirect(repo: string, login: string): Promise<void> {
         const id = lc(login)
         const state = (await this.state()).repos.get(lc(repo))

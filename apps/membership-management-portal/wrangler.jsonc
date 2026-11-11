@@ -21,7 +21,7 @@
 		{
 			"binding": "membership_db",
 			"database_name": "membership-db",
-			"database_id": "474c5c06-a8c1-474a-942b-bfb6e23b3a19",
+			"database_id": "ab794423-0f4e-47ac-b474-835a0d3d3c1a",
 			"migrations_dir": "drizzle"
 		}
 	],

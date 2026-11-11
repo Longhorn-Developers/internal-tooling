@@ -196,6 +196,9 @@ importers:
       '@storybook/addon-links':
         specifier: ^10.6.2
         version: 10.6.2(@types/react@18.3.31)(react@18.3.1)(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))
+      '@storybook/addon-themes':
+        specifier: ^10.6.6
+        version: 10.6.6(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))
       '@storybook/react':
         specifier: ^10.6.2
         version: 10.6.2(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))(supports-color@10.2.2)(typescript@5.9.3)
@@ -1836,6 +1839,11 @@ packages:
         optional: true
       react:
         optional: true
+
+  '@storybook/addon-themes@10.6.6':
+    resolution: {integrity: sha512-R47S85vAHy52esRjPwn4YMqziVhwflMX+8B/DcxShUh1OexlC4DcZ3XRBbzmANz1DTOZAXzOAarjBA9ctmwlPw==}
+    peerDependencies:
+      storybook: ^10.6.6
 
   '@storybook/builder-vite@10.6.2':
     resolution: {integrity: sha512-SzeQEGjvybdhP2coF4aIX6JX/7rZTrQCpRU3vAEO/R98Vr3xM8jdg7a3nvt91TeF/P8iWqljLIpaDjTdk2r/sQ==}
@@ -4990,6 +4998,11 @@ snapshots:
     optionalDependencies:
       '@types/react': 18.3.31
       react: 18.3.1
+
+  '@storybook/addon-themes@10.6.6(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))':
+    dependencies:
+      storybook: 10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))
+      ts-dedent: 2.3.0
 
   '@storybook/builder-vite@10.6.2(@voidzero-dev/vite-plus-core@1.3.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))':
     dependencies:

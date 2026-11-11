@@ -62,7 +62,7 @@ export async function handleGitHubWebhook(
     }
 
     // GitHub gives up after 10 seconds; the sync runs after responding
-    const service = new GitHubService(env, new MembershipDatabase(env.membership_db!))
+    const service = new GitHubService(env, new MembershipDatabase(env.membership_db))
     ctx.waitUntil(
         service
             .onJoinedOrg(login)

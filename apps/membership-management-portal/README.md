@@ -158,11 +158,17 @@ update only their own entries. Other writes use REST.
   other teams' access stays intact.
 - Repositories have team access only: any direct collaborator is reported as
   `remove_repo_collaborator`. (The leads subteam's parent link is set on creation, not audited.)
-- Every active tech lead of any team is also on the org-wide leads group, which has Maintain on every
-  repository, including archived repositories and forks.
-- Every active exec is on the exec team, which has Admin on every repository, and
+- Every active tech lead of any team is also on the org-wide leads group, which has the
+  `all_repo_maintain` org role ("All-repository maintain": Maintain on every repository,
+  including archived repositories and forks).
+- Every active exec is on the exec team, which has the `all_repo_admin` org role ("All-repository admin"), and
   is an org owner. Every exec role gets the same access. An exec who also leads a team gets all
   of it; owners get no exemptions.
+- The exec and leads groups never have direct repository access, only their org role. Sync reports
+  a missing role as `set_{exec,leads}_org_role` and any direct grant a group holds as
+  `remove_{exec,leads}_repo`. If the org doesn't have the role at all, `org_role_missing` needs a
+  person. The GitHub App needs permission to read and assign organization roles; without it the
+  service reports `GITHUB_FORBIDDEN`.
 - `GITHUB_EXEC_TEAM` and `GITHUB_LEADS_TEAM` are team *names*: slugified to find the team, used
   as-is to create it.
 - Org membership follows active tech assignments: active users with a tech assignment (and active execs) are in the
@@ -196,8 +202,8 @@ What actions require: `addUserToTeam` needs the team's GitHub team, the user's G
 account; `onboardUser` needs the account. A missing one is a `blocking` change (`create_team`,
 `create_subteam`, `create_{exec,leads}_team`, `github_user_not_found`, `team_slug_conflict`) and the
 action doesn't run. Blocking depends only on the kind; an action just doesn't check what it doesn't
-need, so adding a fellow never reports `create_subteam`. Every other kind is non-blocking, including the repository roles a team,
-subteam or group lacks (`set_team_repo_role`, `set_subteam_repo_role`, `set_{exec,leads}_repo_role`).
+need, so adding a fellow never reports `create_subteam`. Every other kind is non-blocking, including the repository roles a team or subteam lacks (`set_team_repo_role`,
+`set_subteam_repo_role`) and a group's missing org role (`set_{exec,leads}_org_role`).
 
 All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup (team and
 subteam), memberships, every direct grant on its attached repositories, and account/invitation
@@ -224,9 +230,10 @@ and a user who shouldn't be in the org is only reported (`remove_org_member`).
 Change kinds: `create_team`, `create_subteam`, `delete_extra_team`, `set_team_member`,
 `remove_team_member`, `set_subteam_member`, `remove_subteam_member`, `set_team_repo_role`,
 `set_subteam_repo_role`, `remove_subteam_repo`, `remove_repo_collaborator`, `create_{exec,leads}_team`,
-`set_{exec,leads}_repo_role`, `add_{exec,leads}_member`, `remove_{exec,leads}_member`,
+`set_{exec,leads}_org_role`, `remove_{exec,leads}_repo`, `add_{exec,leads}_member`, `remove_{exec,leads}_member`,
 `make_org_owner`, `demote_owner`, `invite_to_org`, `reinvite_as_member`, `remove_org_member` are fixable;
-`github_user_not_found`, `no_github_account`, `pending_invite`, `orphan_repo`, `team_slug_conflict` need a person.
+`github_user_not_found`, `no_github_account`, `pending_invite`, `orphan_repo`, `team_slug_conflict`,
+`org_role_missing` need a person.
 A change's `target` is a login, repository, or team name, or `repo/login` for per-user
 repository access.
 

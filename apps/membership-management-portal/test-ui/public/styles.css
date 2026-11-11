@@ -1,0 +1,197 @@
+:root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --line: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #bf5700;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, sans-serif;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 2;
+}
+
+h1 {
+    font-size: 16px;
+    margin: 0;
+}
+
+h2 {
+    font-size: 14px;
+    margin: 0 0 10px;
+}
+
+main {
+    display: grid;
+    gap: 16px;
+    padding: 16px 20px 60px;
+    max-width: 1300px;
+    margin: 0 auto;
+}
+
+main[inert] {
+    opacity: 0.6;
+}
+
+section,
+.card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    font-size: 12px;
+}
+
+.target {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-weight: 600;
+}
+
+.busy {
+    color: var(--warn);
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    text-align: left;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+}
+
+th {
+    color: var(--muted);
+    font-weight: 500;
+}
+
+input,
+select,
+button {
+    font: inherit;
+    color: var(--text);
+    background: #0f1218;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:hover {
+    border-color: var(--accent);
+}
+
+button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+button.danger {
+    color: var(--bad);
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.ok {
+    color: var(--ok);
+}
+
+.warn {
+    color: var(--warn);
+}
+
+.bad {
+    color: var(--bad);
+}
+
+.grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+}
+
+code,
+pre {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+}
+
+pre {
+    background: #0f1218;
+    padding: 8px;
+    border-radius: 6px;
+    overflow: auto;
+    max-height: 300px;
+}
+
+dialog {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+dialog form {
+    display: grid;
+    gap: 8px;
+    min-width: 320px;
+}
+
+label {
+    display: grid;
+    gap: 2px;
+    color: var(--muted);
+    font-size: 12px;
+}

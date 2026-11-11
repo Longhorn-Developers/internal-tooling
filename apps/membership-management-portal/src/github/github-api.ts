@@ -240,6 +240,8 @@ export class GitHubOrg {
     private accounts = new Map<string, number | null>() // login -> user ID; null means not found
     private batchGrants = true // false once GitHub refuses batched team grants
     private calls = 0
+    private roleIds?: Promise<Map<string, number>> // org role name -> ID
+    private roleTeams = new Map<number, Promise<Set<string>>>() // role ID -> assigned team slugs
 
     private get org() {
         return this.env.GITHUB_ORG
@@ -640,6 +642,57 @@ export class GitHubOrg {
 
         await orNull(this.octokit.rest.teams.deleteInOrg({ org: this.org, team_slug: slug }))
         s.teams.delete(slug)
+    }
+
+    /** An org role and the teams it is directly assigned to; undefined if the org has no such role. */
+    async orgRole(name: string): Promise<{ id: number; teams: Set<string> } | undefined> {
+        const roleIds = (this.roleIds ??= this.octokit.rest.orgs
+            .listOrgRoles({ org: this.org })
+            .then(
+                ({ data }) =>
+                    new Map((data.roles ?? []).map((role) => [lc(role.name), Number(role.id)])),
+            )
+            .catch((error) => {
+                this.roleIds = undefined
+                throw error
+            }))
+        const id = (await roleIds).get(lc(name))
+        if (id === undefined) return undefined
+
+        let teams = this.roleTeams.get(id)
+        if (!teams) {
+            teams = this.octokit
+                .paginate(this.octokit.rest.orgs.listOrgRoleTeams, {
+                    org: this.org,
+                    role_id: id,
+                    per_page: this.pageSize,
+                })
+                .then(
+                    (items) =>
+                        new Set(
+                            items.filter((t) => t.assignment !== 'indirect').map((t) => t.slug),
+                        ),
+                )
+                .catch((error) => {
+                    this.roleTeams.delete(id)
+                    throw error
+                })
+            this.roleTeams.set(id, teams)
+        }
+        return { id, teams: await teams }
+    }
+
+    async setTeamOrgRole(slug: string, roleName: string): Promise<void> {
+        const role = await this.orgRole(roleName)
+        if (!role) throw new GitHubError(404, `Organization role ${roleName} does not exist`)
+        if (role.teams.has(slug)) return
+
+        await this.octokit.rest.orgs.assignTeamToOrgRole({
+            org: this.org,
+            team_slug: slug,
+            role_id: role.id,
+        })
+        role.teams.add(slug)
     }
 
     async removeTeamRepo(slug: string, repo: string): Promise<void> {

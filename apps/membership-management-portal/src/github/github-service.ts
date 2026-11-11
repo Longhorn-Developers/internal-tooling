@@ -10,7 +10,7 @@ import type {
     ServiceResult,
 } from '../service'
 import { GitHubBudgetExceeded, GitHubOrg } from './github-api'
-import type { RepoPermission, TeamRepoGrant } from './github-api'
+import type { TeamRepoGrant } from './github-api'
 
 type ReservedTeamKey = 'exec' | 'leads'
 
@@ -35,8 +35,11 @@ const kinds = {
     reinvite_as_member: { subject: 'member' },
     create_exec_team: { subject: 'other', blocking: true },
     create_leads_team: { subject: 'other', blocking: true },
-    set_exec_repo_role: { subject: 'other' },
-    set_leads_repo_role: { subject: 'other' },
+    remove_exec_repo: { subject: 'other' },
+    remove_leads_repo: { subject: 'other' },
+    set_exec_org_role: { subject: 'other' },
+    set_leads_org_role: { subject: 'other' },
+    org_role_missing: { subject: 'other', manual: true },
     add_exec_member: { subject: 'other' },
     add_leads_member: { subject: 'other' },
     remove_exec_member: { subject: 'other' },
@@ -55,7 +58,7 @@ const infoOf = (kind: string): KindInfo | undefined =>
 
 const lc = (value: string) => value.toLowerCase()
 
-type ReservedTeam = { name: string; slug: string; permission: RepoPermission }
+type ReservedTeam = { name: string; slug: string; orgRole: string }
 type Ids = { teamId?: string; userId?: string }
 type Dictionary = Map<string, string>
 
@@ -269,7 +272,12 @@ export class GitHubService extends Service {
                 if (c.teamId && teamIds.has(c.teamId) && !c.userId && !c.kind.endsWith('_member'))
                     return true
                 return groups.some(
-                    (key) => c.kind === `create_${key}_team` || c.kind === `set_${key}_repo_role`,
+                    (key) =>
+                        c.kind === `create_${key}_team` ||
+                        c.kind === `remove_${key}_repo` ||
+                        c.kind === `set_${key}_org_role` ||
+                        (c.kind === 'org_role_missing' &&
+                            c.target === this.reservedTeams[key].orgRole),
                 )
             }),
         )
@@ -350,12 +358,15 @@ export class GitHubService extends Service {
                     ),
                 )
             } else {
+                const invite = !member || !exec
                 needed.push(
                     await this.missing(
-                        exec ? 'make_org_owner' : 'invite_to_org',
+                        invite ? 'invite_to_org' : 'make_org_owner',
                         login,
                         userId,
-                        `${login} should be ${exec ? 'an org owner' : 'in the org'}`,
+                        invite
+                            ? `${login} should be in the org${exec ? ' as an owner' : ''}; the invitation includes their teams`
+                            : `${login} should be an org owner`,
                     ),
                 )
             }
@@ -641,8 +652,9 @@ export class GitHubService extends Service {
         return { slug: hasTeam ? slug : null, leads: hasLeads ? leads : null, needed }
     }
 
+    /** Reserved teams get repo access from an org role, never from direct repo grants. */
     private async checkReservedTeam(key: ReservedTeamKey): Promise<NeededChange[]> {
-        const { slug, permission } = this.reservedTeams[key]
+        const { slug, orgRole } = this.reservedTeams[key]
         if (!(await this.gh.team(slug)))
             return [
                 this.change(
@@ -652,18 +664,35 @@ export class GitHubService extends Service {
                 ),
             ]
 
-        const current = new Map(
-            (await this.gh.teamRepos(slug)).map((repo) => [lc(repo.name), repo.permission]),
-        )
-        return (await this.gh.repos())
-            .filter((repo) => current.get(lc(repo.name)) !== permission)
-            .map((repo) =>
+        const needed: NeededChange[] = []
+        const role = await this.gh.orgRole(orgRole)
+        if (!role)
+            needed.push(
                 this.change(
-                    `set_${key}_repo_role`,
-                    repo.name,
-                    `${slug} needs ${permission} on ${repo.name}`,
+                    'org_role_missing',
+                    orgRole,
+                    `The "${orgRole}" org role doesn't exist in GitHub, so ${slug} can't be given it`,
                 ),
             )
+        else if (!role.teams.has(slug))
+            needed.push(
+                this.change(
+                    `set_${key}_org_role`,
+                    orgRole,
+                    `${slug} needs the "${orgRole}" org role`,
+                ),
+            )
+
+        for (const { name } of await this.gh.teamRepos(slug)) {
+            needed.push(
+                this.change(
+                    `remove_${key}_repo`,
+                    name,
+                    `${slug} has direct access to ${name}; reserved teams get repo access from the "${orgRole}" org role only`,
+                ),
+            )
+        }
+        return needed
     }
 
     private async checkMembers(
@@ -679,7 +708,9 @@ export class GitHubService extends Service {
 
         const needed: NeededChange[] = []
         for (const [login, userId] of desired) {
-            if ((await this.gh.member(login))?.state === 'pending') continue
+            // Someone outside the org gets their teams from the invitation; a pending invitee waits.
+            const membership = await this.gh.member(login)
+            if (!membership || membership.state === 'pending') continue
             const entry = team.members.get(login)
             // GitHub always reports owners as maintainers.
             if (
@@ -750,20 +781,18 @@ export class GitHubService extends Service {
                 return this.gh.removeDirect(repo, login)
             case 'create_exec_team':
             case 'create_leads_team': {
-                const { slug, name, permission } = this.reservedTeams[reservedTeamKey]
+                const { slug, name, orgRole } = this.reservedTeams[reservedTeamKey]
                 await this.createGitHubTeam(name, slug)
-                const grants = (await this.gh.repos()).map((repo) => ({
-                    slug,
-                    repo: repo.name,
-                    permission,
-                }))
-                const errors = await this.gh.setTeamRepos(grants)
-                const failure =
-                    errors.find((error) => error && !(error instanceof GitHubBudgetExceeded)) ??
-                    errors.find((error) => error)
-                if (failure) throw failure
-                return
+                return this.gh.setTeamOrgRole(slug, orgRole)
             }
+            case 'set_exec_org_role':
+            case 'set_leads_org_role': {
+                const { slug, orgRole } = this.reservedTeams[reservedTeamKey]
+                return this.gh.setTeamOrgRole(slug, orgRole)
+            }
+            case 'remove_exec_repo':
+            case 'remove_leads_repo':
+                return this.gh.removeTeamRepo(this.reservedTeams[reservedTeamKey].slug, target)
             case 'add_exec_member':
             case 'add_leads_member': {
                 await this.inviteWithAccess(await this.db.getUser(required(change.userId, change)))
@@ -816,22 +845,14 @@ export class GitHubService extends Service {
         const items: { change: NeededChange; grant: TeamRepoGrant }[] = []
         for (const change of changes) {
             try {
-                const group = /_(exec|leads)_/.exec(change.kind)?.[1]
-                const target =
-                    group === 'exec' || group === 'leads'
-                        ? this.reservedTeams[group]
-                        : {
-                              slug: (await this.db.getTeam(required(change.teamId, change)))
-                                  .githubSlug,
-                              permission: 'push' as const,
-                          }
+                const { githubSlug } = await this.db.getTeam(required(change.teamId, change))
                 const subteam = change.kind === 'set_subteam_repo_role'
                 items.push({
                     change,
                     grant: {
-                        slug: subteam ? leadsSlugOf(target.slug) : target.slug,
+                        slug: subteam ? leadsSlugOf(githubSlug) : githubSlug,
                         repo: change.target,
-                        permission: subteam ? 'admin' : target.permission,
+                        permission: subteam ? 'admin' : 'push',
                     },
                 })
             } catch (error) {
@@ -886,8 +907,8 @@ export class GitHubService extends Service {
     private get reservedTeams(): Record<ReservedTeamKey, ReservedTeam> {
         const { GITHUB_EXEC_TEAM: exec, GITHUB_LEADS_TEAM: leads } = this.env
         return {
-            exec: { name: exec, slug: slugOf(exec), permission: 'admin' },
-            leads: { name: leads, slug: slugOf(leads), permission: 'maintain' },
+            exec: { name: exec, slug: slugOf(exec), orgRole: 'all_repo_admin' },
+            leads: { name: leads, slug: slugOf(leads), orgRole: 'all_repo_maintain' },
         }
     }
 

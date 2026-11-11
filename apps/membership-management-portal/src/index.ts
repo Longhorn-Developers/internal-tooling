@@ -12,6 +12,7 @@ import type {
     ServiceResult,
 } from './service'
 import { githubSlugOf, MembershipDatabase, slugUnavailable } from './db/access'
+import type { MembershipState } from './db/access'
 import Env = Cloudflare.Env
 
 // TODO: eventually publish types in repo frontend can import
@@ -38,7 +39,7 @@ export default { fetch: handleGitHubWebhook } satisfies ExportedHandler<Env>
 // are wrangler vars.
 export class MembershipService extends WorkerEntrypoint {
     // instance (so services) per RPC call
-    private readonly db = new MembershipDatabase(this.env.membership_db!)
+    private readonly db = new MembershipDatabase(this.env.membership_db)
     private readonly allServices: Service[] = [new GitHubService(this.env, this.db)]
 
     private async run(
@@ -57,6 +58,11 @@ export class MembershipService extends WorkerEntrypoint {
             }
         }
         return { changes: changes.length ? changes : undefined, failedServices }
+    }
+
+    /** All users, teams and assignments, from D1 only; use the sync methods for service state. */
+    async getState(): Promise<MembershipState> {
+        return this.db.getState()
     }
 
     async onboardUser(

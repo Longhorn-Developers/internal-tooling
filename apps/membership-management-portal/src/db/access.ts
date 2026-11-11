@@ -21,6 +21,9 @@ export type TeamMember = {
 
 export type TechAssignment = { user: User; teamId: string; isLead: boolean }
 
+/** Everything the database holds; a UI derives rosters and per-user team lists by joining these. */
+export type MembershipState = { users: User[]; teams: Team[]; assignments: TeamUser[] }
+
 export function today() {
     return new Date().toISOString().slice(0, 10)
 }
@@ -215,6 +218,17 @@ export class MembershipDatabase {
 
     async listUsers(): Promise<User[]> {
         return this.db.select().from(users).all()
+    }
+
+    /** Every user, team and assignment, read in one batch so they are consistent with each other. */
+    async getState(): Promise<MembershipState> {
+        const [allUsers, allTeams, assignments] = await this.db.batch([
+            this.db.select().from(users).orderBy(users.name, users.id),
+            this.db.select().from(teams).orderBy(teams.name),
+            this.db.select().from(teamUsers),
+        ])
+
+        return { users: allUsers, teams: allTeams, assignments }
     }
 
     async getTeam(teamId: string): Promise<Team> {

@@ -1,0 +1,25 @@
+/**
+ * Local-only test UI for the membership portal; never deployed. It reaches the portal only
+ * through the service binding, which resolves to the portal that test-ui/start.sh runs beside it
+ * (../wrangler.jsonc). TARGET_LABEL is overridden by the script.
+ */
+{
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	"name": "mmp-test-ui",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-10-06",
+	"assets": {
+		"directory": "./public",
+		"run_worker_first": ["/api/*"]
+	},
+	"services": [
+		{
+			"binding": "MEMBERSHIP",
+			"service": "membership-worker",
+			"entrypoint": "MembershipService"
+		}
+	],
+	"vars": {
+		"TARGET_LABEL": "STAGING"
+	}
+}

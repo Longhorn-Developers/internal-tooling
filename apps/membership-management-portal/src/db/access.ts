@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm'
-import {drizzle, DrizzleD1Database} from 'drizzle-orm/d1'
+import { drizzle, DrizzleD1Database } from 'drizzle-orm/d1'
 import { teams, teamUsers, users } from './schema'
 import type { Vertical } from './schema'
 
@@ -21,55 +21,67 @@ export type TeamMember = {
 
 export type TechAssignment = { user: User; teamId: string; isLead: boolean }
 
-export function today() { return new Date().toISOString().slice(0, 10) }
+export function today() {
+    return new Date().toISOString().slice(0, 10)
+}
 
 export const githubSlugOf = (name: string) =>
-    name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
 
 // A team's leads are the members of its GitHub child team with this slug.
 export const leadsSlugOf = (slug: string) => `${slug}-leads`
 
 /** Whether a team can't take this slug: empty, ending in the reserved "-leads", or colliding with a group (or a group colliding with its subteam). */
 export const slugUnavailable = (slug: string, groupSlugs: string[]) =>
-    !slug || slug.endsWith('-leads') || groupSlugs.some((group) => group === slug || group === leadsSlugOf(slug))
+    !slug ||
+    slug.endsWith('-leads') ||
+    groupSlugs.some((group) => group === slug || group === leadsSlugOf(slug))
 
 function normalizeUser<T extends Partial<NewUser>>(data: T): T {
     return {
         ...data,
         ...(data.email !== undefined && { email: data.email.trim().toLowerCase() }),
-        ...(data.githubId !== undefined && { githubId: data.githubId?.trim().toLowerCase() || null }),
+        ...(data.githubId !== undefined && {
+            githubId: data.githubId?.trim().toLowerCase() || null,
+        }),
         ...(data.discordId !== undefined && { discordId: data.discordId.trim().toLowerCase() }),
     }
 }
 
-export class RecordNotFoundError extends Error{
-    selectionCriteria;
+export class RecordNotFoundError extends Error {
+    selectionCriteria
     constructor(selectionCriteria: object) {
         super(`Record not found: ${JSON.stringify(selectionCriteria)}`)
         this.selectionCriteria = selectionCriteria
     }
 }
-export class InsertRecordError extends Error{
+export class InsertRecordError extends Error {
     constructor(public readonly insertionData: object) {
         super(`Failed to insert record: ${JSON.stringify(insertionData)}`)
     }
 }
-export class UpdateRecordError extends Error{
-    constructor(public readonly selectionCriteria: object, public readonly updateData: object) {
-        super(`Failed to update record ${JSON.stringify(selectionCriteria)}: ${JSON.stringify(updateData)}`)
+export class UpdateRecordError extends Error {
+    constructor(
+        public readonly selectionCriteria: object,
+        public readonly updateData: object,
+    ) {
+        super(
+            `Failed to update record ${JSON.stringify(selectionCriteria)}: ${JSON.stringify(updateData)}`,
+        )
     }
 }
 
 export class MembershipDatabase {
-    private readonly db: DrizzleD1Database;
-    constructor(database: D1Database) { this.db = drizzle(database); }
+    private readonly db: DrizzleD1Database
+    constructor(database: D1Database) {
+        this.db = drizzle(database)
+    }
 
     async getUser(userId: string): Promise<User> {
-        const user = await this.db
-            .select()
-            .from(users)
-            .where(eq(users.id, userId))
-            .get();
+        const user = await this.db.select().from(users).where(eq(users.id, userId)).get()
         if (!user) throw new RecordNotFoundError({ userId })
 
         return user
@@ -81,44 +93,40 @@ export class MembershipDatabase {
         const newUser: NewUser = {
             id: crypto.randomUUID(),
             dateJoined: today(),
-            ...normalizeUser(data)
-        };
+            ...normalizeUser(data),
+        }
 
-        const user = await this.db
-            .insert(users)
-            .values(newUser)
-            .returning()
-            .get()
+        const user = await this.db.insert(users).values(newUser).returning().get()
         if (!user) throw new InsertRecordError(newUser)
 
         return user
     }
 
-    async updateUser(
-        userId: string,
-        data: Partial<Omit<NewUser, 'id'>>,
-    ): Promise<User> {
+    async updateUser(userId: string, data: Partial<Omit<NewUser, 'id'>>): Promise<User> {
         const user = await this.db
             .update(users)
             .set(normalizeUser(data))
-            .where(and(
-                eq(users.id, userId),
-                eq(users.status, 'active')
-            ))
+            .where(and(eq(users.id, userId), eq(users.status, 'active')))
             .returning()
             .get()
 
         if (!user) throw new UpdateRecordError({ userId }, data)
 
-        return user;
+        return user
     }
 
     async deactivateUser(userId: string): Promise<User> {
         const activeUser = and(eq(users.id, userId), eq(users.status, 'active'))
         const data = { status: 'inactive' as const, dateLeft: today() }
         const [, updated] = await this.db.batch([
-            this.db.delete(teamUsers).where(inArray(teamUsers.userId,
-                this.db.select({ id: users.id }).from(users).where(activeUser))),
+            this.db
+                .delete(teamUsers)
+                .where(
+                    inArray(
+                        teamUsers.userId,
+                        this.db.select({ id: users.id }).from(users).where(activeUser),
+                    ),
+                ),
             this.db.update(users).set(data).where(activeUser).returning(),
         ])
         if (!updated[0]) throw new UpdateRecordError({ userId }, data)
@@ -179,14 +187,10 @@ export class MembershipDatabase {
                 target: [teamUsers.teamId, teamUsers.userId, teamUsers.vertical],
                 set: { isLead },
                 setWhere: ne(teamUsers.isLead, isLead),
-            });
+            })
     }
 
-    async removeVertical(
-        userId: string,
-        teamId: string,
-        vertical: Vertical,
-    ): Promise<void> {
+    async removeVertical(userId: string, teamId: string, vertical: Vertical): Promise<void> {
         await this.db
             .delete(teamUsers)
             .where(
@@ -194,31 +198,19 @@ export class MembershipDatabase {
                     eq(teamUsers.userId, userId),
                     eq(teamUsers.teamId, teamId),
                     eq(teamUsers.vertical, vertical),
-                )
-            );
+                ),
+            )
     }
 
     // more optimized than removing each vertical
-    async removeUserFromTeam(
-        userId: string,
-        teamId: string,
-    ): Promise<void> {
+    async removeUserFromTeam(userId: string, teamId: string): Promise<void> {
         await this.db
             .delete(teamUsers)
-            .where(
-                and(
-                    eq(teamUsers.userId, userId),
-                    eq(teamUsers.teamId, teamId),
-                )
-            );
+            .where(and(eq(teamUsers.userId, userId), eq(teamUsers.teamId, teamId)))
     }
 
     async removeUserFromAllTeams(userId: string): Promise<void> {
-        await this.db
-            .delete(teamUsers)
-            .where(
-                eq(teamUsers.userId, userId),
-            );
+        await this.db.delete(teamUsers).where(eq(teamUsers.userId, userId))
     }
 
     async listUsers(): Promise<User[]> {
@@ -226,14 +218,10 @@ export class MembershipDatabase {
     }
 
     async getTeam(teamId: string): Promise<Team> {
-        const team = await this.db
-            .select()
-            .from(teams)
-            .where(eq(teams.id, teamId))
-            .get()
-        if (!team) throw new RecordNotFoundError({ teamId });
+        const team = await this.db.select().from(teams).where(eq(teams.id, teamId)).get()
+        if (!team) throw new RecordNotFoundError({ teamId })
 
-        return team;
+        return team
     }
 
     async listTeams(): Promise<Team[]> {
@@ -247,12 +235,8 @@ export class MembershipDatabase {
             githubSlug: githubSlugOf(data.name),
         }
 
-        const team = await this.db
-            .insert(teams)
-            .values(teamData)
-            .returning()
-            .get()
-        if (!team) throw new InsertRecordError(teamData);
+        const team = await this.db.insert(teams).values(teamData).returning().get()
+        if (!team) throw new InsertRecordError(teamData)
 
         return team
     }
@@ -262,8 +246,8 @@ export class MembershipDatabase {
         const [, team] = await this.db.batch([
             this.db.delete(teamUsers).where(eq(teamUsers.teamId, teamId)),
             this.db.delete(teams).where(eq(teams.id, teamId)).returning(),
-        ]);
+        ])
 
-        return team[0];
+        return team[0]
     }
 }

@@ -1,6 +1,6 @@
 import type { Vertical } from './db/schema'
-import {MembershipDatabase, Team, User} from "./db/access";
-import Env = Cloudflare.Env;
+import { MembershipDatabase, Team, User } from './db/access'
+import Env = Cloudflare.Env
 
 export const execRoles = [
     'President',
@@ -39,7 +39,10 @@ export type ServiceResult = { changes: NeededChange[]; failed: boolean }
  * errored; `rejected` weren't attempted because they need a person or their kind/service isn't supported.
  * Only failedChanges make it `failed`; deferred and rejected changes are returned for the caller.
  */
-export type FixServiceResult = ServiceResult & { failedChanges: FailedChange[]; rejected: NeededChange[] }
+export type FixServiceResult = ServiceResult & {
+    failedChanges: FailedChange[]
+    rejected: NeededChange[]
+}
 
 /** Services that didn't complete, by name. The error is there if the service threw one. */
 export type FailedServices = { [service: string]: Error | undefined }
@@ -78,7 +81,10 @@ export class ServiceError extends Error {
 export abstract class Service {
     abstract readonly name: string
 
-    constructor(protected readonly env: Env, protected readonly db: MembershipDatabase) {}
+    constructor(
+        protected readonly env: Env,
+        protected readonly db: MembershipDatabase,
+    ) {}
 
     abstract addUserToTeam(
         user: User,

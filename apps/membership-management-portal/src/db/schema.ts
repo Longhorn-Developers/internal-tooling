@@ -1,5 +1,13 @@
-import {sql} from 'drizzle-orm'
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
+import {
+    check,
+    index,
+    integer,
+    primaryKey,
+    sqliteTable,
+    text,
+    uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
 
 export const statusNames = ['applicant', 'active', 'inactive', 'alum'] as const
 export type Status = (typeof statusNames)[number]
@@ -19,18 +27,25 @@ export type ExecRole = (typeof execRoles)[number]
 
 // SQLite has no enum type, so enum columns also get a CHECK constraint.
 const sqlInArray = (column: any, allowedValues: readonly string[]) => {
-    const quotedValues = allowedValues.map(v => `'${v}'`).join(', ');
-    return sql`${column} IN (${sql.raw(quotedValues)})`;
-};
+    const quotedValues = allowedValues.map((v) => `'${v}'`).join(', ')
+    return sql`${column} IN (${sql.raw(quotedValues)})`
+}
 
-export const teams = sqliteTable('teams', {
-    id: text('id').primaryKey().notNull(),
-    name: text('name').notNull(),
-    githubSlug: text('github_slug').notNull().unique(),
-}, (table) => [
-    // "-leads" is reserved for each team's GitHub leads subteam, so no slug can collide with one
-    check('valid_github_slug', sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*' AND ${table.githubSlug} NOT GLOB '*-leads'`),
-])
+export const teams = sqliteTable(
+    'teams',
+    {
+        id: text('id').primaryKey().notNull(),
+        name: text('name').notNull(),
+        githubSlug: text('github_slug').notNull().unique(),
+    },
+    (table) => [
+        // "-leads" is reserved for each team's GitHub leads subteam, so no slug can collide with one
+        check(
+            'valid_github_slug',
+            sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*' AND ${table.githubSlug} NOT GLOB '*-leads'`,
+        ),
+    ],
+)
 
 export const users = sqliteTable(
     'users',

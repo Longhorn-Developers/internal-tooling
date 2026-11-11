@@ -1,10 +1,18 @@
-import {WorkerEntrypoint} from 'cloudflare:workers'
-import {Vertical} from './db/schema'
+import { WorkerEntrypoint } from 'cloudflare:workers'
+import { Vertical } from './db/schema'
 import { GitHubService } from './github/github-service'
 import { handleGitHubWebhook } from './github/github-webhook'
-import type {ExecRole, FailedServices, FixResult, NeededChange, RPCResult, Service, ServiceResult} from './service'
-import {githubSlugOf, MembershipDatabase, slugUnavailable} from "./db/access";
-import Env = Cloudflare.Env;
+import type {
+    ExecRole,
+    FailedServices,
+    FixResult,
+    NeededChange,
+    RPCResult,
+    Service,
+    ServiceResult,
+} from './service'
+import { githubSlugOf, MembershipDatabase, slugUnavailable } from './db/access'
+import Env = Cloudflare.Env
 
 // TODO: eventually publish types in repo frontend can import
 
@@ -13,9 +21,9 @@ type UserEdits = { name?: string; email?: string; githubId?: string | null; disc
 
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
 
-class InactiveUserError extends Error{
-    constructor(public readonly userId: string){
-        super(`Attempted to modify an inactive user: ${userId}`);
+class InactiveUserError extends Error {
+    constructor(public readonly userId: string) {
+        super(`Attempted to modify an inactive user: ${userId}`)
     }
 }
 
@@ -28,10 +36,10 @@ export default { fetch: handleGitHubWebhook } satisfies ExportedHandler<Env>
 // services need and the names of those that didn't complete (see RpcResult).
 // GitHub App credentials are secrets (see README); GITHUB_ORG/GITHUB_EXEC_TEAM/GITHUB_LEADS_TEAM
 // are wrangler vars.
-export class MembershipService extends WorkerEntrypoint<Env> {
+export class MembershipService extends WorkerEntrypoint {
     // instance (so services) per RPC call
-    private readonly db = new MembershipDatabase(this.env.membership_db!);
-    private readonly allServices: Service[] = [new GitHubService(this.env, this.db)];
+    private readonly db = new MembershipDatabase(this.env.membership_db!)
+    private readonly allServices: Service[] = [new GitHubService(this.env, this.db)]
 
     private async run(
         action: (service: Service) => Promise<ServiceResult>,
@@ -64,31 +72,37 @@ export class MembershipService extends WorkerEntrypoint<Env> {
             githubId: github?.toLowerCase(),
             discordId: discord.toLowerCase(),
             status: 'active',
-        });
+        })
 
-        const result = await this.run((s) => s.onboardUser(user.name, user.email, user.githubId ?? undefined, user.discordId))
+        const result = await this.run((s) =>
+            s.onboardUser(user.name, user.email, user.githubId ?? undefined, user.discordId),
+        )
 
         return {
             userId: user.id,
             ...result,
-            ...(result.changes ? { changes: result.changes.map((change) => ({ ...change, userId: user.id })) } : {}),
+            ...(result.changes
+                ? { changes: result.changes.map((change) => ({ ...change, userId: user.id })) }
+                : {}),
         }
     }
 
     /** Changes a user's details; a changed GitHub account moves their access in the services. */
     async updateUser(userId: string, edits: UserEdits): Promise<RPCResult> {
         // validates the user
-        const before = await this.db.getUser(userId);
+        const before = await this.db.getUser(userId)
 
         const data = {
             ...(edits.name !== undefined && { name: edits.name }),
             ...(edits.email !== undefined && { email: edits.email.toLowerCase() }),
-            ...(edits.githubId !== undefined && { githubId: edits.githubId?.toLowerCase() || null }),
+            ...(edits.githubId !== undefined && {
+                githubId: edits.githubId?.toLowerCase() || null,
+            }),
             ...(edits.discordId !== undefined && { discordId: edits.discordId.toLowerCase() }),
         }
-        if (!Object.keys(data).length) return { failedServices: {} };
+        if (!Object.keys(data).length) return { failedServices: {} }
 
-        const after = await this.db.updateUser(userId, data);
+        const after = await this.db.updateUser(userId, data)
 
         return this.run((s) => s.updateUser(before, after))
     }
@@ -100,66 +114,70 @@ export class MembershipService extends WorkerEntrypoint<Env> {
         isLead: boolean,
     ): Promise<RPCResult> {
         // validates the user and team
-        const user = await this.db.getUser(userId);
-        if (user.status != 'active') throw new InactiveUserError(userId);
+        const user = await this.db.getUser(userId)
+        if (user.status != 'active') throw new InactiveUserError(userId)
 
-        const team = await this.db.getTeam(teamId);
+        const team = await this.db.getTeam(teamId)
 
         // validates the vertical
-        await this.db.assignVertical(userId, teamId, vertical, isLead);
+        await this.db.assignVertical(userId, teamId, vertical, isLead)
 
         return this.run((s) => s.addUserToTeam(user, team, vertical, isLead))
     }
 
     async removeUserFromTeam(userId: string, teamId: string): Promise<RPCResult> {
         // validates the user and team
-        const user = await this.db.getUser(userId);
-        const team = await this.db.getTeam(teamId);
+        const user = await this.db.getUser(userId)
+        const team = await this.db.getTeam(teamId)
 
-        await this.db.removeUserFromTeam(userId, teamId);
+        await this.db.removeUserFromTeam(userId, teamId)
 
         return this.run((s) => s.removeUserFromTeam(user, team))
     }
 
     async deactivateUser(userId: string): Promise<RPCResult> {
         // validates the user
-        const user = await this.db.deactivateUser(userId);
+        const user = await this.db.deactivateUser(userId)
 
         return this.run((s) => s.deactivateUser(user))
     }
 
     async makeExec(userId: string, execRole: ExecRole): Promise<RPCResult> {
         // validates the user and exec role
-        const user = await this.db.updateUser(userId,
-            { execRole: execRole });
+        const user = await this.db.updateUser(userId, { execRole: execRole })
 
         return this.run((s) => s.makeExec(user, execRole))
     }
 
     async removeExec(userId: string): Promise<RPCResult> {
         // validates the user
-        const {execRole} = await this.db.getUser(userId);
-        if (!execRole) return { failedServices: {} };
+        const { execRole } = await this.db.getUser(userId)
+        if (!execRole) return { failedServices: {} }
 
         // validates the exec role
-        const user = await this.db.updateUser(userId, { execRole: null });
+        const user = await this.db.updateUser(userId, { execRole: null })
 
         return this.run((s) => s.removeExec(user, execRole))
     }
 
     async createTeam(name: string): Promise<RPCResult> {
         const slug = githubSlugOf(name)
-        if (slugUnavailable(slug, [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].map(githubSlugOf))) {
+        if (
+            slugUnavailable(
+                slug,
+                [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].map(githubSlugOf),
+            )
+        ) {
             throw new Error(`Invalid or reserved GitHub team slug: ${slug}`)
         }
-        const team = await this.db.createTeam({ name });
+        const team = await this.db.createTeam({ name })
 
         return this.run((s) => s.createTeam(team))
     }
 
     async deleteTeam(teamId: string): Promise<RPCResult> {
         const team = await this.db.deleteTeam(teamId)
-        if (team == null) return { failedServices: {} };
+        if (team == null) return { failedServices: {} }
 
         return this.run((s) => s.deleteTeam(team))
     }
@@ -167,7 +185,7 @@ export class MembershipService extends WorkerEntrypoint<Env> {
     /** Reports how the team differs from D1 in every service. Changes nothing. */
     async syncTeam(teamId: string): Promise<RPCResult> {
         // validates the team
-        const team = await this.db.getTeam(teamId);
+        const team = await this.db.getTeam(teamId)
 
         return this.run((s) => s.syncTeam(team))
     }
@@ -175,15 +193,15 @@ export class MembershipService extends WorkerEntrypoint<Env> {
     /** Reports how one user differs from D1 in every service. Changes nothing. */
     async syncUser(userId: string): Promise<RPCResult> {
         // validates the user
-        const user = await this.db.getUser(userId);
+        const user = await this.db.getUser(userId)
 
         return this.run((s) => s.syncUser(user))
     }
 
     /** Audits all modeled state in one service. Changes nothing. */
     async syncService(service: string): Promise<RPCResult> {
-        const found = this.allServices.find((s) => s.name === service);
-        if (!found) throw new Error(`Unknown service: ${service}`);
+        const found = this.allServices.find((s) => s.name === service)
+        if (!found) throw new Error(`Unknown service: ${service}`)
 
         return this.run((s) => s.syncService(), [found])
     }
@@ -198,8 +216,10 @@ export class MembershipService extends WorkerEntrypoint<Env> {
      * those that errored, and `rejected` those that need a person or aren't supported.
      */
     async autoFix(changes: NeededChange[]): Promise<FixResult> {
-        const result: FixResult = { failedServices: {}, failedChanges: [], rejected: [] };
-        result.rejected.push(...changes.filter((change) => !this.allServices.some((s) => s.name === change.service)))
+        const result: FixResult = { failedServices: {}, failedChanges: [], rejected: [] }
+        result.rejected.push(
+            ...changes.filter((change) => !this.allServices.some((s) => s.name === change.service)),
+        )
         const deferred: NeededChange[] = []
         for (const s of this.allServices) {
             try {

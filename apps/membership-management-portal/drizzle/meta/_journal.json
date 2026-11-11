@@ -1,20 +1,20 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1792518800342,
-      "tag": "0000_initial_membership",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1794361552126,
-      "tag": "0001_exec_roles_github_slugs_unique_identities",
-      "breakpoints": true
-    }
-  ]
+    "version": "7",
+    "dialect": "sqlite",
+    "entries": [
+        {
+            "idx": 0,
+            "version": "6",
+            "when": 1792518800342,
+            "tag": "0000_initial_membership",
+            "breakpoints": true
+        },
+        {
+            "idx": 1,
+            "version": "6",
+            "when": 1794361552126,
+            "tag": "0001_exec_roles_github_slugs_unique_identities",
+            "breakpoints": true
+        }
+    ]
 }

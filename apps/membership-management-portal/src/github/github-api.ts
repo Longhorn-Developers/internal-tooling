@@ -4,7 +4,7 @@ import { paginateRest } from '@octokit/plugin-paginate-rest'
 import { restEndpointMethods } from '@octokit/plugin-rest-endpoint-methods'
 import { RequestError } from '@octokit/request-error'
 import { ServiceError } from '../service'
-import Env = Cloudflare.Env;
+import Env = Cloudflare.Env
 
 // API names for repository roles; the GitHub UI calls `push` "Write"
 export type RepoPermission = 'pull' | 'triage' | 'push' | 'maintain' | 'admin'
@@ -105,51 +105,104 @@ const MORE = {
     orgMembers: orgPage('OrgMembers', 'membersWithRole', 'edges { role node { login } }'),
     orgTeams: orgPage('OrgTeams', 'teams', 'nodes { ...TeamFields }', TEAM_FIELDS),
     orgRepos: orgPage('OrgRepos', 'repositories', 'nodes { ...RepoFields }', REPO_FIELDS),
-    teamMembers: nodePage('TeamMembers', 'Team', 'members(first: $page, after: $after, membership: IMMEDIATE)', 'edges { role node { login } }'),
-    teamInvites: nodePage('TeamInvites', 'Team', 'invitations(first: $page, after: $after)', 'nodes { invitee { login } }'),
-    teamRepos: nodePage('TeamRepos', 'Team', 'repositories(first: $page, after: $after)', 'edges { permission node { name } }'),
-    collaborators: nodePage('RepoCollaborators', 'Repository', 'collaborators(first: $page, after: $after, affiliation: DIRECT)', COLLABORATOR_EDGES),
+    teamMembers: nodePage(
+        'TeamMembers',
+        'Team',
+        'members(first: $page, after: $after, membership: IMMEDIATE)',
+        'edges { role node { login } }',
+    ),
+    teamInvites: nodePage(
+        'TeamInvites',
+        'Team',
+        'invitations(first: $page, after: $after)',
+        'nodes { invitee { login } }',
+    ),
+    teamRepos: nodePage(
+        'TeamRepos',
+        'Team',
+        'repositories(first: $page, after: $after)',
+        'edges { permission node { name } }',
+    ),
+    collaborators: nodePage(
+        'RepoCollaborators',
+        'Repository',
+        'collaborators(first: $page, after: $after, affiliation: DIRECT)',
+        COLLABORATOR_EDGES,
+    ),
 }
 
 const fromGraphQL: Record<string, RepoPermission> = {
-    ADMIN: 'admin', MAINTAIN: 'maintain', WRITE: 'push', TRIAGE: 'triage', TRIAGE_PLUS: 'triage', READ: 'pull',
+    ADMIN: 'admin',
+    MAINTAIN: 'maintain',
+    WRITE: 'push',
+    TRIAGE: 'triage',
+    TRIAGE_PLUS: 'triage',
+    READ: 'pull',
 }
 const toGraphQL: Record<RepoPermission, string> = {
-    admin: 'ADMIN', maintain: 'MAINTAIN', push: 'WRITE', triage: 'TRIAGE', pull: 'READ',
+    admin: 'ADMIN',
+    maintain: 'MAINTAIN',
+    push: 'WRITE',
+    triage: 'TRIAGE',
+    pull: 'READ',
 }
 
-type Conn<T> = { pageInfo: { hasNextPage: boolean; endCursor: string | null }; edges?: T[]; nodes?: T[] }
+type Conn<T> = {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null }
+    edges?: T[]
+    nodes?: T[]
+}
 type MemberEdge = { role: string; node: { login: string } }
 type RepoEdge = { permission: string; node: { name: string } }
 type CollaboratorEdge = {
-    permission: string; node: { login: string }
+    permission: string
+    node: { login: string }
     permissionSources: { permission: string; source: { __typename: string; id?: string } }[] | null
 }
 type GqlTeam = {
-    id: string; databaseId: number; slug: string
+    id: string
+    databaseId: number
+    slug: string
     members: Conn<MemberEdge>
     invitations: Conn<{ invitee: { login: string } | null }> | null
     repositories: Conn<RepoEdge>
 }
 type GqlRepo = {
-    id: string; name: string
+    id: string
+    name: string
     collaborators: Conn<CollaboratorEdge> | null
 }
 
-const EMPTY = { pageInfo: { hasNextPage: false, endCursor: null } }
+const EMPTY = {
+    pageInfo: { hasNextPage: false, endCursor: null },
+    edges: undefined,
+    nodes: undefined,
+}
 
 const statusOf = (type?: string) =>
-    type === 'NOT_FOUND' ? 404
-    : type === 'FORBIDDEN' || type === 'INSUFFICIENT_SCOPES' ? 403
-    : type === 'RATE_LIMITED' || type === 'RATE_LIMIT' ? 429
-    : 500
+    type === 'NOT_FOUND'
+        ? 404
+        : type === 'FORBIDDEN' || type === 'INSUFFICIENT_SCOPES'
+          ? 403
+          : type === 'RATE_LIMITED' || type === 'RATE_LIMIT'
+            ? 429
+            : 500
 
 type OrgEntry = { role: 'admin' | 'member'; state: 'active' | 'pending' }
 // Team roles are unknown after owner demotion or while an invitation is pending.
 type TeamEntry = { role: TeamRole | null; state: 'active' | 'pending' }
-type TeamState = { id: string; dbId: number; members: Map<string, TeamEntry>; repos: Map<string, RepoPermission> }
+type TeamState = {
+    id: string
+    dbId: number
+    members: Map<string, TeamEntry>
+    repos: Map<string, RepoPermission>
+}
 type RepoState = { id: string; name: string; direct: Map<string, RepoPermission> }
-type Snapshot = { members: Map<string, OrgEntry>; teams: Map<string, TeamState>; repos: Map<string, RepoState> }
+type Snapshot = {
+    members: Map<string, OrgEntry>
+    teams: Map<string, TeamState>
+    repos: Map<string, RepoState>
+}
 
 export type TeamRepoGrant = { slug: string; repo: string; permission: RepoPermission }
 
@@ -160,7 +213,9 @@ const BATCH = 50
 const PAGE = 100
 
 export class GitHubBudgetExceeded extends Error {
-    constructor() { super('GitHub request budget exhausted; retry with a fresh snapshot') }
+    constructor() {
+        super('GitHub request budget exhausted; retry with a fresh snapshot')
+    }
 }
 
 const ownerIn = (s: Snapshot, id: string) => {
@@ -199,25 +254,31 @@ export class GitHubOrg {
         return this.snap!
     }
 
-    private _octokit?: InstanceType<typeof GitHub>
+    private lazy_octokit?: InstanceType<typeof GitHub>
     private get octokit() {
-        if (this._octokit) return this._octokit
+        if (this.lazy_octokit) return this.lazy_octokit
 
-        const { GITHUB_APP_ID: appId, GITHUB_APP_INSTALLATION_ID: installationId, GITHUB_APP_PRIVATE_KEY: privateKey } = this.env
+        const {
+            GITHUB_APP_ID: appId,
+            GITHUB_APP_INSTALLATION_ID: installationId,
+            GITHUB_APP_PRIVATE_KEY: privateKey,
+        } = this.env
         const key = `${appId}:${installationId}:${privateKey}`
         let auth = auths.get(key)
         if (!auth) auths.set(key, (auth = createAppAuth({ appId, privateKey, installationId })))
 
-        const client = new GitHub({ authStrategy: () => auth!, userAgent: 'lhd-membership-worker' })
+        const client = new GitHub({ authStrategy: () => auth, userAgent: 'lhd-membership-worker' })
         client.hook.before('request', (options) => {
             if (this.calls >= HARD_CALL_BUDGET) throw new GitHubBudgetExceeded()
             this.calls++
             options.headers['x-github-api-version'] = '2026-03-10'
         })
         client.hook.error('request', (error) => {
-            throw error instanceof RequestError ? new GitHubError(error.status, error.message) : error
+            throw error instanceof RequestError
+                ? new GitHubError(error.status, error.message)
+                : error
         })
-        this._octokit = client
+        this.lazy_octokit = client
         return client
     }
 
@@ -226,9 +287,12 @@ export class GitHubOrg {
     }
 
     // Reads reject partial results; batched writes inspect each mutation's errors.
-    private async gql(query: string, variables: Record<string, unknown> = {}) {
+    private async gql(
+        query: string,
+        variables: Record<string, unknown> = {},
+    ): Promise<{ data: any; errors: any[] }> {
         try {
-            return { data: await this.octokit.graphql<any>(query, variables), errors: [] as any[] }
+            return { data: await this.octokit.graphql<any>(query, variables), errors: [] }
         } catch (error: any) {
             if (error?.name !== 'GraphqlResponseError') throw error
             return { data: error.data ?? {}, errors: error.errors ?? [] }
@@ -242,7 +306,10 @@ export class GitHubOrg {
             ...variables,
         })
         if (errors.length) {
-            throw new GitHubError(statusOf(errors[0].type), errors.map((e: any) => e.message).join('; '))
+            throw new GitHubError(
+                statusOf(errors[0].type),
+                errors.map((e: any) => e.message).join('; '),
+            )
         }
         return data
     }
@@ -252,10 +319,10 @@ export class GitHubOrg {
         field: 'edges' | 'nodes',
         more: (after: string) => Promise<Conn<T> | null | undefined>,
     ): Promise<T[]> {
-        let page = first ?? (EMPTY as Conn<T>)
+        let page = first ?? EMPTY
         const items = [...(page[field] ?? [])]
         while (page.pageInfo.hasNextPage && page.pageInfo.endCursor) {
-            page = (await more(page.pageInfo.endCursor)) ?? (EMPTY as Conn<T>)
+            page = (await more(page.pageInfo.endCursor)) ?? EMPTY
             items.push(...(page[field] ?? []))
         }
         return items
@@ -266,29 +333,47 @@ export class GitHubOrg {
         if (!o) throw new GitHubError(404, `Organization ${this.org} does not exist`)
         const s: Snapshot = { members: new Map(), teams: new Map(), repos: new Map() }
 
-        const members = await this.drain<MemberEdge>(o.members, 'edges', async (after) =>
-            (await this.query(MORE.orgMembers, { after })).organization.c)
+        const members = await this.drain<MemberEdge>(
+            o.members,
+            'edges',
+            async (after) => (await this.query(MORE.orgMembers, { after })).organization.c,
+        )
         for (const { role, node } of members) {
-            s.members.set(lc(node.login), { role: role === 'ADMIN' ? 'admin' : 'member', state: 'active' })
+            s.members.set(lc(node.login), {
+                role: role === 'ADMIN' ? 'admin' : 'member',
+                state: 'active',
+            })
         }
 
-        const teams = await this.drain<GqlTeam>(o.teams, 'nodes', async (after) =>
-            (await this.query(MORE.orgTeams, { after })).organization.c)
+        const teams = await this.drain<GqlTeam>(
+            o.teams,
+            'nodes',
+            async (after) => (await this.query(MORE.orgTeams, { after })).organization.c,
+        )
         for (const t of teams) await this.ingestTeam(s, t)
 
-        const repos = await this.drain<GqlRepo>(o.repositories, 'nodes', async (after) =>
-            (await this.query(MORE.orgRepos, { after })).organization.c)
+        const repos = await this.drain<GqlRepo>(
+            o.repositories,
+            'nodes',
+            async (after) => (await this.query(MORE.orgRepos, { after })).organization.c,
+        )
         for (const r of repos) await this.ingestRepo(s, r)
 
         // invitations carry the role that pendingMembers doesn't
         if (o.pending.totalCount > 0) {
-            const invitations = await this.octokit.paginate(this.octokit.rest.orgs.listPendingInvitations, {
-                org: this.org,
-                per_page: 100,
-            })
+            const invitations = await this.octokit.paginate(
+                this.octokit.rest.orgs.listPendingInvitations,
+                {
+                    org: this.org,
+                    per_page: 100,
+                },
+            )
             for (const { login, role } of invitations) {
                 if (login && !s.members.has(lc(login))) {
-                    s.members.set(lc(login), { role: role === 'admin' ? 'admin' : 'member', state: 'pending' })
+                    s.members.set(lc(login), {
+                        role: role === 'admin' ? 'admin' : 'member',
+                        state: 'pending',
+                    })
                 }
             }
         }
@@ -296,31 +381,57 @@ export class GitHubOrg {
     }
 
     private async ingestTeam(s: Snapshot, t: GqlTeam) {
-        const team: TeamState = { id: t.id, dbId: t.databaseId, members: new Map(), repos: new Map() }
-        const members = await this.drain<MemberEdge>(t.members, 'edges', async (after) =>
-            (await this.query(MORE.teamMembers, { id: t.id, after }, false)).node.c)
+        const team: TeamState = {
+            id: t.id,
+            dbId: t.databaseId,
+            members: new Map(),
+            repos: new Map(),
+        }
+        const members = await this.drain<MemberEdge>(
+            t.members,
+            'edges',
+            async (after) =>
+                (await this.query(MORE.teamMembers, { id: t.id, after }, false)).node.c,
+        )
         for (const { role, node } of members) {
-            team.members.set(lc(node.login), { role: role === 'MAINTAINER' ? 'maintainer' : 'member', state: 'active' })
+            team.members.set(lc(node.login), {
+                role: role === 'MAINTAINER' ? 'maintainer' : 'member',
+                state: 'active',
+            })
         }
 
-        const invites = await this.drain<{ invitee: { login: string } | null }>(t.invitations, 'nodes', async (after) =>
-            (await this.query(MORE.teamInvites, { id: t.id, after }, false)).node.c)
+        const invites = await this.drain<{ invitee: { login: string } | null }>(
+            t.invitations,
+            'nodes',
+            async (after) =>
+                (await this.query(MORE.teamInvites, { id: t.id, after }, false)).node.c,
+        )
         for (const { invitee } of invites) {
             if (invitee) team.members.set(lc(invitee.login), { role: null, state: 'pending' })
         }
 
-        const repos = await this.drain<RepoEdge>(t.repositories, 'edges', async (after) =>
-            (await this.query(MORE.teamRepos, { id: t.id, after }, false)).node.c)
-        for (const { permission, node } of repos) team.repos.set(lc(node.name), fromGraphQL[permission] ?? 'pull')
+        const repos = await this.drain<RepoEdge>(
+            t.repositories,
+            'edges',
+            async (after) => (await this.query(MORE.teamRepos, { id: t.id, after }, false)).node.c,
+        )
+        for (const { permission, node } of repos)
+            team.repos.set(lc(node.name), fromGraphQL[permission] ?? 'pull')
         s.teams.set(t.slug, team)
     }
 
     private async ingestRepo(s: Snapshot, r: GqlRepo) {
         const repo: RepoState = { id: r.id, name: r.name, direct: new Map() }
-        const collaborators = await this.drain<CollaboratorEdge>(r.collaborators, 'edges', async (after) =>
-            (await this.query(MORE.collaborators, { id: r.id, after }, false)).node.c)
+        const collaborators = await this.drain<CollaboratorEdge>(
+            r.collaborators,
+            'edges',
+            async (after) =>
+                (await this.query(MORE.collaborators, { id: r.id, after }, false)).node.c,
+        )
         for (const { permission, node, permissionSources } of collaborators) {
-            const direct = permissionSources?.find((p) => p.source.__typename === 'Repository' && p.source.id === r.id)
+            const direct = permissionSources?.find(
+                (p) => p.source['__typename'] === 'Repository' && p.source.id === r.id,
+            )
             if (permissionSources && !direct) continue
             repo.direct.set(lc(node.login), fromGraphQL[direct?.permission ?? permission] ?? 'pull')
         }
@@ -339,7 +450,9 @@ export class GitHubOrg {
         for (let i = 0; i < unknown.length; i += 50) {
             const chunk = unknown.slice(i, i + 50)
             const vars = chunk.map((_, n) => `$l${n}: String!`).join(', ')
-            const fields = chunk.map((_, n) => `u${n}: user(login: $l${n}) { login databaseId }`).join(' ')
+            const fields = chunk
+                .map((_, n) => `u${n}: user(login: $l${n}) { login databaseId }`)
+                .join(' ')
             const { data, errors } = await this.gql(
                 `query Accounts(${vars}) { ${fields} }`,
                 Object.fromEntries(chunk.map((login, n) => [`l${n}`, login])),
@@ -368,7 +481,9 @@ export class GitHubOrg {
 
     async orgLogins(role: 'admin' | 'member') {
         const { members } = await this.state()
-        return [...members].filter(([, m]) => m.state === 'active' && m.role === role).map(([login]) => login)
+        return [...members]
+            .filter(([, m]) => m.state === 'active' && m.role === role)
+            .map(([login]) => login)
     }
 
     async pendingLogins() {
@@ -409,7 +524,11 @@ export class GitHubOrg {
         if (!current) return this.invite(login, role, [])
         if (current.state === 'pending' || current.role === role) return
 
-        const { data } = await this.octokit.rest.orgs.setMembershipForUser({ org: this.org, username: login, role })
+        const { data } = await this.octokit.rest.orgs.setMembershipForUser({
+            org: this.org,
+            username: login,
+            role,
+        })
         const isOwner = data.role === 'admin'
         s.members.set(id, { role: isOwner ? 'admin' : 'member', state: data.state })
         // owner team-role override
@@ -429,7 +548,7 @@ export class GitHubOrg {
         const inviteeId = this.accounts.get(id)
         if (inviteeId == null) throw new GitHubError(404, `GitHub user ${login} does not exist`)
 
-        const teams = teamSlugs.flatMap((slug) => s.teams.has(slug) ? [s.teams.get(slug)!] : [])
+        const teams = teamSlugs.flatMap((slug) => (s.teams.has(slug) ? [s.teams.get(slug)!] : []))
         await this.octokit.rest.orgs.createInvitation({
             org: this.org,
             invitee_id: inviteeId,
@@ -444,7 +563,9 @@ export class GitHubOrg {
         const id = lc(login)
         if (this.snap && !this.snap.members.has(id)) return
 
-        await orNull(this.octokit.rest.orgs.removeMembershipForUser({ org: this.org, username: login }))
+        await orNull(
+            this.octokit.rest.orgs.removeMembershipForUser({ org: this.org, username: login }),
+        )
         if (!this.snap) return
         this.snap.members.delete(id)
         for (const team of this.snap.teams.values()) team.members.delete(id)
@@ -477,12 +598,20 @@ export class GitHubOrg {
         if (!team?.members.has(id)) return
 
         await orNull(
-            this.octokit.rest.teams.removeMembershipForUserInOrg({ org: this.org, team_slug: slug, username: login }),
+            this.octokit.rest.teams.removeMembershipForUserInOrg({
+                org: this.org,
+                team_slug: slug,
+                username: login,
+            }),
         )
         team.members.delete(id)
     }
 
-    async createTeam(name: string, slug: string, parentSlug?: string): Promise<{ slug: string; id: string }> {
+    async createTeam(
+        name: string,
+        slug: string,
+        parentSlug?: string,
+    ): Promise<{ slug: string; id: string }> {
         const s = await this.state()
         const existing = s.teams.get(slug)
         if (existing) return { slug, id: existing.id }
@@ -491,9 +620,17 @@ export class GitHubOrg {
         if (parentSlug && !parent) throw new GitHubError(404, `Team ${parentSlug} does not exist`)
 
         const { data } = await this.octokit.rest.teams.create({
-            org: this.org, name, privacy: 'closed', parent_team_id: parent?.dbId,
+            org: this.org,
+            name,
+            privacy: 'closed',
+            parent_team_id: parent?.dbId,
         })
-        s.teams.set(data.slug, { id: data.node_id, dbId: data.id, members: new Map(), repos: new Map() })
+        s.teams.set(data.slug, {
+            id: data.node_id,
+            dbId: data.id,
+            members: new Map(),
+            repos: new Map(),
+        })
         return { slug: data.slug, id: data.node_id }
     }
 
@@ -509,7 +646,14 @@ export class GitHubOrg {
         const team = (await this.state()).teams.get(slug)
         if (!team?.repos.has(lc(repo))) return
 
-        await orNull(this.octokit.rest.teams.removeRepoInOrg({ org: this.org, team_slug: slug, owner: this.org, repo }))
+        await orNull(
+            this.octokit.rest.teams.removeRepoInOrg({
+                org: this.org,
+                team_slug: slug,
+                owner: this.org,
+                repo,
+            }),
+        )
         team.repos.delete(lc(repo))
     }
 
@@ -525,20 +669,28 @@ export class GitHubOrg {
             if (last.get(key(grants[i])) !== i) return
             const team = s.teams.get(slug)
             if (!team || !s.repos.has(lc(repo))) {
-                results[i] = new GitHubError(404, `Team ${slug} or repository ${repo} does not exist`)
+                results[i] = new GitHubError(
+                    404,
+                    `Team ${slug} or repository ${repo} does not exist`,
+                )
             } else if (team.repos.get(lc(repo)) !== permission) todo.push(i)
         })
 
-        const apply = (i: number) => s.teams.get(grants[i].slug)!.repos.set(lc(grants[i].repo), grants[i].permission)
+        const apply = (i: number) =>
+            s.teams.get(grants[i].slug)!.repos.set(lc(grants[i].repo), grants[i].permission)
         const viaRest = async (i: number) => {
             const { slug, repo, permission } = grants[i]
             try {
                 await this.octokit.rest.teams.addOrUpdateRepoPermissionsInOrg({
-                    org: this.org, team_slug: slug, owner: this.org, repo, permission,
+                    org: this.org,
+                    team_slug: slug,
+                    owner: this.org,
+                    repo,
+                    permission,
                 })
                 apply(i)
             } catch (error) {
-                results[i] = error as Error
+                results[i] = error instanceof Error ? error : new Error(String(error))
             }
         }
 
@@ -550,7 +702,11 @@ export class GitHubOrg {
             }
             const fields = batch.map((i, n) => {
                 const { slug, repo, permission } = grants[i]
-                const input = { repositoryId: s.repos.get(lc(repo))!.id, teamIds: [s.teams.get(slug)!.id], permission: toGraphQL[permission] }
+                const input = {
+                    repositoryId: s.repos.get(lc(repo))!.id,
+                    teamIds: [s.teams.get(slug)!.id],
+                    permission: toGraphQL[permission],
+                }
                 return `m${n}: updateTeamsRepository(input: {repositoryId: ${JSON.stringify(input.repositoryId)}, teamIds: ${JSON.stringify(input.teamIds)}, permission: ${input.permission}}) { clientMutationId }`
             })
             let data: any
@@ -558,21 +714,28 @@ export class GitHubOrg {
             try {
                 ;({ data, errors } = await this.gql(`mutation Grants { ${fields.join(' ')} }`))
             } catch (error) {
-                if (error instanceof GitHubError && error.status === 403 && error.code !== 'GITHUB_RATE_LIMITED') {
+                if (
+                    error instanceof GitHubError &&
+                    error.status === 403 &&
+                    error.code !== 'GITHUB_RATE_LIMITED'
+                ) {
                     this.batchGrants = false
                     for (const i of batch) await viaRest(i)
                     continue
                 }
-                for (const i of batch) results[i] = error as Error
+                const failure = error instanceof Error ? error : new Error(String(error))
+                for (const i of batch) results[i] = failure
                 continue
             }
             for (const [n, i] of batch.entries()) {
                 const aliasErrors = errors.filter((e: any) => !e.path || e.path[0] === `m${n}`)
                 if (data?.[`m${n}`] && !aliasErrors.length) apply(i)
                 else if (aliasErrors.some((e: any) => statusOf(e.type) === 429)) {
-                    results[i] = new GitHubError(429, aliasErrors.map((e: any) => e.message).join('; '))
-                }
-                else {
+                    results[i] = new GitHubError(
+                        429,
+                        aliasErrors.map((e: any) => e.message).join('; '),
+                    )
+                } else {
                     this.batchGrants = false
                     await viaRest(i)
                 }

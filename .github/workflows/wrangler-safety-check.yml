@@ -1,0 +1,22 @@
+name: Wrangler Safety Check
+
+on:
+  push:
+    branches: [ main, membership-management-portal ]
+  pull_request:
+    branches: [ main, membership-management-portal ]
+
+jobs:
+  wrangler-safety-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check wrangler.jsonc
+        run: |
+          FILE="apps/membership-management-portal/wrangler.jsonc"
+          test -f "$FILE" || { echo "Safety Check Failed: File not found!"; exit 1; }
+
+          npx -y strip-json-comments-cli "$FILE" | jq -e '([.. | objects | has("vars") or has("routes")] | any) | not' > /dev/null

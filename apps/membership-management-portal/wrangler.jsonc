@@ -3,13 +3,11 @@
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
+	// ROUTES AND VARS ARE DEFINED IN THE DASHBOARD; DO NOT INCLUDE
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "membership-worker",
 	"main": "src/index.ts",
 	"keep_vars": true, // we specify vars in the dashboard and .dev.vars, not here
-	"routes": [
-		{ "pattern": "mmp.webhook.longhorndevelopers.org", "custom_domain": true }
-	],
 	"workers_dev": false,
 	"preview_urls": false,
 	"compatibility_date": "2026-10-06",
@@ -35,20 +33,5 @@
 				"migrations_dir": "drizzle"
 			}
 		]
-	},
-	"vars": {
-		/* ===== ENVIRONMENT VARIABLES =====
-		 * Secrets do NOT live here; this is only declarations for typing and documentation purposes.
-		 * To find all applicable staging environment variables, go to the Notion.
-		 * You can set them manually or just download the provided .dev.vars file.
-		 * https://app.notion.com/p/longhorn-developers/Membership-Management-Portal-3f7d9cb37133803eb6b5cedd0048409c
-		 */
-		"GITHUB_ORG": "", // e.g. "Longhorn-Developers"
-		"GITHUB_APP_ID": "",
-		"GITHUB_APP_INSTALLATION_ID": "",
-		"GITHUB_APP_PRIVATE_KEY": "", // PKCS#8 PEM ("BEGIN PRIVATE KEY"); escaped \n is fine
-		"GITHUB_EXEC_TEAM": "", // name of the exec team
-		"GITHUB_LEADS_TEAM": "", // name of the leads team
-		"GITHUB_WEBHOOK_SECRET": "" // secret used for validating GitHub webhook
 	}
 }

@@ -1,8 +1,20 @@
-import type { MembershipService } from '../../src/index'
-
-interface Env {
-    MEMBERSHIP: Service<MembershipService>
-    TARGET_LABEL: string
+import { MembershipService as PortalService } from '../../src/index'
+import { handleGitHubWebhook } from '../../src/github/github-webhook'
+import { remoteD1 } from './remote-d1'
+import { handleSql } from './sql-api'
+/**
+ * The portal as the test UI runs it. The deployed worker has the staging D1 binding. The local
+ * `staging` env has none, so the portal's `membership_db` becomes a shim that sends its SQL to the
+ * deployed worker's /api/sql, and the portal code runs unchanged. Exported under the portal's own
+ * name so ctx.exports (a loopback service binding, with real RPC) finds it.
+ */
+export class MembershipService extends PortalService {
+    constructor(ctx: ExecutionContext, { membership_db, ...env }: Env) {
+        super(ctx, {
+            ...env,
+            membership_db: membership_db ?? remoteD1(env.STAGING_DB_URL, env.STAGING_DB_TOKEN),
+        })
+    }
 }
 
 // s: required string, S: optional string, b: boolean, e: user edits, c: changes to fix
@@ -136,7 +148,7 @@ function serialize(result: unknown) {
     return out
 }
 
-async function rpc(request: Request, env: Env) {
+async function rpc(request: Request, membership: Service<PortalService>) {
     const body: unknown = await request.json().catch(() => null)
     if (!isRecord(body) || typeof body['method'] !== 'string')
         throw new BadRequest('Expected { method, args }')
@@ -150,24 +162,22 @@ async function rpc(request: Request, env: Env) {
         throw new BadRequest('Wrong number of arguments')
     const parsed = tokens.map((token, i) => parseArg(token, args[i]))
 
-    return serialize(
-        await Reflect.apply(Reflect.get(env.MEMBERSHIP, method), env.MEMBERSHIP, parsed),
-    )
+    return serialize(await Reflect.apply(Reflect.get(membership, method), membership, parsed))
 }
 
 export default {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
         const { pathname } = new URL(request.url)
-        if (!pathname.startsWith('/api/')) return new Response('Not found', { status: 404 })
+        if (pathname === '/api/sql') return handleSql(request, env)
+        // Everything else the worker is given besides /api is the GitHub webhook.
+        if (!pathname.startsWith('/api/')) return handleGitHubWebhook(request, env, ctx)
 
+        const membership = ctx.exports.MembershipService
         try {
             if (pathname === '/api/state' && request.method === 'GET')
-                return Response.json({
-                    target: env.TARGET_LABEL,
-                    ...(await env.MEMBERSHIP.getState()),
-                })
+                return Response.json(await membership.getState())
             if (pathname === '/api/rpc' && request.method === 'POST')
-                return Response.json(await rpc(request, env))
+                return Response.json(await rpc(request, membership))
             return Response.json({ error: { message: 'Not found' } }, { status: 404 })
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)

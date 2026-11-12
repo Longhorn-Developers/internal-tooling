@@ -2,7 +2,7 @@
     "extends": "../../../tsconfig.base.json",
     "compilerOptions": {
         "noEmit": true,
-        "types": ["../worker-configuration.d.ts", "node"]
+        "types": ["./worker-configuration.d.ts", "node"]
     },
     "include": ["src/**/*"]
 }

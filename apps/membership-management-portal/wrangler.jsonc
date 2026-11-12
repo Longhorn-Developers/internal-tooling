@@ -34,5 +34,10 @@
 				"migrations_dir": "drizzle"
 			}
 		]
+	},
+	// `pnpm staging` runs the test UI locally with `-e staging`: bindings aren't inherited, so it
+	// has no D1 binding (the test UI supplies the shared staging database itself). Never deploy it.
+	"env": {
+		"staging": {}
 	}
 }

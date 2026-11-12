@@ -9,9 +9,7 @@
         "deploy": "wrangler deploy --minify",
         "cf-typegen": "wrangler types --env-interface CloudflareBindings",
         "db:generate": "drizzle-kit generate",
-        "staging": "./test-ui/start.sh remote",
-        "staging:local": "./test-ui/start.sh local",
-        "staging:local:reset": "./test-ui/start.sh reset"
+        "staging": "./test-ui/start.sh"
     },
     "dependencies": {
         "@octokit/auth-app": "^8.3.1",

@@ -1,25 +1,29 @@
 /**
- * Local-only test UI for the membership portal; never deployed. It reaches the portal only
- * through the service binding, which resolves to the portal that test-ui/start.sh runs beside it
- * (../wrangler.jsonc). TARGET_LABEL is overridden by the script.
+ * The deployed test UI (`pnpm staging:deploy`): the one staging worker. It bundles the portal and
+ * calls it through ctx.exports, owns the staging D1 binding, serves /api/sql for local runs, and
+ * receives the staging GitHub webhook at /github. Local runs don't use this file; see start.sh.
+ *
+ * Set in the dashboard (keep_vars preserves them): GITHUB_* vars and secrets (staging org) and
+ * STAGING_DB_TOKEN (secret). The UI itself has no login.
  */
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
 	"name": "mmp-test-ui",
 	"main": "src/worker.ts",
 	"compatibility_date": "2026-10-06",
+	"workers_dev": false,
+	"preview_urls": false,
+	"keep_vars": true,
+	"observability": { "enabled": true },
 	"assets": {
 		"directory": "./public",
-		"run_worker_first": ["/api/*"]
+		"run_worker_first": ["/api/*", "/github"]
 	},
-	"services": [
+	"d1_databases": [
 		{
-			"binding": "MEMBERSHIP",
-			"service": "membership-worker",
-			"entrypoint": "MembershipService"
+			"binding": "membership_db",
+			"database_name": "membership-db-staging",
+			"database_id": "ba637e2c-967c-4d16-911d-adb644a0a3c6"
 		}
-	],
-	"vars": {
-		"TARGET_LABEL": "STAGING"
-	}
+	]
 }

@@ -23,7 +23,7 @@ const LHD_TEAMS = [
     'LHD Website',
 ]
 
-const data = { target: '', users: [], teams: [], assignments: [] }
+const data = { users: [], teams: [], assignments: [] }
 let pool = [] // changes the last sync or action reported
 let lastSync = null // re-run after fixes: D1 and GitHub, not this page, are the truth
 let outcome = null
@@ -210,10 +210,7 @@ function changesPanel() {
         const note = risky.length
             ? `\n\nThese remove access or teams:\n${risky.map((c) => `- ${c.kind} ${c.target}`).join('\n')}`
             : ''
-        if (
-            changes.length &&
-            confirmed(`Apply ${changes.length} change(s) to ${data.target}?${note}`)
-        )
+        if (changes.length && confirmed(`Apply ${changes.length} change(s)?${note}`))
             run('autoFix', changes)
     }
     return el(
@@ -640,7 +637,6 @@ function historyPanel() {
 }
 
 function render() {
-    document.querySelector('#target').textContent = data.target || 'unknown target'
     document.querySelector('#busy').hidden = !busy
     const app = document.querySelector('#app')
     app.replaceChildren(

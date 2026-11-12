@@ -1,56 +1,67 @@
 # MMP test UI
 
-A local-only test frontend for the membership portal. It is never deployed and has no auth: it
-only listens on your machine. Run everything from `apps/membership-management-portal`.
+A test frontend for the membership portal. Everyone who tests against staging shares one database
+and one GitHub org (`lhd-staging`), so nobody's data drifts from anybody else's.
 
 ```text
-browser ──> test-ui (local) ──service binding──> membership-worker (local portal code)
-              │  /api/state: getState (users, teams, assignments)
-              │  /api/rpc:   allowlisted RPC calls, arguments validated
-              └─ public/:    the UI (no build step)
-
-The UI has no database access: everything goes through the service binding, including
-`getState`, the portal's read of all users, teams and assignments.
+local   (pnpm staging)
+  browser ──> test-ui worker ──ctx.exports (real RPC)──> bundled portal ──┐ STAGING_DB_URL
+                                                                           ▼
+deployed (pnpm staging:deploy, one worker, no login)    /api/sql
+  browser ──> test-ui worker ──ctx.exports (real RPC)──> bundled portal ──> staging D1
+                 └─ /api/sql: raw SQL on the staging D1 for local runs (bearer token)
+                 └─ /github:  the staging GitHub webhook
 ```
+
+The test UI wraps `MembershipService` (`test-ui/src/worker.ts`): where `STAGING_DB_URL` is set it swaps
+`env.membership_db` for a shim that sends the SQL to the deployed worker. The portal's own code
+knows nothing about it.
 
 It follows the portal's rules: it never writes D1 or calls GitHub itself, it only calls the portal's
 actions, syncs and `autoFix`. Syncs are explicit and read-only. After a fix it re-runs the last
 sync instead of trusting its own state. Removals are never preselected and always ask for
 confirmation. `failedChanges`, `rejected` and deferred changes are shown separately.
 
-Both modes need `.dev.vars` in the portal folder (git-ignored; it is also what `cf-typegen` reads): the **staging** org's GitHub App credentials and
-settings (`GITHUB_ORG`, `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`,
-`GITHUB_EXEC_TEAM`, `GITHUB_LEADS_TEAM`, `GITHUB_WEBHOOK_SECRET`). `start.sh` stops and prints
-where to download it (Notion) if the file is missing.
-GitHub writes are real (the `lhd-staging` org).
+## Running it locally
 
-Both start through `test-ui/start.sh`, which prints what is local and what is remote.
+1. Download two files from Notion (the link is printed if either is missing):
+   `.dev.vars` in `apps/membership-management-portal` (the staging GitHub App credentials) and
+   `test-ui/.dev.vars` (`STAGING_DB_URL` and `STAGING_DB_TOKEN`). They're separate so the shared
+   database settings stay out of the portal's generated types.
+2. `pnpm staging`.
 
-## `pnpm staging`: shared staging database (needs Cloudflare access)
+`pnpm staging` runs `wrangler dev --local -e staging` on the test UI's worker, under the portal's own
+`wrangler.jsonc` with `--assets` for the UI and both env files passed with `--env-file`. The empty
+`env.staging` there has no D1 binding, so no local database is created, and `--local` means no
+Cloudflare login is needed. It runs your working-tree portal code against the shared staging
+database through the deployed worker's `/api/sql`, and GitHub writes are real (`lhd-staging`).
+The terminal summary says what is local and what is remote.
 
-Runs `wrangler dev` with the portal's own `wrangler.jsonc`, whose D1 binding has `remote: true`;
-dev resolves it to the staging database through `preview_database_id`. You must be logged in to Cloudflare
-(`wrangler login`) with access to the account. Everything runs from your working tree except the
-GitHub webhook, which runs on the deployed Cloudflare staging preview. It uses the same staging
-D1, so webhook effects show up here after a reload or sync.
+Each query is one HTTPS round trip, so big syncs are slower than a real binding.
 
-## `pnpm staging:local`: local database (no Cloudflare access)
+## How the pieces tell where they are running
 
-Runs `wrangler dev --local`, which disables the remote binding. Applies migrations to a local D1 on
-every start (safe to repeat; the first run asks you to confirm), then starts everything. The local
-database starts empty: use **Create all LHD teams** in the Teams panel. It creates every LHD team
-that doesn't exist yet through `createTeam`, so it also creates the GitHub teams in `lhd-staging`.
+Nothing detects "local" or "production". Each piece turns on only where its configuration exists:
 
-`pnpm staging:local:reset` deletes `.wrangler/state` (the local database and any other local dev
-state, including `pnpm dev`'s); the next `pnpm staging:local` recreates it empty.
+| Piece | Active when |
+| --- | --- |
+| Shared-database shim (in `MembershipService`'s wrapper) | there is no `membership_db` binding: the local `staging` env |
+| `/api/sql` | there is a `membership_db` binding (the deployed worker) and `STAGING_DB_TOKEN` is set; otherwise 404 |
 
-**The GitHub webhook does not work in this mode.** It only runs on the deployed staging worker,
-which uses the shared staging D1, not your local copy. Webhook-driven changes never reach your
-database, and your local data is not visible to anyone else. State lives in `.wrangler/state`.
+The production `membership-worker` has none of this code, so none of it runs there.
 
-In both modes the UI's service binding resolves to the portal running beside it in the same dev
-session. Check the database ID Wrangler prints at startup on the first `pnpm staging` run. The
-page header shows which mode you are in.
+## Deploying the staging worker
+
+The deployed worker is `mmp-test-ui-staging` (`test-ui/wrangler.jsonc`). It's the only
+deployed piece: the portal is bundled into it. In the dashboard, set its variables and secrets to
+the **staging** org's values (`GITHUB_*`, `STAGING_DB_TOKEN`) and attach a custom domain. The UI has
+no login, so anyone with the URL can use it; the only things it can reach are the staging database
+and the `lhd-staging` org. `/api/sql` needs its token and `/github` a valid GitHub signature.
+Then `pnpm staging:deploy`, and point the staging GitHub webhook at `/github`.
+
+`STAGING_DB_URL` is `https://<that domain>/api/sql`, and `STAGING_DB_TOKEN` is the same secret on both sides.
+The token grants raw read and write on the staging database, so share it only through the Notion
+`test-ui/.dev.vars` download.
 
 ## What the adapter allows
 

@@ -71,13 +71,6 @@ section,
     font-size: 12px;
 }
 
-.target {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
-    font-weight: 600;
-}
-
 .busy {
     color: var(--warn);
 }

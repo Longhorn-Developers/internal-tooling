@@ -119,7 +119,7 @@ const location = async (args: Record<string, unknown>) => {
 };
 
 const events = async (args: Record<string, unknown> = {}) => {
-    const result = await call("find_campus_events", args);
+    const result = await call("find_events", args);
     return { ...result, data: result.structuredContent as EventsStructured };
 };
 
@@ -189,6 +189,52 @@ describe("resolveBuilding", () => {
 
     it("resolves the nicknames students actually use", () => {
         expect(resolveBuilding("the SAC")?.building.code).toBe("WCP");
+    });
+
+    // Each of these is a string UT's calendar publishes with no coordinate,
+    // which resolved to nothing before the alias table covered it. The row
+    // counts are from a 60-day pull measured 2026-11-09.
+    it("resolves a venue inside a building", () => {
+        expect(resolveBuilding("Cactus Cafe")?.building.code).toBe("UNB"); // 20 rows
+        expect(resolveBuilding("Shirley Bird Perry Ballroom")?.building.code).toBe("UNB");
+        expect(resolveBuilding("James Turrell Skyspace")?.building.code).toBe("WCP");
+    });
+
+    it("resolves a building the feed names differently from UT's data", () => {
+        // TSC was in buildings.json the whole time. The city prefix athletics
+        // rows add, plus CTR against Center, meant no path reached it.
+        const swimming = resolveBuilding("Austin, Texas, Lee and Joe Jamail Texas Swimming Center");
+        expect(swimming?.building.code).toBe("TSC"); // 16 rows
+        expect(resolveBuilding("Texas Swimming Center")?.building.code).toBe("TSC");
+    });
+
+    it("resolves SEAY, which is not SEA", () => {
+        // SEA is on the ambiguous-code list, so it only matches when it leads
+        // the string, and "SEAY" is a different token either way.
+        expect(resolveBuilding("SEAY Library - Room 4.244")?.building.code).toBe("SEA"); // 6 rows
+    });
+
+    it("resolves the stadium and the Tower by the names people write", () => {
+        expect(resolveBuilding("Austin, Texas, DKR-Texas Memorial Stadium")?.building.code).toBe(
+            "STD",
+        );
+        expect(resolveBuilding("The University of Texas at Austin Tower")?.building.code).toBe(
+            "MAI",
+        );
+        expect(resolveBuilding("South Mall")?.building.code).toBe("MAI");
+    });
+
+    it("still refuses an away game", () => {
+        // The remaining unresolved rows are road games, and resolving them to
+        // anything on campus would be worse than refusing.
+        for (const away of [
+            "Athens, Ga., Dan Magill Tennis Complex",
+            "Lincoln, Neb., Sid and Hazel Dillon Tennis Center",
+            "Baton Rouge, La., Tiger Stadium",
+            "College Station, Texas, Kyle Field",
+        ]) {
+            expect(resolveBuilding(away)).toBeNull();
+        }
         expect(resolveBuilding("Student Activity Center")?.building.code).toBe("WCP");
         expect(resolveBuilding("Texas Union")?.building.code).toBe("UNB");
         expect(resolveBuilding("UT Tower")?.building.code).toBe("MAI");
@@ -699,7 +745,7 @@ describe("cancelled events", () => {
     });
 });
 
-describe("find_campus_events", () => {
+describe("find_events", () => {
     /** Asserts over every row AND that there was a row, so a fail-closed bug cannot pass. */
     const expectAll = <T>(rows: T[], check: (row: T) => void) => {
         expect(rows.length).toBeGreaterThan(0);
@@ -935,7 +981,7 @@ describe("find_campus_events", () => {
     });
 
     it("refuses a near it cannot resolve rather than ignoring it", async () => {
-        const result = await call("find_campus_events", { when: "this week", near: "Hogwarts" });
+        const result = await call("find_events", { when: "this week", near: "Hogwarts" });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("resolve_ut_location");
     });
@@ -944,14 +990,14 @@ describe("find_campus_events", () => {
         // `near: "   "` used to skip the resolve-or-refuse guard entirely, so
         // the answer covered the whole campus while looking filtered.
         for (const blank of ["", "   "]) {
-            const result = await call("find_campus_events", { when: "this week", near: blank });
+            const result = await call("find_events", { when: "this week", near: blank });
             expect(result.isError).toBe(true);
             expect(result.content[0]?.text).toContain("near was empty");
         }
     });
 
     it("refuses withinMetres with no near to measure from", async () => {
-        const result = await call("find_campus_events", { when: "this week", withinMetres: 50 });
+        const result = await call("find_events", { when: "this week", withinMetres: 50 });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("only means something with near");
     });
@@ -995,24 +1041,24 @@ describe("find_campus_events", () => {
     });
 
     it("errors on an unreadable when instead of answering about today", async () => {
-        const result = await call("find_campus_events", { when: "whenever" });
+        const result = await call("find_events", { when: "whenever" });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("Couldn't read");
         expect(result.content[0]?.text).toContain("tonight");
     });
 
     it("says it has not looked, rather than answering nothing, past its range", async () => {
-        const far = await call("find_campus_events", { when: "2027-05-01" });
+        const far = await call("find_events", { when: "2027-05-01" });
         expect(far.isError).toBe(true);
         expect(far.content[0]?.text).toMatch(/days out and this tool reads/);
 
-        const past = await call("find_campus_events", { when: "2020-01-01" });
+        const past = await call("find_events", { when: "2020-01-01" });
         expect(past.isError).toBe(true);
         expect(past.content[0]?.text).toContain("in the past");
     });
 
     it("rejects an unknown argument instead of ignoring it", async () => {
-        const result = await call("find_campus_events", { date: "tomorrow" });
+        const result = await call("find_events", { date: "tomorrow" });
         expect(result.isError).toBe(true);
     });
 
@@ -1081,7 +1127,7 @@ describe("find_campus_events", () => {
         vi.unstubAllGlobals();
         resetCache();
         stubFetch({ "calendar.utexas.edu": 503 });
-        const result = await call("find_campus_events", { when: "today" });
+        const result = await call("find_events", { when: "today" });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("calendar.utexas.edu");
     });
@@ -1090,7 +1136,7 @@ describe("find_campus_events", () => {
         vi.unstubAllGlobals();
         resetCache();
         stubFetch({ "calendar.utexas.edu": "<html>maintenance</html>" });
-        const result = await call("find_campus_events", { when: "today" });
+        const result = await call("find_events", { when: "today" });
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("not JSON");
     });
@@ -1109,7 +1155,7 @@ describe("find_campus_events", () => {
             vi.unstubAllGlobals();
             resetCache();
             stubFetch({ "calendar.utexas.edu": body });
-            const result = await call("find_campus_events", { when: "today" });
+            const result = await call("find_events", { when: "today" });
             expect(result.isError).toBe(true);
             const text = result.content[0]?.text ?? "";
             expect(text).not.toMatch(LEAKS);
@@ -1127,7 +1173,7 @@ describe("find_campus_events", () => {
             vi.unstubAllGlobals();
             resetCache();
             stubFetch({ "calendar.utexas.edu": body });
-            const result = await call("find_campus_events", { when: "today" });
+            const result = await call("find_events", { when: "today" });
             expect(result.content[0]?.text ?? "").not.toMatch(LEAKS);
         }
     });
@@ -1208,7 +1254,7 @@ describe("gaps found by mutation testing", () => {
                 '"event_instances":{"a":1},"tags":{"b":2}}}],' +
                 '"page":{"total":1,"total_items":1}}',
         });
-        const result = await call("find_campus_events", { when: "today" });
+        const result = await call("find_events", { when: "today" });
         expect(result.content[0]?.text ?? "").not.toMatch(
             /is not iterable|is not a function|Cannot read properties/,
         );

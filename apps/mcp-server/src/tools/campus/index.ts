@@ -424,7 +424,7 @@ export function registerCampusTools(server: McpServer) {
     );
 
     server.registerTool(
-        "find_campus_events",
+        "find_events",
         {
             title: "Find UT campus events",
             description:

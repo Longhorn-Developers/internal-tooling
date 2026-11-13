@@ -97,6 +97,37 @@ export const LOCATION_ALIASES: Record<string, string> = {
     KINS: "KIN",
     KINSOLVING: "KIN",
     "KINSOLVING DINING": "KIN",
+
+    // Venues inside a building, and buildings the feed writes differently from
+    // UT's data. Each is a string Localist publishes with no coordinate, with
+    // the number of rows it covered in a 60-day pull measured 2026-11-09.
+    //
+    // The swimming centre is the one that mattered: TSC is in buildings.json
+    // and still did not resolve, because athletics rows prefix the city and
+    // UT's data writes CTR where the feed writes Center. A multi-word alias is
+    // matched anywhere in the string, so the city prefix stops mattering.
+    "TEXAS SWIMMING CENTER": "TSC", // 16 rows
+    "CACTUS CAFE": "UNB", // 20 rows; inside the Texas Union
+    // SEA is on the ambiguous-code list, so it only resolves when it leads the
+    // string. "SEAY" is not "SEA", so neither path reached it.
+    SEAY: "SEA", // 6 rows
+    "SEAY LIBRARY": "SEA",
+    "SHIRLEY BIRD PERRY BALLROOM": "UNB", // 2 rows; also in the Union
+    "PERRY BALLROOM": "UNB",
+    // On top of the Student Activity Center. "The Color Inside" is the
+    // artwork's name; every listing writes Skyspace.
+    "JAMES TURRELL SKYSPACE": "WCP",
+    SKYSPACE: "WCP",
+    // The lawn in front of the Tower. Nearest coordinate that is a place.
+    "SOUTH MALL": "MAI",
+    // TOWER alone is ambiguous and only resolves when it leads, which this
+    // does not. The full formal name appears in the feed as written here.
+    "UNIVERSITY OF TEXAS AT AUSTIN TOWER": "MAI",
+    // The football stadium. UT's data writes the full formal name; the feed
+    // writes "DKR-Texas Memorial Stadium", and nobody says either out loud.
+    DKR: "STD",
+    "DKR TEXAS MEMORIAL STADIUM": "STD",
+    "ROYAL MEMORIAL STADIUM": "STD",
 };
 
 /**

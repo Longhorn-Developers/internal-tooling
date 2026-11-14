@@ -1,8 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
-import { courseResults, professorDetail, professorRatings, sectionsForQuery } from "./extract.ts";
-import { courseSearchUrl, professorSearchUrl } from "./urls.ts";
+import {
+	courseResults,
+	gradeDistribution,
+	professorDetail,
+	professorRatings,
+	sectionsForQuery,
+} from "./extract.ts";
+import {
+	GRADE_DISTRIBUTION_HOME,
+	academicYearSpans,
+	courseSearchUrl,
+	gradeSearchUrl,
+	professorCourseSearchUrl,
+	professorSearchUrl,
+} from "./urls.ts";
 
 async function fetchPage(url: string): Promise<string> {
 	const response = await fetch(url);
@@ -10,6 +23,35 @@ async function fetchPage(url: string): Promise<string> {
 		throw new Error(`Page request returned HTTP ${response.status} ${response.statusText}.`);
 	}
 	return response.text();
+}
+
+async function fetchGradeCsvs(urls: string[]): Promise<string[]> {
+	const home = await fetch(GRADE_DISTRIBUTION_HOME);
+	if (!home.ok) {
+		throw new Error(`Page request returned HTTP ${home.status} ${home.statusText}.`);
+	}
+	const cookie = cookieHeader(home);
+	return Promise.all(
+		urls.map(async (url) => {
+			const response = await fetch(url, { headers: { cookie } });
+			if (!response.ok) {
+				throw new Error(
+					`Page request returned HTTP ${response.status} ${response.statusText}.`,
+				);
+			}
+			return response.text();
+		}),
+	);
+}
+
+function cookieHeader(response: Response): string {
+	const listed =
+		typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];
+	const raw = listed.length > 0 ? listed : [response.headers.get("set-cookie") ?? ""];
+	return raw
+		.map((value) => value.split(";")[0]?.trim())
+		.filter((value) => value)
+		.join("; ");
 }
 
 function createServer() {
@@ -71,12 +113,12 @@ function createServer() {
 		{
 			title: "Get Course Overview",
 			description:
-				"Search UT course documents by editing the syllabus URL. Requires unique, name, timing, and year. Returns JSON for the matching sections: semester, course, unique, title, instructors, syllabus URL, and the professor's Rate My Professors rating. Timing is Fall, Spring, or Summer. Year is a four-digit year such as 2026. Optional subject and courseNumber narrow the search.",
+				"Search UT course documents by editing the syllabus URL. Requires unique, name, timing, and year. Returns JSON for the matching sections: semester, course, unique, title, instructors, syllabus URL, the professor's combined grade distribution for this course across published semesters, and the professor's Rate My Professors rating. Timing is Fall, Spring, or Summer. Year is a four-digit year such as 2026. Optional subject and courseNumber narrow the search.",
 			inputSchema: z.object({
-				unique: z.string().min(1).describe("Five-digit UT unique number."),
-				name: z.string().min(1).describe("Professor name."),
-				timing: z.string().min(1).describe("Semester: Fall, Spring, or Summer."),
-				year: z.string().min(1).describe("Four-digit year, such as 2026."),
+				unique: z.string().describe("Five-digit UT unique number."),
+				name: z.string().describe("Professor name."),
+				timing: z.string().describe("Semester: Fall, Spring, or Summer."),
+				year: z.string().describe("Four-digit year, such as 2026."),
 				subject: z.string().optional().describe("Department code, such as C S."),
 				courseNumber: z.string().optional().describe("Course number, such as 314."),
 			}),
@@ -105,17 +147,50 @@ function createServer() {
 
 			const searchUrl = courseSearchUrl(input);
 			const found = courseResults(await fetchPage(searchUrl));
-			const sections = sectionsForQuery(found.sections, query.unique as string, query.name as string);
+			const sections = sectionsForQuery(
+				found.sections,
+				query.unique as string,
+				query.name as string,
+			);
 			const rosterName = sections[0]?.instructors[0] ?? (query.name as string);
 			const professors = professorRatings(
 				await fetchPage(professorSearchUrl(rosterName, query.courseNumber ?? undefined)),
 				rosterName,
 			);
+			const section = sections[0];
+			const professorCoursesUrl = section
+				? professorCourseSearchUrl({ course: section.course, name: rosterName })
+				: null;
+			const taught = professorCoursesUrl
+				? courseResults(await fetchPage(professorCoursesUrl)).sections.filter(
+						(item) => item.course === section.course,
+					)
+				: [];
+			const gradeSearchUrls = section
+				? academicYearSpans().flatMap((year) => {
+						const url = gradeSearchUrl(section.course, year);
+						return url ? [url] : [];
+					})
+				: [];
+			const distribution =
+				section && gradeSearchUrls.length > 0
+					? gradeDistribution(
+							await fetchGradeCsvs(gradeSearchUrls),
+							taught.length > 0 ? taught : [section],
+							rosterName,
+						)
+					: null;
 			return json({
 				query,
 				searchUrl,
+				professorCoursesUrl,
 				totalFound: sections.length,
 				sections,
+				gradeDistribution: distribution,
+				gradesNote:
+					section && !distribution
+						? "UT has not published a grade distribution for this professor in this course."
+						: null,
 				professors,
 				ask:
 					sections.length === 0

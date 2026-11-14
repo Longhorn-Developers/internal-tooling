@@ -23,6 +23,145 @@ export type ProfessorRating = {
 
 type RelayNode = Record<string, unknown>;
 
+const GRADE_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "F", "Other"];
+
+export type GradeDistribution = {
+	course: string;
+	title: string;
+	instructor: string;
+	sectionCount: number;
+	from: string | null;
+	to: string | null;
+	total: number;
+	grades: { letter: string; count: number; percent: number }[];
+};
+
+export function gradeDistribution(
+	csvs: string[],
+	sections: { unique: string; semester: string }[],
+	instructor: string,
+): GradeDistribution | null {
+	const wanted = new Set(
+		sections.flatMap((section) => {
+			const key = termKey(section.semester);
+			return key ? [`${key}|${section.unique.trim()}`] : [];
+		}),
+	);
+	if (wanted.size === 0) return null;
+
+	const counts = new Map<string, number>();
+	const matched = new Set<string>();
+	const semesters = new Set<string>();
+	let course = "";
+	let title = "";
+
+	for (const csv of csvs) {
+		const rows = parseCsv(csv);
+		if (rows.length < 2) continue;
+		const header = rows[0].map((cell) => cell.trim());
+		const column = (name: string) => header.indexOf(name);
+		const letterColumn = column("Letter Grade");
+		const countColumn = column("Count of letter grade");
+		const sectionColumn = column("Section Number");
+		const semesterColumn = column("Semester");
+		if (letterColumn < 0 || countColumn < 0 || sectionColumn < 0 || semesterColumn < 0)
+			continue;
+
+		for (const row of rows.slice(1)) {
+			const semester = row[semesterColumn]?.trim() ?? "";
+			const unique = row[sectionColumn]?.trim() ?? "";
+			const key = termKey(semester);
+			if (!key || !wanted.has(`${key}|${unique}`)) continue;
+			const letter = row[letterColumn]?.trim();
+			const count = Number(row[countColumn]?.replace(/,/g, ""));
+			if (!letter || !Number.isFinite(count)) continue;
+			counts.set(letter, (counts.get(letter) ?? 0) + count);
+			matched.add(`${key}|${unique}`);
+			semesters.add(semester);
+			if (!course) {
+				const prefix = row[column("Course Prefix")]?.trim() ?? "";
+				const number = row[column("Course Number")]?.trim() ?? "";
+				course = [prefix, number].filter(Boolean).join(" ");
+				title = row[column("Course Title")]?.trim() ?? "";
+			}
+		}
+	}
+
+	const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+	if (total === 0) return null;
+	const ordered = [...semesters].sort(
+		(left, right) => semesterOrder(left) - semesterOrder(right),
+	);
+	return {
+		course,
+		title,
+		instructor,
+		sectionCount: matched.size,
+		from: ordered[0] ?? null,
+		to: ordered[ordered.length - 1] ?? null,
+		total,
+		grades: [...counts.entries()]
+			.sort((left, right) => rank(left[0]) - rank(right[0]))
+			.map(([letter, count]) => ({
+				letter,
+				count,
+				percent: Math.round((count / total) * 1000) / 10,
+			})),
+	};
+}
+
+function termKey(semester: string): string | null {
+	const year = semester.match(/\b(20\d{2})\b/)?.[1];
+	const season = semester.match(/\b(fall|spring|summer)\b/i)?.[1]?.toLowerCase();
+	if (!year || !season) return null;
+	return `${season}-${year}`;
+}
+
+function semesterOrder(semester: string): number {
+	const year = Number(semester.match(/\b(20\d{2})\b/)?.[1] ?? 0);
+	const season = semester.match(/\b(spring|summer|fall)\b/i)?.[1]?.toLowerCase();
+	const order = season === "spring" ? 0 : season === "summer" ? 1 : 2;
+	return year * 10 + order;
+}
+
+function rank(letter: string): number {
+	const index = GRADE_ORDER.indexOf(letter);
+	return index === -1 ? GRADE_ORDER.length : index;
+}
+
+function parseCsv(csv: string): string[][] {
+	const rows: string[][] = [];
+	let row: string[] = [];
+	let cell = "";
+	let quoted = false;
+	for (let index = 0; index < csv.length; index++) {
+		const char = csv[index];
+		if (quoted) {
+			if (char === '"' && csv[index + 1] === '"') {
+				cell += '"';
+				index++;
+			} else if (char === '"') quoted = false;
+			else cell += char;
+			continue;
+		}
+		if (char === '"') quoted = true;
+		else if (char === ",") {
+			row.push(cell);
+			cell = "";
+		} else if (char === "\n") {
+			row.push(cell);
+			rows.push(row);
+			row = [];
+			cell = "";
+		} else if (char !== "\r") cell += char;
+	}
+	if (cell || row.length > 0) {
+		row.push(cell);
+		rows.push(row);
+	}
+	return rows.filter((record) => record.some((value) => value.trim()));
+}
+
 export function sectionsForQuery(
 	sections: CourseSection[],
 	unique: string,
@@ -35,7 +174,9 @@ export function sectionsForQuery(
 	const last = name.trim().split(/\s+/).pop()?.toLowerCase();
 	if (!last) return [];
 	return sections.filter((section) =>
-		section.instructors.some((instructor) => instructor.toLowerCase().split(/\s+/).includes(last)),
+		section.instructors.some((instructor) =>
+			instructor.toLowerCase().split(/\s+/).includes(last),
+		),
 	);
 }
 

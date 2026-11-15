@@ -42,6 +42,30 @@ const ROUTES: [string, string][] = [
     ["dining-locations/dining-halls", "housing-dining-halls.html"],
     ["dining-locations/restaurants/noodle-lab", "housing-noodle-lab.html"],
     ["dining-locations/restaurants", "housing-restaurants.html"],
+    // HornsLink (Anthology Engage), captured 2026-11-14. The directory fixture is
+    // a TRIMMED subset: 39 of the 1,226 real rows, chosen to cover every
+    // category plus the legacy names that are not in the category endpoint.
+    // `@odata.count` is left at the real 1226, which is what the tool reports
+    // as the match total, so a test asserting on 39 would be asserting on the
+    // trim rather than on behaviour.
+    [
+        "organization/bykey/ieeeroboticsandautomationsociety",
+        "hornslink-detail-ieeeroboticsandautomationsociety.json",
+    ],
+    ["organization/bykey/texasmarinerobotics", "hornslink-detail-texasmarinerobotics.json"],
+    ["organization/bykey/eclair", "hornslink-detail-eclair.json"],
+    ["organization/bykey/unjaded", "hornslink-detail-unjaded.json"],
+    ["organization/bykey/trgs", "hornslink-detail-trgs.json"],
+    // Any other org's detail: the shape is the same whichever org was asked
+    // about, and a category browse reaches orgs no fixture is captured for.
+    // Tests that assert on a specific org's contacts use the named routes above.
+    ["organization/bykey/", "hornslink-detail-unjaded.json"],
+    ["query=robotics", "hornslink-search-robotics.json"],
+    ["top=1300", "hornslink-directory.json"],
+    // Every org's events route here: `organizationIds` honours only its first
+    // value upstream, so the tool asks per org and the response shape is the
+    // same whichever org it asked about.
+    ["event/search", "hornslink-org-events.json"],
     // Least specific last: the app shell, which carries the location coordinates.
     ["hf-foodpro.austin.utexas.edu/foodpro/", "foodpro-app.html"],
 ];

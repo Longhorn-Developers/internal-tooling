@@ -130,6 +130,26 @@ describe("categories", () => {
         expect(matchCategory("robotics")).toBeNull();
         expect(matchCategory("")).toBeNull();
     });
+
+    it("refuses a fragment too short to mean a category", () => {
+        // "ed" used to resolve to "Graduate Student Oriented": it contains
+        // "orient-ed" and sorts before "Educational". A confident wrong
+        // category is worse than refusing, because the answer looks filtered.
+        expect(matchCategory("ed")).toBeNull();
+        expect(matchCategory("a")).toBeNull();
+        expect(matchCategory("pro")).toBeNull();
+    });
+
+    it("finds an alias inside a phrase", () => {
+        expect(matchCategory("Greek life")).toBe("Sororities and Fraternities");
+        expect(matchCategory("intramural sports")).toBe("Sport Clubs");
+        expect(matchCategory("community service")).toBe("Service/Philanthropy");
+    });
+
+    it("refuses a phrase that points at two categories", () => {
+        // "arts" and "service" each resolve on their own; together they do not.
+        expect(matchCategory("arts and service")).toBeNull();
+    });
 });
 
 describe("directory rows", () => {
@@ -261,6 +281,51 @@ describe("find_orgs", () => {
         expect(log.filter((entry) => entry.url.includes("query=robotics"))).toHaveLength(1);
     });
 
+    it("reports upstream's total, not the size of its own fetch", async () => {
+        // The count used to be `rows.length` after a 50-row fetch, so every
+        // broad query reported exactly 50 and read as a real total. Upstream
+        // says 88 for "women" and 238 for "ai".
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=women": JSON.stringify({
+                "@odata.count": 88,
+                value: [
+                    {
+                        Id: "1",
+                        Name: "Women in Computing",
+                        WebsiteKey: "wic",
+                        Status: "Active",
+                        Visibility: "Public",
+                        CategoryNames: ["Academic"],
+                    },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "women",
+        });
+        expect(result.matched).toBe(88);
+        expect(result.showing).toBe(1);
+        expect(result.notes.join(" ")).toMatch(/broad total/);
+    });
+
+    it("takes the whole ranked set when a category has to be applied too", async () => {
+        // Filtering a 50-row relevance window by category drops every
+        // lower-ranked match in that category and reports the survivors as the
+        // total. Upstream serves its full ranked result in one request.
+        await call("find_orgs", { query: "robotics", category: "Academic" });
+        const searches = log.filter((entry) => entry.url.includes("query=robotics"));
+        expect(searches).toHaveLength(1);
+        expect(searches[0]!.url).toContain("top=1300");
+    });
+
+    it("keeps the cheap fetch when there is no category to apply", async () => {
+        await call("find_orgs", { query: "robotics" });
+        const searches = log.filter((entry) => entry.url.includes("query=robotics"));
+        expect(searches[0]!.url).toContain("top=50");
+    });
+
     it("reports the real match count, not the trimmed fixture size", async () => {
         const result = await call<OrgsStructured>("find_orgs", { category: "Sport Clubs" });
         expect(result.showing).toBeLessThanOrEqual(result.matched);
@@ -318,6 +383,28 @@ describe("find_orgs", () => {
         // A Worker invocation gets 50 and this tool is not the only thing that
         // might run in one.
         expect(log.length).toBeLessThan(40);
+    });
+
+    it("says its count is from before the join-request filter", async () => {
+        // The count cannot include the filter: the field lives on the detail
+        // endpoint, one request per org, so only `reach` rows are ever checked.
+        const tools = new Map<
+            string,
+            {
+                config: { inputSchema: { parse: (v: unknown) => unknown } };
+                handler: (a: unknown, e: unknown) => Promise<{ content: { text: string }[] }>;
+            }
+        >();
+        registerOrgTools({
+            registerTool: (name: string, config: never, handler: never) =>
+                tools.set(name, { config, handler }),
+        } as never);
+        const tool = tools.get("find_orgs")!;
+        const result = await tool.handler(
+            tool.config.inputSchema.parse({ category: "Academic", acceptingMembers: true }),
+            {},
+        );
+        expect(result.content[0]!.text).toMatch(/matched before the join-request filter/);
     });
 
     it("filters on join requests using the detail field", async () => {

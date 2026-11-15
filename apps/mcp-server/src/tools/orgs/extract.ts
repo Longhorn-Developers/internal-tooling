@@ -26,6 +26,21 @@ import {
     orgSearchUrl,
 } from "./urls.ts";
 
+/**
+ * Bump this whenever the SHAPE of anything cached below changes.
+ *
+ * `cached` persists its values in the Cloudflare Cache API, which outlives a
+ * deploy. When `searchOrgs` started returning `{ total, rows }` instead of a
+ * bare array, every key already in that cache still held an array, and the new
+ * code read `.rows` off it and threw -- for as long as the old entry's TTL had
+ * left. Caught on a live worker that had answered the same queries under the
+ * previous shape.
+ *
+ * A version in the key makes an entry written by older code unreachable
+ * instead of wrong.
+ */
+const CACHE_VERSION = 2;
+
 /** The directory is edited by hand and changes on the order of weeks. */
 const DIRECTORY_TTL_SECONDS = 21_600; // 6 hours
 const SEARCH_TTL_SECONDS = 3_600;
@@ -43,7 +58,15 @@ export interface Org {
 }
 
 export interface OrgContact {
-    /** The org's own inbox. Never a student's personal address. */
+    /**
+     * The org-level contact address.
+     *
+     * Usually an org inbox, but it is a free-text field an officer fills in,
+     * and some orgs put their own @utexas.edu address there (Alpha Kappa Psi
+     * does). So this is "the address the org publishes", not "never a personal
+     * address" -- what is guaranteed is that it never comes from the officer
+     * record, which this tool does not read at all.
+     */
     email: string | null;
     website: string | null;
     instagram: string | null;
@@ -152,17 +175,42 @@ const CATEGORY_ALIASES: Record<string, string> = {
 /**
  * Map what a caller typed onto one of the 14, or null.
  *
- * Exact-ish match first, then the alias table, then a substring both ways so
- * "Cultural" finds "Cultural/International" and "Sororities" finds its row.
+ * Deliberately conservative. An earlier version took the first category whose
+ * name contained the input, which turned "ed" into "Graduate Student Oriented"
+ * (it contains "orient-ed", and it sorts before "Educational") and "a" into
+ * "Academic". A confident wrong category is worse than refusing, because the
+ * answer that comes back looks filtered.
  */
 export function matchCategory(input: string): string | null {
-    const wanted = norm(input);
+    const raw = input.trim();
+    const wanted = norm(raw);
     if (!wanted) return null;
+
     const exact = ORG_CATEGORIES.find((c) => norm(c) === wanted);
     if (exact) return exact;
-    const alias = CATEGORY_ALIASES[wanted];
-    if (alias) return alias;
-    return ORG_CATEGORIES.find((c) => norm(c).includes(wanted) || wanted.includes(norm(c))) ?? null;
+
+    const whole = CATEGORY_ALIASES[wanted];
+    if (whole) return whole;
+
+    // An alias inside a phrase, so "Greek life" and "intramural sports" work.
+    // Only when the words agree: a phrase pointing at two categories is
+    // ambiguous and refusing says so.
+    const hits = new Set<string>();
+    for (const word of raw.toLowerCase().split(/[^a-z0-9]+/)) {
+        const alias = word && CATEGORY_ALIASES[norm(word)];
+        if (alias) hits.add(alias);
+    }
+    if (hits.size === 1) return [...hits][0]!;
+
+    // Substring, but only for an input long enough to carry meaning, and only
+    // when exactly one category matches.
+    if (wanted.length >= 4) {
+        const partial = ORG_CATEGORIES.filter(
+            (c) => norm(c).includes(wanted) || wanted.includes(norm(c)),
+        );
+        if (partial.length === 1) return partial[0]!;
+    }
+    return null;
 }
 
 interface RawSearchRow {
@@ -219,16 +267,42 @@ function parseOrgs(body: string): Org[] {
     return (parsed.value ?? []).map(toOrg).filter((o): o is Org => o !== null);
 }
 
+export interface OrgSearch {
+    /**
+     * How many rows upstream says match, which is NOT how many were returned.
+     *
+     * Upstream matches any word in the query and ranks the result loosely, so
+     * this number is broad: "pre-med" reports 469 of the 1,226 orgs and "ai"
+     * reports 238. It is still the only honest total available, and reporting
+     * the size of our own fetch instead would be a made-up number.
+     */
+    total: number;
+    rows: Org[];
+}
+
 /** Relevance-ranked, upstream. Used whenever the caller gave words to match. */
-export async function searchOrgs(query: string, top: number): Promise<Org[]> {
-    return cached(`orgs:q:${query.toLowerCase()}:${top}`, SEARCH_TTL_SECONDS, async () =>
-        parseOrgs(await getText(orgSearchUrl({ query, top }), SEARCH_TTL_SECONDS)),
+export async function searchOrgs(query: string, top: number): Promise<OrgSearch> {
+    return cached(
+        `orgs:v${CACHE_VERSION}:q:${query.toLowerCase()}:${top}`,
+        SEARCH_TTL_SECONDS,
+        async () => {
+            const body = await getText(orgSearchUrl({ query, top }), SEARCH_TTL_SECONDS);
+            const parsed = JSON.parse(body) as { "@odata.count"?: number };
+            const rows = parseOrgs(body);
+            return {
+                total:
+                    typeof parsed["@odata.count"] === "number"
+                        ? parsed["@odata.count"]
+                        : rows.length,
+                rows,
+            };
+        },
     );
 }
 
 /** The whole directory, for category browsing. One 1.8 MB request per TTL. */
 export async function allOrgs(): Promise<Org[]> {
-    return cached("orgs:all", DIRECTORY_TTL_SECONDS, async () =>
+    return cached(`orgs:v${CACHE_VERSION}:all`, DIRECTORY_TTL_SECONDS, async () =>
         parseOrgs(await getText(allOrgsUrl(), DIRECTORY_TTL_SECONDS)),
     );
 }
@@ -243,23 +317,27 @@ interface RawDetail {
 const link = (value: string | null | undefined): string | null => value?.trim() || null;
 
 export async function orgDetail(websiteKey: string): Promise<OrgContact> {
-    return cached(`orgs:detail:${websiteKey}`, DIRECTORY_TTL_SECONDS, async () => {
-        const raw = JSON.parse(
-            await getText(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS),
-        ) as RawDetail;
-        const social = raw.socialMedia ?? {};
-        // Note what is NOT read here: raw.primaryContact (a named student and
-        // their personal email) and raw.contactInfo (street address, phone).
-        return {
-            email: link(raw.email),
-            website: link(social.ExternalWebsite),
-            instagram: link(social.InstagramUrl),
-            linkedin: link(social.LinkedInUrl),
-            youtube: link(social.YoutubeUrl),
-            acceptingJoinRequests: raw.showJoin === true,
-            organizationType: link(raw.organizationType?.name),
-        };
-    });
+    return cached(
+        `orgs:v${CACHE_VERSION}:detail:${websiteKey}`,
+        DIRECTORY_TTL_SECONDS,
+        async () => {
+            const raw = JSON.parse(
+                await getText(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS),
+            ) as RawDetail;
+            const social = raw.socialMedia ?? {};
+            // Note what is NOT read here: raw.primaryContact (a named student and
+            // their personal email) and raw.contactInfo (street address, phone).
+            return {
+                email: link(raw.email),
+                website: link(social.ExternalWebsite),
+                instagram: link(social.InstagramUrl),
+                linkedin: link(social.LinkedInUrl),
+                youtube: link(social.YoutubeUrl),
+                acceptingJoinRequests: raw.showJoin === true,
+                organizationType: link(raw.organizationType?.name),
+            };
+        },
+    );
 }
 
 interface RawEvent {
@@ -274,21 +352,25 @@ export async function orgEvents(
     nowIso: string,
     take: number,
 ): Promise<OrgEvent[]> {
-    return cached(`orgs:events:${organizationId}:${take}`, EVENTS_TTL_SECONDS, async () => {
-        const parsed = JSON.parse(
-            await getText(orgEventsUrl(organizationId, nowIso, take), EVENTS_TTL_SECONDS),
-        ) as { value?: RawEvent[] };
-        return (parsed.value ?? [])
-            .filter((e): e is RawEvent & { name: string; startsOn: string } =>
-                Boolean(e.name && e.startsOn),
-            )
-            .map((e) => ({
-                name: text(e.name),
-                startsOn: e.startsOn,
-                location: e.location ? text(e.location) : null,
-                rsvpTotal: typeof e.rsvpTotal === "number" ? e.rsvpTotal : 0,
-            }));
-    });
+    return cached(
+        `orgs:v${CACHE_VERSION}:events:${organizationId}:${take}`,
+        EVENTS_TTL_SECONDS,
+        async () => {
+            const parsed = JSON.parse(
+                await getText(orgEventsUrl(organizationId, nowIso, take), EVENTS_TTL_SECONDS),
+            ) as { value?: RawEvent[] };
+            return (parsed.value ?? [])
+                .filter((e): e is RawEvent & { name: string; startsOn: string } =>
+                    Boolean(e.name && e.startsOn),
+                )
+                .map((e) => ({
+                    name: text(e.name),
+                    startsOn: e.startsOn,
+                    location: e.location ? text(e.location) : null,
+                    rsvpTotal: typeof e.rsvpTotal === "number" ? e.rsvpTotal : 0,
+                }));
+        },
+    );
 }
 
 /**

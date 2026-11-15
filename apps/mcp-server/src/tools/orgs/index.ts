@@ -51,8 +51,23 @@ const MAX_ROWS = 15;
 const DETAIL_BUDGET = 15;
 const EVENT_BUDGET = 8;
 
-/** Rows pulled from a keyword search before our own filters narrow them. */
+/**
+ * Rows pulled from a keyword search when nothing else has to be filtered.
+ *
+ * Enough to serve any `limit`, and no more: upstream has already ranked them.
+ */
 const SEARCH_OVERFETCH = 50;
+
+/**
+ * Rows pulled when a category has to be applied to a keyword search.
+ *
+ * Filtering a 50-row relevance window by category drops every lower-ranked
+ * match in that category and then reports the survivors as the total, which is
+ * a confident wrong count. Upstream serves its whole ranked result set in one
+ * request, so take it and filter that. Above the 1,226 orgs that exist, so one
+ * request always covers it.
+ */
+const SEARCH_FULL = 1300;
 
 const ORG_OUTPUT = z.object({
     matched: z.number(),
@@ -204,10 +219,26 @@ export function registerOrgTools(server: McpServer) {
                 // one there is nothing to rank by, so the directory is pulled
                 // and filtered here -- upstream ignores `categoryIds`.
                 let rows: Org[];
-                if (query) {
-                    rows = filterOrgs(await searchOrgs(query, SEARCH_OVERFETCH), { category });
+                let matched: number;
+                if (query && category) {
+                    // Both filters, so the category has to see every ranked row.
+                    const search = await searchOrgs(query, SEARCH_FULL);
+                    rows = filterOrgs(search.rows, { category });
+                    matched = rows.length;
+                } else if (query) {
+                    const search = await searchOrgs(query, SEARCH_OVERFETCH);
+                    rows = search.rows;
+                    // Upstream's own total, not the size of our fetch. It is
+                    // broad because HornsLink matches any word in the query.
+                    matched = search.total;
+                    if (search.total > search.rows.length) {
+                        notes.push(
+                            `HornsLink matched any word in "${query}", so ${search.total} is a broad total; these are its top-ranked rows. Add a category, or use more specific words, to narrow it.`,
+                        );
+                    }
                 } else {
                     rows = filterOrgs(await allOrgs(), { category });
+                    matched = rows.length;
                     if (!category) {
                         notes.push(
                             "No query or category given, so this is the directory in alphabetical order. Pass a query to rank by relevance.",
@@ -215,8 +246,7 @@ export function registerOrgTools(server: McpServer) {
                     }
                 }
 
-                const matched = rows.length;
-                if (matched === 0) {
+                if (rows.length === 0) {
                     const tried = [query && `"${query}"`, category].filter(Boolean).join(" in ");
                     return textWith(`No HornsLink org matched ${tried}.`, {
                         matched: 0,
@@ -262,9 +292,15 @@ export function registerOrgTools(server: McpServer) {
                     );
                 }
 
+                // `matched` is counted BEFORE the join-request filter, which
+                // needs a per-org request and so only reaches `reach` rows.
+                // Presenting it as the number accepting members would be wrong
+                // wherever some of them refuse.
+                const countLabel = input.acceptingMembers
+                    ? `${matched} org(s) matched before the join-request filter`
+                    : `${matched} org(s) matched`;
                 const header =
-                    `${matched} org(s) matched` +
-                    (kept.length < matched ? `, showing ${kept.length}:` : ":");
+                    countLabel + (kept.length < matched ? `, showing ${kept.length}:` : ":");
                 const body = [header, "", ...kept.map(describe)].join("\n");
 
                 return textWith(

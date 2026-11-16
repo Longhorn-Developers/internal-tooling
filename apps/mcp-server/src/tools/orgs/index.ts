@@ -2,40 +2,20 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import {
-    ORGS_WITHOUT_CATEGORY,
     ORG_CATEGORIES,
     allOrgs,
     filterOrgs,
     matchCategory,
     orgDetail,
     orgEvents,
+    queryRelevance,
     searchOrgs,
     type Org,
     type OrgContact,
     type OrgEvent,
 } from "./extract.ts";
-
-/** Text plus the same answer as data, for clients that would rather not parse prose. */
-const textWith = <T>(body: string, structuredContent: T) => ({
-    content: [{ type: "text" as const, text: body }],
-    structuredContent,
-});
-
-/** Tool handlers answer with a readable message instead of throwing at the client. */
-const guard =
-    <A>(
-        run: (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>,
-    ) =>
-    async (args: A) => {
-        try {
-            return await run(args);
-        } catch (error) {
-            return {
-                content: [{ type: "text" as const, text: (error as Error).message }],
-                isError: true,
-            };
-        }
-    };
+import { guard, textWith } from "../respond.ts";
+import { DIRECTORY_PAGE_SIZE } from "./urls.ts";
 
 const DEFAULT_ROWS = 6;
 const MAX_ROWS = 15;
@@ -67,10 +47,19 @@ const SEARCH_OVERFETCH = 50;
  * request, so take it and filter that. Above the 1,226 orgs that exist, so one
  * request always covers it.
  */
-const SEARCH_FULL = 1300;
+const SEARCH_FULL = DIRECTORY_PAGE_SIZE;
 
 const ORG_OUTPUT = z.object({
     matched: z.number(),
+    /**
+     * False when `matched` was counted before the join-request filter.
+     *
+     * The prose says "43 org(s) matched before the join-request filter" and the
+     * structured half said only `matched: 43`, so an agent reading the data
+     * reported 43 orgs accepting members when the tool had checked 15 and found
+     * 10. Either half has to be safe to read on its own.
+     */
+    matchedIsFinal: z.boolean(),
     showing: z.number(),
     orgs: z.array(
         z.object({
@@ -103,6 +92,23 @@ const ORG_OUTPUT = z.object({
 
 type Row = Org & OrgContact & { upcomingEvents: OrgEvent[] | null };
 
+/**
+ * Stand-in when an org's detail request fails.
+ *
+ * `acceptingJoinRequests: false` is deliberate: it means "not shown as open",
+ * so `acceptingMembers` drops the row rather than promising a student they can
+ * join something we could not read. The accompanying note says the difference.
+ */
+const UNKNOWN_CONTACT: OrgContact = {
+    email: null,
+    website: null,
+    instagram: null,
+    linkedin: null,
+    youtube: null,
+    acceptingJoinRequests: false,
+    organizationType: null,
+};
+
 function describe(row: Row): string {
     const lines = [row.categories.length ? `${row.name} — ${row.categories.join(", ")}` : row.name];
     if (row.summary) lines.push(`  ${row.summary}`);
@@ -118,7 +124,9 @@ function describe(row: Row): string {
     if (!row.acceptingJoinRequests) {
         lines.push("  Not accepting join requests through HornsLink.");
     }
-    for (const event of row.upcomingEvents ?? []) {
+    // "Next:" only on the first, or two events read "Next: ... / Next: ...".
+    const events = row.upcomingEvents ?? [];
+    for (const [i, event] of events.entries()) {
         const when = new Date(event.startsOn).toLocaleString("en-US", {
             timeZone: "America/Chicago",
             weekday: "short",
@@ -128,7 +136,7 @@ function describe(row: Row): string {
             minute: "2-digit",
         });
         const where = event.location ? `, ${event.location}` : "";
-        lines.push(`  Next: ${event.name} — ${when}${where}`);
+        lines.push(`  ${i === 0 ? "Next" : "Then"}: ${event.name} — ${when}${where}`);
     }
     return lines.join("\n");
 }
@@ -150,6 +158,11 @@ export function registerOrgTools(server: McpServer) {
                 .object({
                     query: z
                         .string()
+                        // HornsLink answers 404 to a very long query string,
+                        // which reached the client as "HTTP 404" and reads as
+                        // "the directory is broken" rather than "your query was
+                        // too long". No real search needs more than this.
+                        .max(200, "query is too long; a few words is what this searches best")
                         .optional()
                         .describe('What to look for, e.g. "robotics", "climbing", "pre-med"'),
                     category: z
@@ -191,11 +204,11 @@ export function registerOrgTools(server: McpServer) {
                     input.limit ?? DEFAULT_ROWS,
                     wantEvents ? EVENT_BUDGET : MAX_ROWS,
                 );
-                if (input.limit && input.limit > limit) {
-                    notes.push(
-                        `Capped at ${limit} rows: each org's events are a separate request upstream.`,
-                    );
-                }
+                // Whether the cap BIT is only known once the rows are in, so
+                // the note is deferred. Announcing "Capped at 8 rows" for a
+                // search that matched 2 told the student results were withheld
+                // that never existed.
+                const capApplies = input.limit !== undefined && input.limit > limit;
 
                 let category: string | null = null;
                 if (input.category?.trim()) {
@@ -204,15 +217,18 @@ export function registerOrgTools(server: McpServer) {
                         return textWith(
                             `"${input.category}" is not a HornsLink category. The categories are: ` +
                                 `${ORG_CATEGORIES.join(", ")}.`,
-                            { matched: 0, showing: 0, orgs: [], notes: ["Unknown category."] },
+                            {
+                                matched: 0,
+                                matchedIsFinal: true,
+                                showing: 0,
+                                orgs: [],
+                                notes: ["Unknown category."],
+                            },
                         );
                     }
                     if (category !== input.category.trim()) {
                         notes.push(`Read "${input.category}" as the category "${category}".`);
                     }
-                    notes.push(
-                        `${ORGS_WITHOUT_CATEGORY} of the 1,226 orgs carry no category, so a category search cannot reach them; a query search can.`,
-                    );
                 }
 
                 // A query goes upstream, where it is relevance-ranked. Without
@@ -225,6 +241,19 @@ export function registerOrgTools(server: McpServer) {
                     const search = await searchOrgs(query, SEARCH_FULL);
                     rows = filterOrgs(search.rows, { category });
                     matched = rows.length;
+                    notes.push(
+                        "Some orgs carry no category at all, so a category search cannot reach them; a query on its own can.",
+                    );
+                    // The same hedge as the query-only path. Narrowing by
+                    // category removed the warning AND the top-50 relevance
+                    // cut, so the count was least trustworthy exactly where it
+                    // looked most precise: "pre-med" in Pre-Professional/Career
+                    // reports 179, of which 16 mention medicine at all, and the
+                    // tail is the Actuarial Science Club and Longhorn Baja
+                    // Racing.
+                    notes.push(
+                        `HornsLink matched any word in "${query}", so these ${matched} are everything in ${category} that matched any of those words, ranked by its relevance. The lower-ranked ones may have little to do with "${query}".`,
+                    );
                 } else if (query) {
                     const search = await searchOrgs(query, SEARCH_OVERFETCH);
                     rows = search.rows;
@@ -237,8 +266,21 @@ export function registerOrgTools(server: McpServer) {
                         );
                     }
                 } else {
-                    rows = filterOrgs(await allOrgs(), { category });
+                    const directory = await allOrgs();
+                    rows = filterOrgs(directory, { category });
                     matched = rows.length;
+                    if (category) {
+                        // Counted from the directory in hand, not hardcoded.
+                        // The constants said "87 of the 1,226" and upstream is
+                        // already at 1,227 and 88; a number a student could
+                        // check is a number that has to be measured.
+                        const uncategorized = directory.filter(
+                            (org) => org.categories.length === 0,
+                        ).length;
+                        notes.push(
+                            `${uncategorized} of the ${directory.length} orgs carry no category, so a category search cannot reach them; a query search can.`,
+                        );
+                    }
                     if (!category) {
                         notes.push(
                             "No query or category given, so this is the directory in alphabetical order. Pass a query to rank by relevance.",
@@ -250,10 +292,26 @@ export function registerOrgTools(server: McpServer) {
                     const tried = [query && `"${query}"`, category].filter(Boolean).join(" in ");
                     return textWith(`No HornsLink org matched ${tried}.`, {
                         matched: 0,
+                        matchedIsFinal: true,
                         showing: 0,
                         orgs: [],
                         notes,
                     });
+                }
+
+                // Said before the rows are trimmed, because the question is
+                // whether UPSTREAM understood the query, not whether this page
+                // of it happens to look relevant.
+                if (query) {
+                    const relevance = queryRelevance(rows, query);
+                    if (relevance.matchedAll.length === 0) {
+                        const words = relevance.found.length
+                            ? `only on ${relevance.found.map((w) => `"${w}"`).join(" and ")}`
+                            : "on none of those words in a name or description";
+                        notes.push(
+                            `No org matched all of "${query}". These matched ${words}, so treat them as near misses rather than as what was asked for; there may be nothing at UT for this.`,
+                        );
+                    }
                 }
 
                 // Contact details need one request per org, so only the rows
@@ -262,12 +320,25 @@ export function registerOrgTools(server: McpServer) {
                 // further down the list than `limit` alone would.
                 const reach = input.acceptingMembers ? DETAIL_BUDGET : limit;
                 const candidates = rows.slice(0, reach);
-                const detailed = await Promise.all(
-                    candidates.map(async (org): Promise<Row> => {
-                        const contact = await orgDetail(org.websiteKey);
-                        return { ...org, ...contact, upcomingEvents: null };
-                    }),
+                // allSettled, not all: contact details are an enrichment, and
+                // one org's 404 used to fail the whole answer. The org still
+                // has a name, a summary and a HornsLink link, which is most of
+                // what the student needs.
+                const settled = await Promise.allSettled(
+                    candidates.map((org) => orgDetail(org.websiteKey)),
                 );
+                const detailed: Row[] = candidates.map((org, i) => {
+                    const result = settled[i]!;
+                    return result.status === "fulfilled"
+                        ? { ...org, ...result.value, upcomingEvents: null }
+                        : { ...org, ...UNKNOWN_CONTACT, upcomingEvents: null };
+                });
+                const detailFailures = settled.filter((r) => r.status === "rejected").length;
+                if (detailFailures > 0) {
+                    notes.push(
+                        `HornsLink did not answer for ${detailFailures} org(s), so their contact details and join status are missing here rather than absent upstream.`,
+                    );
+                }
 
                 let kept = detailed;
                 if (input.acceptingMembers) {
@@ -280,11 +351,21 @@ export function registerOrgTools(server: McpServer) {
                 }
                 kept = kept.slice(0, limit);
 
+                if (capApplies && rows.length > limit) {
+                    notes.push(
+                        `Capped at ${limit} rows: each org's events are a separate request upstream.`,
+                    );
+                }
+
                 if (wantEvents) {
                     const nowIso = new Date().toISOString();
+                    // allSettled for the same reason as the details above:
+                    // events are opt-in garnish and must not fail the answer.
                     await Promise.all(
                         kept.map(async (row) => {
-                            row.upcomingEvents = await orgEvents(row.id, nowIso, 2);
+                            row.upcomingEvents = await orgEvents(row.id, nowIso, 2).catch(
+                                () => null,
+                            );
                         }),
                     );
                     notes.push(
@@ -307,6 +388,7 @@ export function registerOrgTools(server: McpServer) {
                     body + (notes.length ? `\n\n${notes.map((n) => `NOTE: ${n}`).join("\n")}` : ""),
                     {
                         matched,
+                        matchedIsFinal: input.acceptingMembers !== true,
                         showing: kept.length,
                         orgs: kept.map((row) => ({
                             name: row.name,

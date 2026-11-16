@@ -551,13 +551,20 @@ describe("normalizeEvent text cleanup", () => {
     });
 });
 
-/** A complete CampusEvent, so tests can override just the field under test. */
+/**
+ * A complete CampusEvent, so tests can override just the field under test.
+ *
+ * `searchText` is derived from the overrides unless one is given, the same way
+ * `normalizeEvent` builds it. A hardcoded empty string here would make every
+ * query and free-food test pass against a field the real code never sees.
+ */
 function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
-    return {
+    const base: CampusEvent = {
         id: 1,
         instanceId: 1,
         title: "T",
         description: null,
+        searchText: "",
         start: "2026-11-09T12:00:00-06:00",
         end: null,
         allDay: false,
@@ -581,6 +588,21 @@ function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
         photoUrl: null,
         source: "calendar.utexas.edu",
         ...over,
+    };
+    if (over.searchText !== undefined) return base;
+    return {
+        ...base,
+        searchText: [
+            base.title,
+            base.description ?? "",
+            ...base.tags,
+            ...base.departments,
+            base.locationName ?? "",
+            base.room ?? "",
+        ]
+            .filter(Boolean)
+            .join("\n")
+            .toLowerCase(),
     };
 }
 
@@ -1288,5 +1310,234 @@ describe("gaps found by mutation testing", () => {
         expect(toPrecision("geocoded")).toBe("geocoded");
         expect(toPrecision("something-new")).toBe("geocoded");
         expect(toPrecision("")).toBe("geocoded");
+    });
+});
+
+/**
+ * Found by working the live endpoint rather than the source: every case here
+ * returned a confident, plausible, wrong answer while the suite was green.
+ */
+describe("gaps found by the live blindspot audit", () => {
+    const longDescription = (tail: string) =>
+        `${"UT hosts a seminar series on campus each week. ".repeat(14)}${tail}`;
+
+    const synthetic = (over: { title?: string; description?: string; locationName?: string }) =>
+        normalizeEvent({
+            event: {
+                id: 77,
+                title: over.title ?? "Seminar",
+                description_text: over.description,
+                location_name: over.locationName,
+                event_instances: [
+                    { event_instance: { id: 771, start: "2026-11-09T12:00:00-06:00" } },
+                ],
+            },
+        })[0]!;
+
+    describe("text features ran on the display truncation", () => {
+        it("sees free food named past the 400-character display cut", () => {
+            const row = synthetic({ description: longDescription("Lunch will be provided.") });
+            // The description really is cut, so this is not accidentally
+            // passing on a short string.
+            expect(row.description!.length).toBeLessThanOrEqual(403);
+            expect(row.description).not.toContain("Lunch will be provided");
+            expect(row.searchText).toContain("lunch will be provided");
+            // Measured against the live feed: 2 of 6 before this, because UT
+            // puts "Lunch will be provided." at character 1,030 of 1,100.
+            expect(mentionsFreeFood(row)).toBe(true);
+        });
+
+        it("still refuses a bare mention of a mealtime", () => {
+            const row = synthetic({ description: longDescription("Come by after lunch.") });
+            expect(mentionsFreeFood(row)).toBe(false);
+        });
+
+        it("finds a query term past the 400-character display cut", () => {
+            const row = synthetic({
+                description: longDescription("This group discusses mental health openly."),
+            });
+            expect(row.description).not.toContain("mental health");
+            expect(filterEvents([row], { query: "mental health" })).toHaveLength(1);
+        });
+    });
+
+    describe("query matched inside unrelated words", () => {
+        const ai = makeEvent({ title: "AI Ideas: Drop-in Hours" });
+        // These genuinely contain the letters "ai" inside a word: tr-ai-ning,
+        // ch-ai-r, m-ai-ntenance. A title that merely looks unrelated is not a
+        // test -- "Nation-Building" has no "ai" in it and passes either way.
+        const notAi = makeEvent({ title: "Research Training Grant Workshop" });
+
+        it("matches a short query at a word start", () => {
+            expect(filterEvents([ai], { query: "AI" })).toHaveLength(1);
+        });
+
+        it("does not match a short query mid-word", () => {
+            // A plain substring returned 48 of the week's 105 events as AI
+            // events, on matches exactly like this one.
+            expect(filterEvents([notAi], { query: "AI" })).toHaveLength(0);
+            expect(
+                filterEvents([makeEvent({ title: "Department Chair Lecture" })], { query: "AI" }),
+            ).toHaveLength(0);
+            expect(
+                filterEvents([makeEvent({ description: "Facilities maintenance notice" })], {
+                    query: "AI",
+                }),
+            ).toHaveLength(0);
+        });
+
+        it("treats a two- or three-letter query as a whole word", () => {
+            // A word-start anchor alone still matched "aid", "aims" and "air",
+            // which is most of a calendar. An acronym has to stand alone.
+            for (const title of ["Financial Aid Night", "Air Quality Seminar", "Aims and Scope"]) {
+                expect(filterEvents([makeEvent({ title })], { query: "AI" })).toHaveLength(0);
+            }
+            // Still found when it is its own word, including hyphenated.
+            expect(filterEvents([ai], { query: "AI" })).toHaveLength(1);
+            expect(
+                filterEvents([makeEvent({ title: "AI-powered Tutoring" })], { query: "AI" }),
+            ).toHaveLength(1);
+        });
+
+        it("still matches a prefix, so 'robotic' finds robotics", () => {
+            const row = makeEvent({ title: "Robotics Open House" });
+            expect(filterEvents([row], { query: "robotic" })).toHaveLength(1);
+            expect(filterEvents([row], { query: "engineer" })).toHaveLength(0);
+        });
+
+        it("does not throw on a query that is also a regex", () => {
+            const row = makeEvent({ title: "C++ for Beginners" });
+            expect(filterEvents([row], { query: "c++" })).toHaveLength(1);
+            expect(() => filterEvents([row], { query: "what's on? (today)" })).not.toThrow();
+        });
+    });
+
+    describe("in-state road games", () => {
+        const awayGame = makeEvent({
+            locationName: "College Station, Texas, Kyle Field",
+            title: "University of Texas Football at Texas A&M",
+        });
+        const homeGame = makeEvent({ locationName: "Austin, Texas, Moody Center" });
+
+        it("calls a Texas city that is not Austin off campus", () => {
+            // The state tests cannot see this one: every athletics row is
+            // written "City, Texas, Venue" whichever side of the line it is on.
+            expect(onCampus(awayGame)).toBe(false);
+            expect(onCampus(makeEvent({ locationName: "Midland, Texas" }))).toBe(false);
+        });
+
+        it("does not call an Austin venue off campus", () => {
+            expect(onCampus(homeGame)).not.toBe(false);
+        });
+
+        it("drops an in-state road game from onCampusOnly", () => {
+            expect(filterEvents([awayGame], { onCampusOnly: true })).toHaveLength(0);
+            expect(filterEvents([homeGame], { onCampusOnly: true })).toHaveLength(1);
+        });
+
+        it("does not read a street address as an away city", () => {
+            // An address legitimately contains "Austin, Texas" after a street,
+            // and a building-resolved row must not be thrown away.
+            expect(onCampus(makeEvent({ address: "2501 Speedway, Austin, Texas 78712" }))).not.toBe(
+                false,
+            );
+        });
+    });
+});
+
+describe("gaps found by the live blindspot audit, part 2", () => {
+    // The clock is 2026-11-09 09:00 Austin, so "yesterday" is the 8th.
+    it("refuses yesterday, not just the day before", async () => {
+        // The guard allowed a full day of grace, which meant yesterday was
+        // accepted at EVERY hour: the window closes at today 00:00 and only
+        // falls behind `now - 24h` once tomorrow starts. A student asking what
+        // was on yesterday got 46 finished events presented as upcoming.
+        const result = await call("find_events", { when: "2026-11-08" });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]!.text).toMatch(/in the past/);
+    });
+
+    it("still answers for today and tomorrow", async () => {
+        expect((await call("find_events", { when: "today" })).isError).toBeFalsy();
+        expect((await call("find_events", { when: "tomorrow" })).isError).toBeFalsy();
+    });
+
+    it("excludes an all-day event belonging to the day after the window", async () => {
+        // An all-day event on the 10th starts at the instant the 10th begins,
+        // which is exactly the upper bound of a window for the 9th. With an
+        // inclusive bound, a one-day query reported the next day's events and
+        // `occurrences` counted a day outside the window.
+        const monday = {
+            from: new Date("2026-11-09T06:00:00Z"),
+            to: new Date("2026-11-10T06:00:00Z"),
+        };
+        const tuesdayAllDay = makeEvent({
+            start: "2026-11-10T00:00:00-06:00",
+            end: "2026-11-11T00:00:00-06:00",
+            allDay: true,
+        });
+        expect(filterEvents([tuesdayAllDay], monday)).toHaveLength(0);
+
+        const mondayAllDay = makeEvent({
+            start: "2026-11-09T00:00:00-06:00",
+            end: "2026-11-10T00:00:00-06:00",
+            allDay: true,
+        });
+        expect(filterEvents([mondayAllDay], monday)).toHaveLength(1);
+    });
+
+    it("counts the window, not the whole fetch, when nothing matched", async () => {
+        const { data, content } = await events({
+            when: "today",
+            query: "zzzznotathing",
+        });
+        expect(data.events).toHaveLength(0);
+        const stated = Number(/held (\d+) event/.exec(content[0]!.text)![1]);
+        // The old number was the uncollapsed multi-day fetch, which said 130
+        // for a day holding 45. It must not exceed the day's own total.
+        const today = await events({ when: "today", limit: 40 });
+        expect(stated).toBe(today.data.matched);
+    });
+
+    describe("renamed buildings students still write", () => {
+        it("resolves CLA to Patton Hall", async () => {
+            const { data } = await location({ location: "CLA 1.106" });
+            expect(data.resolved).toBe(true);
+            expect(data.building?.code).toBe("RLP");
+            expect(data.building?.name).toBe("PATTON HALL");
+        });
+
+        it("resolves BMC to the Dealey Center", async () => {
+            const { data } = await location({ location: "BMC 2.106" });
+            expect(data.resolved).toBe(true);
+            expect(data.building?.code).toBe("DMC");
+        });
+    });
+
+    describe("the surname plus room-number rule", () => {
+        // Each of these came back resolved with full coordinates and no hedge.
+        it.each([
+            ["North 1st Street", "a real Austin street, not the North End Zone"],
+            ["Education 2.302", "UT's College of Education is SZB, not EER"],
+            ["Austin 2026 Climate Summit", "an event title, not Lake Austin Centre"],
+            ["Campus 2 West", "not the East Campus Garage"],
+        ])("does not invent a building for %j", async (input) => {
+            const { data } = await location({ location: input });
+            expect(data.resolved).toBe(false);
+        });
+
+        it("does not read a year as a room number", async () => {
+            // GEARING is a legitimate surname token, so the word list does not
+            // block this one: only the room-number shape does. "2026" is four
+            // digits, which a bare length test accepts.
+            const { data } = await location({ location: "Gearing 2026 Symposium" });
+            expect(data.resolved).toBe(false);
+        });
+
+        it("still resolves a real room reference", async () => {
+            expect((await location({ location: "Gearing 114" })).data.building?.code).toBe("GEA");
+            expect((await location({ location: "Welch 2.224" })).data.building?.code).toBe("WEL");
+            expect((await location({ location: "Bellmont 962" })).data.building?.code).toBe("BEL");
+        });
     });
 });

@@ -56,6 +56,12 @@ const ROUTES: [string, string][] = [
     ["organization/bykey/eclair", "hornslink-detail-eclair.json"],
     ["organization/bykey/unjaded", "hornslink-detail-unjaded.json"],
     ["organization/bykey/trgs", "hornslink-detail-trgs.json"],
+    // The only captured org with `showJoin: false`, so it is what makes the
+    // `acceptingMembers` filter observable. Five of the 39 directory rows are
+    // genuinely not accepting join requests upstream; this is the one that also
+    // carries a category several other rows share, so a category browse returns
+    // a mix and the filter has something to remove.
+    ["organization/bykey/blantonmuseum", "hornslink-detail-blantonmuseum.json"],
     // Any other org's detail: the shape is the same whichever org was asked
     // about, and a category browse reaches orgs no fixture is captured for.
     // Tests that assert on a specific org's contacts use the named routes above.
@@ -106,22 +112,48 @@ export const FIXED_NOW = new Date("2026-10-15T20:44:00Z");
  */
 export const CAMPUS_NOW = new Date("2026-11-09T15:00:00Z");
 
-type Tool = {
-    config: { inputSchema: { parse: (value: unknown) => unknown } };
-    handler: (args: unknown, extra: unknown) => Promise<{ structuredContent?: unknown }>;
+type ToolResult = {
+    structuredContent?: unknown;
+    content?: { type: string; text: string }[];
+    isError?: boolean;
 };
 
-/** Registers into a recorder and calls tools through their input schema, as the server does. */
-export function toolCaller(register: (server: McpServer) => void) {
+type Tool = {
+    config: { inputSchema: { parse: (value: unknown) => unknown } };
+    handler: (args: unknown, extra: unknown) => Promise<ToolResult>;
+};
+
+/**
+ * Registers into a recorder and calls tools through their input schema, as the
+ * server does, handing back the WHOLE result.
+ *
+ * An agent may read either half of a tool's answer, so a test that claims
+ * something about the prose has to assert on the prose. `toolCaller` below is
+ * the structured-only shorthand, which most tests want.
+ */
+export function toolResultCaller(register: (server: McpServer) => void) {
     const tools = new Map<string, Tool>();
     register({
         registerTool: (name: string, config: Tool["config"], handler: Tool["handler"]) =>
             tools.set(name, { config, handler }),
     } as unknown as McpServer);
-    return async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> => {
+    return async (name: string, args: Record<string, unknown> = {}): Promise<ToolResult> => {
         const tool = tools.get(name);
         if (!tool) throw new Error(`No such tool: ${name}`);
-        const result = await tool.handler(tool.config.inputSchema.parse(args), {});
-        return result.structuredContent as T;
+        return await tool.handler(tool.config.inputSchema.parse(args), {});
     };
+}
+
+/** The structured half of a tool's answer, which is what most tests assert on. */
+export function toolCaller(register: (server: McpServer) => void) {
+    const raw = toolResultCaller(register);
+    return async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> =>
+        (await raw(name, args)).structuredContent as T;
+}
+
+/** The prose half, for tests about what the agent actually reads as text. */
+export function toolTextCaller(register: (server: McpServer) => void) {
+    const raw = toolResultCaller(register);
+    return async (name: string, args: Record<string, unknown> = {}): Promise<string> =>
+        ((await raw(name, args)).content ?? []).map((part) => part.text).join("\n");
 }

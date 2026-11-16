@@ -16,7 +16,7 @@
 // opt-in and capped rather than a second events feed. Campus events come from
 // Localist, through find_events.
 
-import { cached, getText, norm, text } from "../../shared.ts";
+import { cached, getJson, norm, text } from "../../shared.ts";
 import {
     allOrgsUrl,
     orgDetailUrl,
@@ -90,7 +90,7 @@ export interface OrgEvent {
  *
  * Hardcoded on purpose: upstream ignores `categoryIds`, so this list is only
  * used to validate and match what a caller typed, never to build a request. The
- * live list is at `orgCategoriesUrl()` if it ever needs regenerating.
+ * live list is at /api/discovery/organization/category if it needs regenerating.
  */
 export const ORG_CATEGORIES = [
     "Academic",
@@ -129,9 +129,6 @@ const LEGACY_CATEGORY_NAMES: Record<string, string> = {
     "Student Governance": "Leadership/Governance",
     "Ideology and Politics": "Political/Advocacy",
 };
-
-/** 87 of the 1,226 rows carry no category at all, so no category filter reaches them. */
-export const ORGS_WITHOUT_CATEGORY = 87;
 
 /**
  * Words students use that are not a category name.
@@ -173,6 +170,21 @@ const CATEGORY_ALIASES: Record<string, string> = {
 };
 
 /**
+ * Aliases that only count as the WHOLE input, never as a word inside a phrase.
+ *
+ * "club" is in almost every phrase a student types, so the single-hit phrase
+ * rule turned it into a wildcard: `category: "pre-med club"`, "engineering club"
+ * and "running club" all resolved to Recreational and returned the same 52 rows
+ * with a note claiming it had read the category. It was inconsistent too --
+ * "sports clubs" worked while "sports club" was refused as ambiguous, because
+ * the second one hit both `sports` and `club`.
+ *
+ * Kept as a whole-input alias, where `category: "club"` meaning Recreational is
+ * a fair reading of a one-word input.
+ */
+const WHOLE_INPUT_ONLY = new Set(["club", "clubs"]);
+
+/**
  * Map what a caller typed onto one of the 14, or null.
  *
  * Deliberately conservative. An earlier version took the first category whose
@@ -197,7 +209,8 @@ export function matchCategory(input: string): string | null {
     // ambiguous and refusing says so.
     const hits = new Set<string>();
     for (const word of raw.toLowerCase().split(/[^a-z0-9]+/)) {
-        const alias = word && CATEGORY_ALIASES[norm(word)];
+        if (!word || WHOLE_INPUT_ONLY.has(norm(word))) continue;
+        const alias = CATEGORY_ALIASES[norm(word)];
         if (alias) hits.add(alias);
     }
     if (hits.size === 1) return [...hits][0]!;
@@ -262,8 +275,8 @@ function toOrg(raw: RawSearchRow): Org | null {
     };
 }
 
-function parseOrgs(body: string): Org[] {
-    const parsed = JSON.parse(body) as { value?: RawSearchRow[] };
+/** Takes the PARSED payload: the directory is 1.8 MB and was parsed twice. */
+function parseOrgs(parsed: { value?: RawSearchRow[] }): Org[] {
     return (parsed.value ?? []).map(toOrg).filter((o): o is Org => o !== null);
 }
 
@@ -286,9 +299,11 @@ export async function searchOrgs(query: string, top: number): Promise<OrgSearch>
         `orgs:v${CACHE_VERSION}:q:${query.toLowerCase()}:${top}`,
         SEARCH_TTL_SECONDS,
         async () => {
-            const body = await getText(orgSearchUrl({ query, top }), SEARCH_TTL_SECONDS);
-            const parsed = JSON.parse(body) as { "@odata.count"?: number };
-            const rows = parseOrgs(body);
+            const parsed = await getJson<{ "@odata.count"?: number; value?: RawSearchRow[] }>(
+                orgSearchUrl({ query, top }),
+                SEARCH_TTL_SECONDS,
+            );
+            const rows = parseOrgs(parsed);
             return {
                 total:
                     typeof parsed["@odata.count"] === "number"
@@ -303,7 +318,7 @@ export async function searchOrgs(query: string, top: number): Promise<OrgSearch>
 /** The whole directory, for category browsing. One 1.8 MB request per TTL. */
 export async function allOrgs(): Promise<Org[]> {
     return cached(`orgs:v${CACHE_VERSION}:all`, DIRECTORY_TTL_SECONDS, async () =>
-        parseOrgs(await getText(allOrgsUrl(), DIRECTORY_TTL_SECONDS)),
+        parseOrgs(await getJson<{ value?: RawSearchRow[] }>(allOrgsUrl(), DIRECTORY_TTL_SECONDS)),
     );
 }
 
@@ -321,9 +336,7 @@ export async function orgDetail(websiteKey: string): Promise<OrgContact> {
         `orgs:v${CACHE_VERSION}:detail:${websiteKey}`,
         DIRECTORY_TTL_SECONDS,
         async () => {
-            const raw = JSON.parse(
-                await getText(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS),
-            ) as RawDetail;
+            const raw = await getJson<RawDetail>(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS);
             const social = raw.socialMedia ?? {};
             // Note what is NOT read here: raw.primaryContact (a named student and
             // their personal email) and raw.contactInfo (street address, phone).
@@ -356,9 +369,10 @@ export async function orgEvents(
         `orgs:v${CACHE_VERSION}:events:${organizationId}:${take}`,
         EVENTS_TTL_SECONDS,
         async () => {
-            const parsed = JSON.parse(
-                await getText(orgEventsUrl(organizationId, nowIso, take), EVENTS_TTL_SECONDS),
-            ) as { value?: RawEvent[] };
+            const parsed = await getJson<{ value?: RawEvent[] }>(
+                orgEventsUrl(organizationId, nowIso, take),
+                EVENTS_TTL_SECONDS,
+            );
             return (parsed.value ?? [])
                 .filter((e): e is RawEvent & { name: string; startsOn: string } =>
                     Boolean(e.name && e.startsOn),
@@ -380,6 +394,44 @@ export async function orgEvents(
  * `category` is matched against the row's own CategoryNames rather than
  * re-derived, so a row carrying two categories matches either.
  */
+/**
+ * How much of the query the returned rows actually contain.
+ *
+ * HornsLink relevance-ranks on ANY word, which makes a small result set look
+ * authoritative when it is a near miss. `query: "muay thai"` returned the Thai
+ * Association of Austin and the Thai Lao Cambodian Student Association with
+ * `notes: []` -- there is no muay thai club at UT, and an agent reading that
+ * answer tells a student to email a cultural org about kickboxing.
+ *
+ * So the tool checks the rows itself and reports which words it could find.
+ * Hedging on the SIZE of the result set, which is what it used to do, misses
+ * this entirely: the hedge only fired above 50 rows.
+ */
+export function queryRelevance(
+    rows: Org[],
+    query: string,
+): { matchedAll: Org[]; found: string[]; missing: string[] } {
+    const haystack = (org: Org) => norm(`${org.name} ${org.summary ?? ""}`);
+    const words = query
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .map((word) => norm(word))
+        // One-character words carry no signal and match almost anything.
+        .filter((word) => word.length > 1);
+    if (!words.length) return { matchedAll: rows, found: [], missing: [] };
+
+    const found: string[] = [];
+    const missing: string[] = [];
+    for (const word of words) {
+        (rows.some((org) => haystack(org).includes(word)) ? found : missing).push(word);
+    }
+    return {
+        matchedAll: rows.filter((org) => words.every((word) => haystack(org).includes(word))),
+        found,
+        missing,
+    };
+}
+
 export function filterOrgs(
     rows: Org[],
     filters: { category?: string | null; query?: string | null },

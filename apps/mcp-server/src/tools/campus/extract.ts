@@ -16,8 +16,24 @@
 // event count overstates the feed by about 3x. See `collapseSeries`.
 
 import { cached, decode, getText, text } from "../../shared.ts";
-import { isNonPhysicalLocation, resolveBuilding, type Precision } from "./buildings.ts";
-import { PAGE_SIZE, calendarUrl, eventUrl } from "./urls.ts";
+import { metresBetween, resolveBuilding, type Precision } from "./buildings.ts";
+import { calendarUrl, eventUrl } from "./urls.ts";
+
+/**
+ * Bump whenever a cached value's SHAPE or its DERIVED CONTENT changes.
+ *
+ * The Cloudflare Cache API outlives a deploy, so without this an entry written
+ * by the old code is read by the new code. This already happened once in the
+ * orgs tool: changing a return type from an array to `{ total, rows }` made
+ * every recently-queried term throw for the rest of its TTL.
+ *
+ * "Derived content" matters as much as shape here, because a cached
+ * `CampusEvent` bakes in `latitude`, `longitude`, `buildingCode` and
+ * `searchText`, which come from `buildings.json`, `LOCATION_ALIASES` and
+ * `SEARCH_TEXT_LIMIT`. Editing any of those without bumping this serves the old
+ * resolution for up to one TTL.
+ */
+const CACHE_VERSION = 1;
 
 /** 30 minutes. The calendar is edited by hand; it does not move minute to minute. */
 const TTL_SECONDS = 1_800;
@@ -67,7 +83,19 @@ export interface CampusEvent {
     id: number;
     instanceId: number;
     title: string;
+    /** Cut to DESCRIPTION_LIMIT. For showing a person, never for searching. */
     description: string | null;
+    /**
+     * Everything worth searching, lowercased: title, the FULL description, tags,
+     * departments and the location text.
+     *
+     * Separate from `description` because that one is truncated for display and
+     * searching the stump was silently wrong. Measured over a 60-day pull: the
+     * free-food test found 2 of 6 real matches, and "mental health" found 2 of
+     * 11, because UT writes "Lunch will be provided" and the accessibility
+     * notes at the END of a long description. Not returned to the client.
+     */
+    searchText: string;
     /** ISO 8601 with a Central offset, as Localist publishes it. */
     start: string;
     end: string | null;
@@ -183,6 +211,24 @@ function venueOf(experience: string | null | undefined): VenueType {
 const DESCRIPTION_LIMIT = 400;
 
 /**
+ * How much description stays searchable.
+ *
+ * `DESCRIPTION_LIMIT` is a display budget: a few hundred full abstracts is most
+ * of a context window. Searching that truncation was a wrong answer rather than
+ * a short one, so the search text keeps far more. 4,000 characters covers every
+ * description in a 60-day pull (the longest measured was about 1,500) while
+ * still bounding what one pathological row can put in the cache.
+ */
+const SEARCH_TEXT_LIMIT = 4_000;
+
+/** The full plain-text description, uncut. `describe` cuts it for display. */
+function fullDescription(raw: NonNullable<RawEvent["event"]>): string {
+    return (
+        clean(raw.description_text ?? "") || (raw.description ? clean(text(raw.description)) : "")
+    );
+}
+
+/**
  * Defensive, not a response to anything in the feed.
  *
  * UT serves this endpoint as clean `application/json; charset=utf-8` and a full
@@ -197,9 +243,8 @@ const clean = (value: string): string =>
         .replace(/�/g, "")
         .trim();
 
-function describe(raw: NonNullable<RawEvent["event"]>): string | null {
-    const plain =
-        clean(raw.description_text ?? "") || (raw.description ? clean(text(raw.description)) : "");
+/** Cuts an already-extracted description down to the display budget. */
+function describe(plain: string): string | null {
     if (!plain) return null;
     return plain.length > DESCRIPTION_LIMIT
         ? `${plain.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
@@ -236,10 +281,29 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
     const longitude = feedLng ?? resolved?.building.longitude ?? null;
 
     const filters = event.filters ?? {};
+    const plainDescription = fullDescription(event);
+    const title = clean(event.title);
+    const tags = Array.isArray(event.tags)
+        ? event.tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0)
+        : [];
+    const departments = names(event.departments ?? undefined);
     const common = {
         id: event.id,
-        title: clean(event.title),
-        description: describe(event),
+        title,
+        description: describe(plainDescription),
+        // Built from the FULL description, not the truncated one. Joined with
+        // newlines so a word-start match cannot straddle two fields.
+        searchText: [
+            title,
+            plainDescription.slice(0, SEARCH_TEXT_LIMIT),
+            ...tags,
+            ...departments,
+            locationName ?? "",
+            room ?? "",
+        ]
+            .filter(Boolean)
+            .join("\n")
+            .toLowerCase(),
         locationName,
         room,
         address: event.address?.trim() || null,
@@ -255,10 +319,8 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
         venue: venueOf(event.experience),
         categories: names(filters["event_types"]),
         audiences: names(filters["event_target_audience"]),
-        departments: names(event.departments ?? undefined),
-        tags: Array.isArray(event.tags)
-            ? event.tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0)
-            : [],
+        departments,
+        tags,
         canceled: (event.status ?? "live").toLowerCase() !== "live",
         freeAdmission: event.free === true,
         ticketCost: event.ticket_cost?.trim() || null,
@@ -301,19 +363,14 @@ export interface CalendarResult {
  * a partial set in the cache would answer a later call with a prefix.
  */
 export async function getCalendar(days: number, groupId?: number): Promise<CalendarResult> {
-    const key = `calendar:${days}:${groupId ?? "all"}`;
+    const key = `calendar:v${CACHE_VERSION}:${days}:${groupId ?? "all"}`;
     return cached(key, TTL_SECONDS, async () => {
-        const events: CampusEvent[] = [];
-        let totalItems = 0;
-        let totalPages = 1;
-        let page = 1;
-        // Counted rather than derived from `page`: the break below leaves the
-        // loop without incrementing, so `page - 1` under-reported by one.
-        let fetches = 0;
-
-        while (page <= Math.min(totalPages, MAX_PAGES)) {
+        // `events` is non-optional here: `readPage` has already proved it is an
+        // array, and carrying the optional type forward costs a `?? []` at every
+        // use, which is where a silent empty page would hide.
+        type FetchedPage = { events: RawEvent[]; page?: RawPage["page"] };
+        const readPage = async (page: number): Promise<FetchedPage> => {
             const body = await getText(calendarUrl({ days, page, groupId }), TTL_SECONDS);
-            fetches++;
             let parsed: RawPage;
             try {
                 parsed = JSON.parse(body) as RawPage;
@@ -325,29 +382,47 @@ export async function getCalendar(days: number, groupId?: number): Promise<Calen
             if (!parsed || typeof parsed !== "object") {
                 throw new Error("UT's calendar returned an empty response. It may be down.");
             }
-            // Localist's page.total is a count of PAGES, not of events;
-            // total_items is the event count. Reading the wrong one stops the
-            // loop after a single page.
-            totalPages = parsed.page?.total ?? 1;
-            totalItems = parsed.page?.total_items ?? 0;
             // Array.isArray and a per-row type check, because upstream sending
             // `events: {}` or `events: [null]` used to surface a raw TypeError
             // ("object is not iterable") as the tool's error message.
             if (!Array.isArray(parsed.events)) {
                 throw new Error("UT's calendar returned no event list. It may be having trouble.");
             }
+            return { events: parsed.events, page: parsed.page };
+        };
+
+        const first = await readPage(1);
+        // Localist's page.total is a count of PAGES, not of events; total_items
+        // is the event count. Reading the wrong one stops after a single page.
+        const totalPages = first.page?.total ?? 1;
+        const totalItems = first.page?.total_items ?? 0;
+        const wanted = Math.min(totalPages, MAX_PAGES);
+
+        // Page 1 already said how many pages there are, so the rest go out
+        // together. The subrequest count is unchanged; a 12-page pull goes from
+        // 12 round trips to 2, which is most of this tool's latency.
+        //
+        // No "stop early if page 1 was short" check: `page.total` is
+        // authoritative and a short first page with more to come is exactly what
+        // the fixture has. Guessing from the row count skipped page 2 and lost
+        // half the calendar.
+        const rest =
+            wanted > 1
+                ? await Promise.all(Array.from({ length: wanted - 1 }, (_, i) => readPage(i + 2)))
+                : [];
+
+        const events: CampusEvent[] = [];
+        for (const parsed of [first, ...rest]) {
             for (const raw of parsed.events) {
                 if (raw && typeof raw === "object") events.push(...normalizeEvent(raw));
             }
-            if (parsed.events.length < PAGE_SIZE && page >= totalPages) break;
-            page++;
         }
 
         events.sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId);
         return {
             events,
             totalItems,
-            pagesFetched: fetches,
+            pagesFetched: 1 + rest.length,
             truncated: totalPages > MAX_PAGES,
         };
     });
@@ -361,12 +436,9 @@ export interface EventFilters {
     audiences?: string[];
     venue?: VenueType;
     department?: string;
-    /** Within this many metres of a resolved building. */
-    near?: { latitude: number; longitude: number; metres: number };
     freeAdmission?: boolean;
     /** Cancelled events are excluded unless this is true. */
     includeCanceled?: boolean;
-    onlyWithCoordinates?: boolean;
     /** Drop events known to be away from Austin. Unknown is kept, not dropped. */
     onCampusOnly?: boolean;
 }
@@ -380,16 +452,36 @@ export interface EventFilters {
  */
 const lower = (list: string[]) => list.map((value) => value.trim().toLowerCase());
 
-/** Case-insensitive substring over the fields a person would search by name. */
+/**
+ * Anchored at a word START, over the event's full search text.
+ *
+ * A plain substring was wrong in both directions. Too wide: `query: "AI"`
+ * matched "N-a-i-on-Building", "Applications" and "Chair", returning 48 of the
+ * week's 105 events as AI events. Too narrow: it searched the 400-character
+ * display truncation, so 9 of the 11 events mentioning mental health were
+ * invisible.
+ *
+ * Anchoring at `\b` but NOT at the end keeps prefix matching, which is what
+ * makes "engineer" find "engineering" and "robotic" find "robotics", while
+ * refusing a match in the middle of an unrelated word.
+ */
 function matchesQuery(event: CampusEvent, query: string): boolean {
-    const needle = query.toLowerCase();
-    return (
-        event.title.toLowerCase().includes(needle) ||
-        (event.description?.toLowerCase().includes(needle) ?? false) ||
-        event.tags.some((tag) => tag.toLowerCase().includes(needle)) ||
-        event.departments.some((dept) => dept.toLowerCase().includes(needle)) ||
-        (event.locationName?.toLowerCase().includes(needle) ?? false)
-    );
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    // Escaped, because a student query is free text: "c++", "(un)learning" and
+    // "what's on?" are all regexes that either throw or mean something else.
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // A short needle is an acronym, so it has to be a WHOLE word: "AI" must
+    // not match "aid", "aim" or "air", which a word-start anchor alone allows.
+    // Longer needles keep the open end, which is what makes "engineer" find
+    // "engineering".
+    const whole = needle.length <= 3 && /[a-z0-9]$/.test(needle);
+    // `\b` only works next to a word character. A needle starting with
+    // punctuation gets a plain substring test, which is the honest fallback.
+    const anchored = /^[a-z0-9]/.test(needle)
+        ? new RegExp(`\\b${escaped}${whole ? "\\b" : ""}`)
+        : null;
+    return anchored ? anchored.test(event.searchText) : event.searchText.includes(needle);
 }
 
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
@@ -427,7 +519,11 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
         // over. An all-day event on the 9th ends at the instant the 10th
         // begins, and with `<` every one of them also showed up in "tomorrow".
         if (filters.from && endMs <= filters.from.getTime()) return false;
-        if (filters.to && startMs > filters.to.getTime()) return false;
+        // `>=`, not `>`: the window's upper bound is the instant the NEXT day
+        // begins, which is exactly when an all-day event on that next day
+        // starts. With `>` a one-day window reported the following day's
+        // all-day events, and `occurrences` counted a day outside the window.
+        if (filters.to && startMs >= filters.to.getTime()) return false;
 
         if (filters.query && !matchesQuery(event, filters.query)) return false;
         if (
@@ -447,9 +543,6 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
             return false;
         }
         if (filters.freeAdmission && !event.freeAdmission) return false;
-        if (filters.onlyWithCoordinates && (event.latitude === null || event.longitude === null)) {
-            return false;
-        }
         // Only a known false is excluded. Dropping unknowns here would throw
         // away every event with no location, which is a lot of real ones.
         if (filters.onCampusOnly && onCampus(event) === false) return false;
@@ -477,16 +570,11 @@ const FOOD_PHRASES = [
 ];
 
 export function mentionsFreeFood(event: CampusEvent): boolean {
-    const haystack = `${event.title} ${event.description ?? ""}`;
-    return FOOD_PHRASES.some((pattern) => pattern.test(haystack));
-}
-
-/** True when the event has no physical place, as opposed to one we failed to read. */
-export function hasNoVenue(event: CampusEvent): boolean {
-    return (
-        event.venue === "virtual" ||
-        (event.latitude === null && isNonPhysicalLocation(event.locationName ?? event.room))
-    );
+    // `searchText`, not `description`: the phrase is usually the last line of a
+    // long description, so against the 400-character display cut this found 2
+    // of the 6 events in a 60-day pull that say food is provided. UT writes
+    // "Lunch will be provided." at character 1,030 of 1,100.
+    return FOOD_PHRASES.some((pattern) => pattern.test(event.searchText));
 }
 
 /** Main campus, near the Tower. Only used for an is-it-even-in-Austin test. */
@@ -548,25 +636,37 @@ const NON_TEXAS = new RegExp(`\\b(?:${STATE_ABBREVIATIONS})\\.|\\b(?:${STATE_NAM
 export function onCampus(event: CampusEvent): boolean | null {
     if (event.latitude !== null && event.longitude !== null) {
         return (
-            metresFromCampus({ latitude: event.latitude, longitude: event.longitude }) <=
-            AUSTIN_RADIUS_M
+            metresBetween(CAMPUS_CENTRE, {
+                latitude: event.latitude,
+                longitude: event.longitude,
+            }) <= AUSTIN_RADIUS_M
         );
     }
     const where = [event.locationName, event.room, event.address].filter(Boolean).join(" ");
     if (!where) return null;
-    return NON_TEXAS.test(where) ? false : null;
+    if (NON_TEXAS.test(where)) return false;
+    const awayCity = texasCityAwayFromAustin(event.locationName);
+    return awayCity ? false : null;
 }
 
-function metresFromCampus(point: { latitude: number; longitude: number }): number {
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const dLat = toRad(point.latitude - CAMPUS_CENTRE.latitude);
-    const dLng = toRad(point.longitude - CAMPUS_CENTRE.longitude);
-    const h =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(CAMPUS_CENTRE.latitude)) *
-            Math.cos(toRad(point.latitude)) *
-            Math.sin(dLng / 2) ** 2;
-    return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+/**
+ * The in-state road game, which the state tests cannot see.
+ *
+ * Athletics rows are written "City, Texas, Venue" whichever side of the state
+ * line they are on, so `onCampusOnly` kept "College Station, Texas, Kyle Field"
+ * and "Midland, Texas" and reported them with no marker: a student asking
+ * what was on campus was told to go to a football game 100 miles away.
+ *
+ * Every HOME row is written "Austin, Texas, <venue>" ("Austin, Texas, Moody
+ * Center", "Austin, Texas, DKR-Texas Memorial Stadium"), so the leading city is
+ * a clean test. Only applied to `locationName`, because an address legitimately
+ * contains "Austin, Texas" after a street.
+ */
+function texasCityAwayFromAustin(locationName: string | null): boolean {
+    if (!locationName) return false;
+    const match = /^\s*([^,]+?)\s*,\s*Tex(?:as)?\s*(?:,|$)/i.exec(locationName);
+    if (!match) return false;
+    return match[1]!.trim().toUpperCase() !== "AUSTIN";
 }
 
 /**

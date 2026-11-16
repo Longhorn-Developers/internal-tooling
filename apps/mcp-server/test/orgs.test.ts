@@ -17,10 +17,11 @@ import {
     orgProfileUrl,
     orgSearchUrl,
 } from "../src/tools/orgs/urls";
-import { CAMPUS_NOW, stubFetch, toolCaller, type FetchLog } from "./fixtures";
+import { CAMPUS_NOW, stubFetch, toolCaller, toolTextCaller, type FetchLog } from "./fixtures";
 
 type OrgsStructured = {
     matched: number;
+    matchedIsFinal: boolean;
     showing: number;
     notes: string[];
     orgs: {
@@ -165,11 +166,25 @@ describe("directory rows", () => {
         for (const name of names) expect(ORG_CATEGORIES).toContain(name);
     });
 
-    it("keeps a row's own categories, so a two-category org matches either", async () => {
+    it("keeps a row's own categories, so a three-category org matches any of them", async () => {
+        // Blanton carries Art, Culture and Educational upstream, two of which
+        // are legacy names. Asserting only that every filtered row contains the
+        // requested category re-states the filter's own predicate; this names
+        // the org and requires it under all three, so a filter that kept just
+        // the first category, or dropped the legacy mapping, fails.
         const rows = await allOrgs();
-        const cultural = filterOrgs(rows, { category: "Cultural/International" });
-        expect(cultural.length).toBeGreaterThan(0);
-        for (const org of cultural) expect(org.categories).toContain("Cultural/International");
+        const blanton = rows.find((org) => org.name === "Blanton Museum of Art")!;
+        expect(blanton.categories).toEqual([
+            "Arts/Entertainment",
+            "Cultural/International",
+            "Educational",
+        ]);
+
+        for (const category of blanton.categories) {
+            const hits = filterOrgs(rows, { category });
+            expect(hits.map((org) => org.name)).toContain("Blanton Museum of Art");
+            for (const org of hits) expect(org.categories).toContain(category);
+        }
     });
 
     it("drops rows that cannot be linked to, or are not public", async () => {
@@ -326,15 +341,56 @@ describe("find_orgs", () => {
         expect(searches[0]!.url).toContain("top=50");
     });
 
-    it("reports the real match count, not the trimmed fixture size", async () => {
-        const result = await call<OrgsStructured>("find_orgs", { category: "Sport Clubs" });
-        expect(result.showing).toBeLessThanOrEqual(result.matched);
-        expect(result.orgs.length).toBe(result.showing);
+    it("reports upstream's own total on a query, not the rows it fetched", async () => {
+        // The bug this pins: reporting our fetch size as the match count made
+        // every broad query answer with exactly SEARCH_OVERFETCH and read as a
+        // real number. Upstream's `@odata.count` here is far above the rows it
+        // returns, which is what any one-word query looks like.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=ai": JSON.stringify({
+                "@odata.count": 238,
+                value: [
+                    { Id: "1", Name: "AI Alliance", WebsiteKey: "aialliance", CategoryNames: [] },
+                    { Id: "2", Name: "Aikido Club", WebsiteKey: "aikido", CategoryNames: [] },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "ai",
+        });
+        expect(result.matched).toBe(238);
+        expect(result.showing).toBe(2);
+        // And it has to say the total is broad, or 238 reads as 238 AI clubs.
+        expect(result.notes.join(" ")).toMatch(/matched any word in "ai", so 238 is a broad total/);
     });
 
-    it("explains that a category search cannot reach uncategorized orgs", async () => {
+    it("counts a category browse by the rows it actually filtered", async () => {
+        // The category path has no upstream count to borrow: `categoryIds` is
+        // ignored, so the filtering is ours and so is the number. It must not
+        // report `@odata.count` (1226) as the number of Sport Clubs.
+        const result = await call<OrgsStructured>("find_orgs", { category: "Sport Clubs" });
+        expect(result.matched).toBeGreaterThan(0);
+        expect(result.matched).toBeLessThan(1226);
+        const everything = await allOrgs();
+        const expected = everything.filter((org) => org.categories.includes("Sport Clubs")).length;
+        expect(result.matched).toBe(expected);
+    });
+
+    it("counts the uncategorized orgs from the directory rather than a constant", async () => {
+        // The old assertion pinned the literal "87 of the 1,226", which came
+        // from a hardcoded constant, so it passed happily while upstream moved
+        // to 1,227 and 88. These numbers now have to match the fixture.
+        const directory = await allOrgs();
+        const uncategorized = directory.filter((org) => org.categories.length === 0).length;
+        expect(uncategorized).toBeGreaterThan(0);
+
+        resetCache();
         const result = await call<OrgsStructured>("find_orgs", { category: "Academic" });
-        expect(result.notes.join(" ")).toMatch(/87 of the 1,226 orgs carry no category/);
+        expect(result.notes.join(" ")).toContain(
+            `${uncategorized} of the ${directory.length} orgs carry no category`,
+        );
     });
 
     it("lists the categories when given one that is not a category", async () => {
@@ -364,13 +420,28 @@ describe("find_orgs", () => {
     });
 
     it("caps rows lower when events are requested, and says so", async () => {
+        // The whole directory, so there really are more matches than the cap.
+        // Asserting this against a 4-row category was asserting that the tool
+        // announces a cap that did not bite.
         const result = await call<OrgsStructured>("find_orgs", {
-            category: "Academic",
             withUpcomingEvents: true,
             limit: 15,
         });
-        expect(result.orgs.length).toBeLessThanOrEqual(8);
+        expect(result.matched).toBeGreaterThan(8);
+        expect(result.orgs.length).toBe(8);
         expect(result.notes.join(" ")).toMatch(/Capped at 8 rows/);
+    });
+
+    it("does not announce a cap when fewer orgs matched than the cap", async () => {
+        // "Capped at 8 rows" on a search that matched 4 told the student
+        // results were being withheld that never existed.
+        const result = await call<OrgsStructured>("find_orgs", {
+            query: "robotics",
+            withUpcomingEvents: true,
+            limit: 15,
+        });
+        expect(result.orgs.length).toBeLessThan(8);
+        expect(result.notes.join(" ")).not.toMatch(/Capped at/);
     });
 
     it("stays inside the subrequest budget at full stretch", async () => {
@@ -381,50 +452,86 @@ describe("find_orgs", () => {
             limit: 15,
         });
         // A Worker invocation gets 50 and this tool is not the only thing that
-        // might run in one.
-        expect(log.length).toBeLessThan(40);
+        // might run in one. Pinned to the documented worst case (1 search + 15
+        // detail + 8 event requests) rather than to the ceiling, so a
+        // regression that doubles the requests fails here instead of passing
+        // quietly under 50.
+        expect(log.length).toBeLessThanOrEqual(24);
     });
 
     it("says its count is from before the join-request filter", async () => {
         // The count cannot include the filter: the field lives on the detail
         // endpoint, one request per org, so only `reach` rows are ever checked.
-        const tools = new Map<
-            string,
-            {
-                config: { inputSchema: { parse: (v: unknown) => unknown } };
-                handler: (a: unknown, e: unknown) => Promise<{ content: { text: string }[] }>;
-            }
-        >();
-        registerOrgTools({
-            registerTool: (name: string, config: never, handler: never) =>
-                tools.set(name, { config, handler }),
-        } as never);
-        const tool = tools.get("find_orgs")!;
-        const result = await tool.handler(
-            tool.config.inputSchema.parse({ category: "Academic", acceptingMembers: true }),
-            {},
-        );
-        expect(result.content[0]!.text).toMatch(/matched before the join-request filter/);
-    });
-
-    it("filters on join requests using the detail field", async () => {
-        const result = await call<OrgsStructured>("find_orgs", {
-            query: "robotics",
+        const text = await toolTextCaller(registerOrgTools)("find_orgs", {
+            category: "Academic",
             acceptingMembers: true,
         });
-        for (const org of result.orgs) expect(org.acceptingJoinRequests).toBe(true);
+        expect(text).toMatch(/matched before the join-request filter/);
     });
 
-    it("answers with prose as well as data", async () => {
-        const caller = toolCaller(registerOrgTools);
-        const structured = await caller<OrgsStructured>("find_orgs", { query: "robotics" });
+    it("drops an org that is not accepting join requests", async () => {
+        // Blanton Museum of Art is the one captured org with `showJoin: false`,
+        // and it shares the Educational category with four that are open. The
+        // unfiltered call has to show it or this proves nothing: a test that
+        // only asserts every returned row is `true` passes with the filter
+        // deleted, because every other fixture is `true`.
+        const all = await call<OrgsStructured>("find_orgs", {
+            category: "Educational",
+            limit: 15,
+        });
+        const names = all.orgs.map((org) => org.name);
+        expect(names).toContain("Blanton Museum of Art");
+
+        resetCache();
+        const open = await call<OrgsStructured>("find_orgs", {
+            category: "Educational",
+            acceptingMembers: true,
+            limit: 15,
+        });
+        expect(open.orgs.map((org) => org.name)).not.toContain("Blanton Museum of Art");
+        expect(open.orgs.length).toBe(all.orgs.length - 1);
+        // Counted before the filter, so the total does not move.
+        expect(open.matched).toBe(all.matched);
+        for (const org of open.orgs) expect(org.acceptingJoinRequests).toBe(true);
+    });
+
+    it("reads the join field from the detail endpoint, not the search row", async () => {
+        // The search rows carry no join field at all, so the filter can only
+        // work if the per-org detail request happened.
+        const directory = await allOrgs();
+        expect(directory.some((org) => org.name === "Blanton Museum of Art")).toBe(true);
+        expect(Object.keys(directory[0]!)).not.toContain("acceptingJoinRequests");
+
+        const detail = await orgDetail("blantonmuseum");
+        expect(detail.acceptingJoinRequests).toBe(false);
+    });
+
+    it("answers with prose as well as data, and the two agree", async () => {
+        const structured = await call<OrgsStructured>("find_orgs", { query: "robotics" });
+        resetCache();
+        const text = await toolTextCaller(registerOrgTools)("find_orgs", { query: "robotics" });
+
         expect(structured.orgs.length).toBeGreaterThan(0);
+        // An agent may read either half, so a name or a count that appears in
+        // one and not the other is a wrong answer half the time.
+        expect(text).toContain(`${structured.matched} org(s) matched`);
+        for (const org of structured.orgs) {
+            expect(text).toContain(org.name);
+            expect(text).toContain(org.profileUrl);
+        }
+        for (const note of structured.notes) expect(text).toContain(note);
     });
 
     it("says plainly when nothing matched", async () => {
         resetCache();
         vi.unstubAllGlobals();
         stubFetch({ "query=robotics": JSON.stringify({ "@odata.count": 0, value: [] }) });
+        const text = await toolTextCaller(registerOrgTools)("find_orgs", { query: "robotics" });
+        // The prose has to say so too: an agent handed an empty array and no
+        // sentence tends to invent an explanation for it.
+        expect(text).toMatch(/No HornsLink org matched "robotics"/);
+
+        resetCache();
         const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
             query: "robotics",
         });
@@ -469,5 +576,174 @@ describe("filterOrgs", () => {
     it("returns everything when given no filters", () => {
         const rows: Org[] = [SYNTHETIC];
         expect(filterOrgs(rows, {})).toHaveLength(1);
+    });
+});
+
+/**
+ * Found by working the live HornsLink endpoint. Each of these answered a real
+ * student question confidently and wrongly while the suite was green.
+ */
+describe("gaps found by the live blindspot audit", () => {
+    it("says so when nothing matched all of the query", async () => {
+        // `query: "muay thai"` returned the Thai Association of Austin and the
+        // Thai Lao Cambodian Student Association with notes: [] -- there is no
+        // muay thai club at UT, and upstream had matched on "thai" alone.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=muay": JSON.stringify({
+                "@odata.count": 2,
+                value: [
+                    {
+                        Id: "1",
+                        Name: "Thai Association of Austin",
+                        WebsiteKey: "thaiaustin",
+                        CategoryNames: ["Social"],
+                        Summary: "Fostering Thai culture in Austin.",
+                    },
+                    {
+                        Id: "2",
+                        Name: "Thai Lao Cambodian Student Association",
+                        WebsiteKey: "tlcsa",
+                        CategoryNames: ["Culture"],
+                    },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "muay thai",
+        });
+        expect(result.orgs).toHaveLength(2);
+        const notes = result.notes.join(" ");
+        expect(notes).toMatch(/No org matched all of "muay thai"/);
+        // And it names which word did the matching, so the agent can say why.
+        expect(notes).toMatch(/"thai"/);
+        expect(notes).toMatch(/near misses/);
+    });
+
+    it("stays quiet when the rows really do match the query", async () => {
+        // The hedge must not fire on a good answer, or it is noise that
+        // teaches the agent to ignore it.
+        const result = await call<OrgsStructured>("find_orgs", { query: "robotics" });
+        expect(result.orgs.length).toBeGreaterThan(0);
+        expect(result.notes.join(" ")).not.toMatch(/near misses/);
+    });
+
+    it("hedges the count on the query-plus-category path too", async () => {
+        // This path had no hedge at all, and removing the top-50 relevance cut
+        // made its count the least trustworthy of the three: "pre-med" in
+        // Pre-Professional/Career reports 179, of which 16 mention medicine.
+        const result = await call<OrgsStructured>("find_orgs", {
+            query: "robotics",
+            category: "Academic",
+        });
+        expect(result.notes.join(" ")).toMatch(/matched any word in "robotics"/);
+    });
+
+    describe('the "club" category alias', () => {
+        it('does not read "<anything> club" as Recreational', async () => {
+            // `category: "pre-med club"` resolved to Recreational and returned
+            // 52 rows with a note claiming it had read the category.
+            const result = await call<OrgsStructured>("find_orgs", { category: "pre-med club" });
+            expect(result.matched).toBe(0);
+            expect(result.notes.join(" ")).toMatch(/Unknown category/);
+        });
+
+        it('resolves "sports club" and "sports clubs" the same way', async () => {
+            // "sports clubs" worked while "sports club" was refused as
+            // ambiguous, because the second hit both `sports` and `club`.
+            const plural = await call<OrgsStructured>("find_orgs", { category: "sports clubs" });
+            resetCache();
+            const singular = await call<OrgsStructured>("find_orgs", { category: "sports club" });
+            expect(singular.matched).toBe(plural.matched);
+            expect(singular.matched).toBeGreaterThan(0);
+        });
+
+        it('still accepts "club" on its own', async () => {
+            const result = await call<OrgsStructured>("find_orgs", { category: "club" });
+            expect(result.matched).toBeGreaterThan(0);
+            expect(result.notes.join(" ")).toMatch(/as the category "Recreational"/);
+        });
+    });
+
+    it("marks the count as provisional when the join filter ran", async () => {
+        // The prose said "before the join-request filter" and the structured
+        // half said only `matched: 43`, so an agent on the data path reported
+        // 43 orgs accepting members when the tool had checked 15.
+        const filtered = await call<OrgsStructured>("find_orgs", {
+            category: "Educational",
+            acceptingMembers: true,
+        });
+        expect(filtered.matchedIsFinal).toBe(false);
+
+        resetCache();
+        const plain = await call<OrgsStructured>("find_orgs", { category: "Educational" });
+        expect(plain.matchedIsFinal).toBe(true);
+    });
+
+    it("still answers when one org's detail request fails", async () => {
+        // Contact details are an enrichment. One 404 used to fail the whole
+        // answer, losing the name, summary and link of every other org.
+        resetCache();
+        vi.unstubAllGlobals();
+        const log = stubFetch();
+        const original = globalThis.fetch;
+        vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url =
+                typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            if (url.includes("organization/bykey/trgs")) {
+                return new Response("not found", { status: 404 });
+            }
+            return original(input as never, init);
+        });
+
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "robotics",
+        });
+        expect(result.orgs.length).toBeGreaterThan(0);
+        expect(result.notes.join(" ")).toMatch(/did not answer for 1 org/);
+        // The org is still listed, with what the search row carried.
+        const trgs = result.orgs.find((org) => org.name === "Texas Robotics Graduate Students");
+        expect(trgs).toBeTruthy();
+        expect(trgs!.profileUrl).toContain("trgs");
+        expect(trgs!.email).toBeNull();
+        expect(log.length).toBeGreaterThan(0);
+    });
+
+    it('labels only the first of an org\'s events "Next:"', async () => {
+        // Each org legitimately has one next event. The bug was WITHIN an org:
+        // two events both read "Next: ... / Next: ...".
+        const structured = await call<OrgsStructured>("find_orgs", {
+            query: "robotics",
+            withUpcomingEvents: true,
+        });
+        const withTwo = structured.orgs.filter((org) => (org.upcomingEvents ?? []).length > 1);
+        expect(withTwo.length).toBeGreaterThan(0);
+
+        resetCache();
+        const text = await toolTextCaller(registerOrgTools)("find_orgs", {
+            query: "robotics",
+            withUpcomingEvents: true,
+        });
+        // One block per org. The rows are not blank-line separated: an org's
+        // name line starts at column 0 and its detail lines are indented.
+        for (const block of text.split(/\n(?=\S)/)) {
+            expect((block.match(/ Next: /g) ?? []).length).toBeLessThanOrEqual(1);
+        }
+        expect(text).toContain("Then:");
+    });
+});
+
+describe("input limits", () => {
+    it("refuses an over-long query instead of passing it to a 404", async () => {
+        // HornsLink answers 404 to a very long query, which surfaced as
+        // "utexas.campuslabs.com returned HTTP 404" -- an agent reads that as
+        // the directory being down.
+        await expect(call("find_orgs", { query: "a".repeat(3000) })).rejects.toThrow(/too long/);
+    });
+
+    it("still accepts a realistic multi-word query", async () => {
+        const result = await call<OrgsStructured>("find_orgs", { query: "robotics" });
+        expect(result.orgs.length).toBeGreaterThan(0);
     });
 });

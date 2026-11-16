@@ -65,6 +65,18 @@ function isPlausible(b: UtBuilding): boolean {
 export const LOCATION_ALIASES: Record<string, string> = {
     SAC: "WCP",
     "STUDENT ACTIVITY CENTER": "WCP",
+    // Renamed buildings. UT retired the code, so it is in no feed and in no
+    // official list, while syllabi, students and room signs still use it --
+    // "CLA 1.106" is one of the most written room references on campus. Without
+    // these, `resolve_ut_location` answered "No UT building matched CLA 1.106"
+    // and offered no suggestion, for a building that is in the data under its
+    // new code.
+    CLA: "RLP", // College of Liberal Arts Building, now Patton Hall
+    "COLLEGE OF LIBERAL ARTS": "RLP",
+    "LIBERAL ARTS BUILDING": "RLP",
+    BMC: "DMC", // Belo Center for New Media, now the Dealey Center
+    "BELO CENTER": "DMC",
+    "BELO CENTER FOR NEW MEDIA": "DMC",
     "UT TOWER": "MAI",
     TOWER: "MAI",
     "MAIN BUILDING": "MAI",
@@ -306,14 +318,65 @@ for (const building of BY_CODE.values()) {
  * immediately by something starting with a digit. The digit test alone was not
  * enough, because addresses put numbers after words too, and "Patton Center
  * for Marine Science Education 855 E. Cotter Ave. Port Aransas" matched on
- * EDUCATION and put a marine lab 200 miles away inside EER. Requiring first
- * position is what separates a room reference from a street address.
+ * EDUCATION and put a marine lab 200 miles away inside EER.
+ *
+ * First position was NOT enough on its own, because plenty of real strings
+ * start with a generic word followed by something that merely begins with a
+ * digit. Measured against the live resolver, all four of these came back
+ * `resolved: true` with full coordinates and no hedge:
+ *
+ *   "North 1st Street"           -> NEZ, North End Zone Building
+ *   "Education 2.302"            -> EER  (UT's College of Education is SZB)
+ *   "Austin 2026 Climate Summit" -> LAC, Lake Austin Centre
+ *   "Campus 2 West"              -> ECG, East Campus Garage
+ *
+ * So two further guards: the generic words below are excluded outright, and the
+ * token after the name has to look like a UT room number rather than merely
+ * start with a digit.
  */
+const GENERIC_NAME_WORDS = new Set([
+    "AUSTIN",
+    "CAMPUS",
+    "COLLEGE",
+    "CENTRAL",
+    "DINING",
+    "EDUCATION",
+    "ENERGY",
+    "BIOLOGY",
+    "LEARNING",
+    "NORTH",
+    "SOUTH",
+    "EAST",
+    "WEST",
+    "STUDENT",
+    "TRACK",
+    "UNIVERSITY",
+    "TEXAS",
+]);
+
+/**
+ * A UT room number: "2.126", "114", "1.106", "4.244", "962".
+ *
+ * Deliberately not `^\d`: "1st" and "2 West" start with a digit and neither is
+ * a room. UT numbers rooms either as floor.number or as three to four bare
+ * digits.
+ *
+ * The year exclusion is the case the digit count alone misses: "2026" is four
+ * digits, so "Austin 2026 Climate Summit" satisfied a bare length test and put
+ * a conference inside Lake Austin Centre. No UT room is numbered in the 1900s
+ * or 2000s, and event titles carry years constantly.
+ */
+const ROOM_NUMBER = /^(?:\d{1,2}\.\d{1,4}[A-Z]?|\d{3,4}[A-Z]?)$/;
+const YEAR_LIKE = /^(?:19|20)\d\d$/;
+
+const isRoomNumber = (token: string): boolean => ROOM_NUMBER.test(token) && !YEAR_LIKE.test(token);
+
 const SURNAME_TOKENS = new Map<string, UtBuilding | null>();
 for (const building of BY_CODE.values()) {
     for (const word of new Set(normalize(building.name).split(" "))) {
         if (word.length < 5) continue;
         if (BUILDING_TYPE_WORDS.has(word) || word === "BLDG") continue;
+        if (GENERIC_NAME_WORDS.has(word)) continue;
         if ((wordUse.get(word) ?? 0) !== 1) continue;
         SURNAME_TOKENS.set(word, SURNAME_TOKENS.has(word) ? null : building);
     }
@@ -433,7 +496,7 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
 
     const first = tokens[0];
     const second = tokens[1];
-    if (first && second && /^\d/.test(second)) {
+    if (first && second && isRoomNumber(second)) {
         const building = SURNAME_TOKENS.get(first);
         if (building) return { building, matchedBy: "room-reference" };
     }
@@ -492,17 +555,4 @@ export function walkMinutes(metres: number): number {
     const PACE_M_PER_S = 1.4;
     const DETOUR = 1.3;
     return Math.max(1, Math.round((metres * DETOUR) / PACE_M_PER_S / 60));
-}
-
-/** Nearest building to a point, for turning a coordinate back into a place. */
-export function nearestBuilding(point: {
-    latitude: number;
-    longitude: number;
-}): { building: UtBuilding; metres: number } | null {
-    let best: { building: UtBuilding; metres: number } | null = null;
-    for (const building of ALL_BUILDINGS) {
-        const metres = metresBetween(point, building);
-        if (!best || metres < best.metres) best = { building, metres };
-    }
-    return best;
 }

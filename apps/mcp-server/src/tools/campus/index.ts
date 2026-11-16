@@ -24,33 +24,7 @@ import {
     onCampus,
     type EventFilters,
 } from "./extract.ts";
-
-// These three are duplicated from tools/dining/index.ts rather than imported,
-// because they are not exported there and hoisting them into shared.ts would
-// mean editing a 2,000-line file this branch otherwise does not touch. Worth
-// doing next time someone is in dining/index.ts for another reason.
-
-/** Text plus the same answer as data, for clients that would rather not parse prose. */
-const textWith = <T>(body: string, structuredContent: T) => ({
-    content: [{ type: "text" as const, text: body }],
-    structuredContent,
-});
-
-/** Tool handlers answer with a readable message instead of throwing at the client. */
-const guard =
-    <A>(
-        run: (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>,
-    ) =>
-    async (args: A) => {
-        try {
-            return await run(args);
-        } catch (error) {
-            return {
-                content: [{ type: "text" as const, text: (error as Error).message }],
-                isError: true,
-            };
-        }
-    };
+import { guard, textWith } from "../respond.ts";
 
 const MAX_ROWS = 40;
 const DEFAULT_ROWS = 15;
@@ -245,7 +219,14 @@ function daysNeeded(window: Window, now: Date): number {
  */
 function outOfRange(window: Window, now: Date): string | null {
     const dayMs = 86_400_000;
-    if (window.to.getTime() <= now.getTime() - dayMs) {
+    // `<= now`, not `<= now - dayMs`. The day of grace meant YESTERDAY was
+    // accepted at every hour: for `when` = yesterday the window closes at
+    // today 00:00, which only falls behind `now - 24h` once tomorrow starts.
+    // So "what was on yesterday?" came back as 46 finished events presented
+    // exactly like upcoming ones, with no note that the day was over. The feed
+    // serves no past events, so a window that has already closed cannot be
+    // answered whatever the hour.
+    if (window.to.getTime() <= now.getTime()) {
         return (
             "that is in the past. UT's calendar feed only serves upcoming events, so this " +
             "tool cannot answer for a date that has gone."
@@ -273,7 +254,7 @@ function describeBuilding(building: UtBuilding) {
     };
 }
 
-/** "Fri 7 Nov, 7:30pm" in Austin time, which is the only time zone anyone means. */
+/** "Fri, Nov 7, 7:30 PM" in Austin time, which is the only time zone anyone means. */
 function when(startIso: string, allDay: boolean): string {
     const start = new Date(startIso);
     if (!Number.isFinite(start.getTime())) return startIso;
@@ -760,7 +741,20 @@ export function registerCampusTools(server: McpServer) {
                           `Nothing on UT's calendar ${window.label}` +
                               (anchor ? ` within ${radius} m of ${anchor.code}` : "") +
                               ".",
-                          `The window held ${calendar.events.length} event(s) before filters.`,
+                          // Counted in the window and collapsed to one row per
+                          // event. `calendar.events` is the whole multi-day
+                          // fetch in occurrence rows, so it said "the window
+                          // held 130 event(s)" for a day holding 45, and 227
+                          // for a week holding 105 -- a number that invited the
+                          // agent to tell the student the filter was at fault.
+                          `The window held ${
+                              collapseSeries(
+                                  filterEvents(calendar.events, {
+                                      from: filters.from,
+                                      to: filters.to,
+                                  }),
+                              ).length
+                          } event(s) before the other filters.`,
                           ...notes.map((note) => `NOTE: ${note}`),
                       ].join("\n");
 

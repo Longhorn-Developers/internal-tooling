@@ -23,8 +23,16 @@ const API = `${ENGAGE}/api/discovery`;
  * `categoryIds=...` on the org search returns all 1,226 orgs. Category
  * filtering therefore happens in `extract.ts`, on our side, not upstream.
  */
-export const ORG_PAGE_PARAM = "top";
-export const EVENT_PAGE_PARAM = "take";
+const ORG_PAGE_PARAM = "top";
+const EVENT_PAGE_PARAM = "take";
+
+/**
+ * Above the ~1,227 rows that exist, so one request covers the directory even as
+ * orgs are added. The endpoint returns everything it has rather than erroring on
+ * an oversized page. Exported because `find_orgs` needs the same number when it
+ * has to filter a full result set itself.
+ */
+export const DIRECTORY_PAGE_SIZE = 1300;
 
 /**
  * Relevance-ranked keyword search. Cheap, and the server does the ranking, so
@@ -46,10 +54,7 @@ export function orgSearchUrl(opts: { query: string; top: number }): string {
  */
 export function allOrgsUrl(): string {
     const url = new URL(`${API}/search/organizations`);
-    // Above the 1,226 rows that exist, so one request covers the directory even
-    // as orgs are added. The endpoint returns everything it has rather than
-    // erroring on an oversized page.
-    url.searchParams.set(ORG_PAGE_PARAM, "1300");
+    url.searchParams.set(ORG_PAGE_PARAM, String(DIRECTORY_PAGE_SIZE));
     url.searchParams.set("orderBy[0]", "UpperName asc");
     return url.toString();
 }
@@ -57,10 +62,6 @@ export function allOrgsUrl(): string {
 /** Contact details and social links, which the search rows do not carry. */
 export function orgDetailUrl(websiteKey: string): string {
     return `${API}/organization/bykey/${encodeURIComponent(websiteKey)}`;
-}
-
-export function orgCategoriesUrl(): string {
-    return `${API}/organization/category?take=50`;
 }
 
 /**

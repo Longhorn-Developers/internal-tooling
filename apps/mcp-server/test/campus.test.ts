@@ -1541,3 +1541,148 @@ describe("gaps found by the live blindspot audit, part 2", () => {
         });
     });
 });
+
+/** Found auditing the previous round's fixes. Three of these were regressions. */
+describe("gaps found auditing the fixes", () => {
+    describe("a short query and its own plural", () => {
+        const arts = makeEvent({ title: "Arts and Entertainment Showcase" });
+        const art = makeEvent({ title: "Art History Lecture" });
+
+        it("lets a three-letter query reach its plural", () => {
+            // REGRESSION: holding short needles to a whole word meant "art"
+            // could not see "Arts" and lost 13 of 20 arts events.
+            expect(filterEvents([arts], { query: "art" })).toHaveLength(1);
+            expect(filterEvents([art], { query: "art" })).toHaveLength(1);
+            expect(
+                filterEvents([makeEvent({ title: "Classes" })], { query: "class" }),
+            ).toHaveLength(1);
+        });
+
+        it("still refuses a different word that merely starts the same", () => {
+            for (const title of ["Financial Aid Night", "Air Quality Seminar", "Aims and Scope"]) {
+                expect(filterEvents([makeEvent({ title })], { query: "AI" })).toHaveLength(0);
+            }
+        });
+
+        it("reaches a longer word only when asked, and says nothing matched strictly", async () => {
+            const bio = makeEvent({ title: "Biology Colloquium" });
+            expect(filterEvents([bio], { query: "bio" })).toHaveLength(0);
+            expect(filterEvents([bio], { query: "bio", looseQuery: true })).toHaveLength(1);
+        });
+    });
+
+    describe("punctuation in a query", () => {
+        it("matches across a hyphen either way round", () => {
+            const hyphen = makeEvent({ title: "Pre-Med Advising Drop-in" });
+            const solid = makeEvent({ title: "Premed Society Meeting" });
+            for (const query of ["pre-med", "premed", "pre med"]) {
+                expect(filterEvents([hyphen, solid], { query })).toHaveLength(2);
+            }
+        });
+
+        it("matches whichever apostrophe the client typed", () => {
+            // UT's feed carries 114 events with a straight apostrophe and one
+            // with a curly one. An LLM that emits the typographic form used to
+            // get nothing at all.
+            const straight = makeEvent({ title: "Women's Basketball vs Vanderbilt" });
+            const curly = makeEvent({ title: "Mao’s Cultural War" });
+            expect(filterEvents([straight], { query: "women’s basketball" })).toHaveLength(1);
+            expect(filterEvents([straight], { query: "women's basketball" })).toHaveLength(1);
+            expect(filterEvents([curly], { query: "mao's cultural war" })).toHaveLength(1);
+        });
+
+        it("does not let a phrase straddle two fields", () => {
+            // searchText joins fields with newlines for exactly this reason,
+            // and the flexible separator must not cross one.
+            const row = makeEvent({ title: "Robotics", departments: ["Showcase"] });
+            expect(filterEvents([row], { query: "robotics showcase" })).toHaveLength(0);
+        });
+
+        it("still handles a query that is also a regex", () => {
+            const row = makeEvent({ title: "C++ for Beginners" });
+            expect(filterEvents([row], { query: "c++" })).toHaveLength(1);
+            expect(() => filterEvents([row], { query: "what's on? (today)" })).not.toThrow();
+        });
+    });
+
+    describe("dotted room numbers", () => {
+        // REGRESSION: `normalize` strips periods, so "2.014" became "2014" and
+        // the year guard threw it away along with every real floor-2 room
+        // numbered 0xx and floor-1 room numbered 9xx.
+        it.each([
+            ["Gearing 2.014", "GEA"],
+            ["Gearing 1.902", "GEA"],
+            ["Gearing 1.126", "GEA"],
+            ["Welch 2.224", "WEL"],
+            ["Bellmont 962", "BEL"],
+        ])("resolves %j", async (input, code) => {
+            const { data } = await location({ location: input });
+            expect(data.building?.code).toBe(code);
+        });
+
+        it("still refuses a bare year", async () => {
+            expect((await location({ location: "Gearing 2026 Symposium" })).data.resolved).toBe(
+                false,
+            );
+        });
+    });
+
+    describe("a named building beats a nickname", () => {
+        it("does not let a college name shadow the building the string names", async () => {
+            // REGRESSION: "COLLEGE OF LIBERAL ARTS" was added as a phrase alias
+            // for RLP. It is the name of a college with departments in a dozen
+            // buildings, and Localist puts it in an event's `departments`.
+            const { data } = await location({
+                location: "College of Liberal Arts, Burdine Hall 108",
+            });
+            expect(data.building?.code).toBe("BUR");
+        });
+
+        it("prefers a real code over a one-word alias elsewhere in the string", async () => {
+            // TOWER is an alias token, and sat earlier than the code the string
+            // actually gives.
+            expect((await location({ location: "UT Tower, GDC 2.216" })).data.building?.code).toBe(
+                "GDC",
+            );
+        });
+
+        it("still resolves the nicknames that have no code to compete with", async () => {
+            expect((await location({ location: "the SAC" })).data.building?.code).toBe("WCP");
+            expect((await location({ location: "UT Tower" })).data.building?.code).toBe("MAI");
+            expect((await location({ location: "CLA 1.106" })).data.building?.code).toBe("RLP");
+        });
+    });
+});
+
+describe("gaps the fix audit's mutation run exposed", () => {
+    it("retries a short query loosely and says it did", async () => {
+        // "bio" appears in the fixture only inside longer words (biography,
+        // biomedical, bioscience). Strictly it matches nothing, and a bare
+        // "nothing on UT's calendar" would be a wrong answer.
+        const { data, content } = await events({ when: "this week", query: "bio", limit: 10 });
+        expect(data.events.length).toBeGreaterThan(0);
+        expect(data.notes.join(" ")).toMatch(
+            /Nothing matched "bio" as a whole word, so these matched it as the start of a longer word/,
+        );
+        expect(content[0]!.text).toContain("NOTE:");
+    });
+
+    it("does not add the loose note when the strict pass found something", async () => {
+        const { data } = await events({ when: "this week", query: "robotics", limit: 10 });
+        expect(data.notes.join(" ")).not.toMatch(/as the start of a longer word/);
+    });
+
+    it("refuses the date at the far edge of what it fetches", async () => {
+        // The fetch covers MAX_WINDOW_DAYS days FROM NOW, which ends one day
+        // short of a window exactly that far out, so this date used to be
+        // admitted and then answered "nothing" while UT published events on it.
+        // Clock is 2026-11-09 09:00 Austin.
+        const edge = await call("find_events", { when: "2027-01-08" });
+        expect(edge.isError).toBe(true);
+        expect(edge.content[0]!.text).toMatch(/days out and this tool reads/);
+
+        // And the day before it still answers.
+        const inside = await call("find_events", { when: "2027-01-07" });
+        expect(inside.isError).toBeFalsy();
+    });
+});

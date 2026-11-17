@@ -233,10 +233,19 @@ function outOfRange(window: Window, now: Date): string | null {
         );
     }
     const ahead = Math.ceil((window.from.getTime() - now.getTime()) / dayMs);
-    if (ahead > MAX_WINDOW_DAYS) {
+    // `>=`, not `>`. `daysNeeded` caps the fetch at MAX_WINDOW_DAYS days from
+    // now, which ends one day short of a window exactly that far out, so the
+    // date 60 days ahead was admitted and then answered "nothing on UT's
+    // calendar" while UT published 10 events on it. The hole was one day wide
+    // and present every day.
+    if (ahead >= MAX_WINDOW_DAYS) {
         return (
-            `that is ${ahead} days out and this tool reads ${MAX_WINDOW_DAYS} days ahead, so ` +
-            "it has not looked that far. Ask again nearer the date."
+            // `MAX_WINDOW_DAYS - 1` is the real reach: the fetch covers
+            // MAX_WINDOW_DAYS days from now, which is the last FULL day before
+            // that. Quoting the cap read as "60 days out and this tool reads 60
+            // days ahead", which sounds like a contradiction.
+            `that is ${ahead} days out and this tool reads the next ${MAX_WINDOW_DAYS - 1} days, ` +
+            "so it has not looked that far. Ask again nearer the date."
         );
     }
     return null;
@@ -428,7 +437,10 @@ export function registerCampusTools(server: McpServer) {
                     query: z
                         .string()
                         .optional()
-                        .describe("Match title, description, tags or department"),
+                        .describe(
+                            "Match the title, the full description, tags, department or location. " +
+                                "A word of three letters or fewer has to match as a whole word.",
+                        ),
                     categories: z
                         .array(z.string())
                         .optional()
@@ -591,6 +603,23 @@ export function registerCampusTools(server: McpServer) {
                     onCampusOnly: input.onCampusOnly,
                 };
                 let rows = filterEvents(calendar.events, filters);
+                // A three-letter query is held to a whole word, so that "AI"
+                // cannot match "aid". When that finds nothing, try again
+                // letting it match the start of a longer word -- "bio" reaching
+                // "biology" -- and say which way it matched. The answer is then
+                // never silently empty and never silently the wrong set.
+                const looseNote =
+                    input.query && rows.length === 0
+                        ? (() => {
+                              const retry = filterEvents(calendar.events, {
+                                  ...filters,
+                                  looseQuery: true,
+                              });
+                              if (!retry.length) return null;
+                              rows = retry;
+                              return `Nothing matched "${input.query}" as a whole word, so these matched it as the start of a longer word.`;
+                          })()
+                        : null;
                 if (input.freeFood) rows = rows.filter(mentionsFreeFood);
                 // Collapse before anything is counted or capped. Localist
                 // repeats a multi-day event once per day, so "245 events this
@@ -599,6 +628,7 @@ export function registerCampusTools(server: McpServer) {
                 let matched = series.map((entry) => entry.event);
 
                 const notes: string[] = [];
+                if (looseNote) notes.push(looseNote);
                 if (anchor) {
                     const before = series.length;
                     series = series.filter(
@@ -634,7 +664,7 @@ export function registerCampusTools(server: McpServer) {
 
                 if (input.freeFood) {
                     notes.push(
-                        "freeFood is a text match on the title and description. UT's calendar " +
+                        "freeFood is a text match over the title, the full description and the location text. UT's calendar " +
                             "has no free-food field, so this finds events that say food is " +
                             "provided and will miss any that do not mention it.",
                     );

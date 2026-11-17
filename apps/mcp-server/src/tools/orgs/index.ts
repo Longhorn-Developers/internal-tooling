@@ -52,14 +52,21 @@ const SEARCH_FULL = DIRECTORY_PAGE_SIZE;
 const ORG_OUTPUT = z.object({
     matched: z.number(),
     /**
-     * False when `matched` was counted before the join-request filter.
+     * What `matched` actually counts, because the three paths differ.
      *
-     * The prose says "43 org(s) matched before the join-request filter" and the
-     * structured half said only `matched: 43`, so an agent reading the data
-     * reported 43 orgs accepting members when the tool had checked 15 and found
-     * 10. Either half has to be safe to read on its own.
+     * A single `matchedIsFinal` boolean was worse than nothing: it meant only
+     * "the join filter did not cut this", and so read `true` on exactly the
+     * counts that are least final -- `query: "a cappella"` answered
+     * `matched: 1222, matchedIsFinal: true`, 1,222 being HornsLink's count of
+     * every org matching "a" OR "cappella". Either half of the answer has to be
+     * safe to read alone, so this says which kind of number it is.
+     *
+     *  "exact"              counted here, and it is the number of rows that match
+     *  "upstream-broad"     HornsLink's any-word total; far larger than the answer
+     *  "before-join-filter" counted before `acceptingMembers`, which reached only
+     *                       the first DETAIL_BUDGET rows
      */
-    matchedIsFinal: z.boolean(),
+    matchedMeaning: z.enum(["exact", "upstream-broad", "before-join-filter"]),
     showing: z.number(),
     orgs: z.array(
         z.object({
@@ -75,6 +82,14 @@ const ORG_OUTPUT = z.object({
             youtube: z.string().nullable(),
             acceptingJoinRequests: z.boolean(),
             organizationType: z.string().nullable(),
+            /**
+             * False when this row matched only part of the query.
+             *
+             * HornsLink ranks on any word, including words in a description
+             * this tool does not return, so a result set mixes real answers
+             * with near misses. Without this the two are indistinguishable.
+             */
+            matchesWholeQuery: z.boolean(),
             upcomingEvents: z
                 .array(
                     z.object({
@@ -90,7 +105,7 @@ const ORG_OUTPUT = z.object({
     notes: z.array(z.string()),
 });
 
-type Row = Org & OrgContact & { upcomingEvents: OrgEvent[] | null };
+type Row = Org & OrgContact & { upcomingEvents: OrgEvent[] | null; matchesWholeQuery: boolean };
 
 /**
  * Stand-in when an org's detail request fails.
@@ -110,7 +125,10 @@ const UNKNOWN_CONTACT: OrgContact = {
 };
 
 function describe(row: Row): string {
-    const lines = [row.categories.length ? `${row.name} — ${row.categories.join(", ")}` : row.name];
+    const loose = row.matchesWholeQuery ? "" : "  [matched only part of your query]";
+    const lines = [
+        (row.categories.length ? `${row.name} — ${row.categories.join(", ")}` : row.name) + loose,
+    ];
     if (row.summary) lines.push(`  ${row.summary}`);
 
     const links = [
@@ -219,7 +237,7 @@ export function registerOrgTools(server: McpServer) {
                                 `${ORG_CATEGORIES.join(", ")}.`,
                             {
                                 matched: 0,
-                                matchedIsFinal: true,
+                                matchedMeaning: "exact" as const,
                                 showing: 0,
                                 orgs: [],
                                 notes: ["Unknown category."],
@@ -236,6 +254,9 @@ export function registerOrgTools(server: McpServer) {
                 // and filtered here -- upstream ignores `categoryIds`.
                 let rows: Org[];
                 let matched: number;
+                // True only on the query-only path, where `matched` is
+                // HornsLink's any-word total rather than a count of rows.
+                let matchedIsUpstreamTotal = false;
                 if (query && category) {
                     // Both filters, so the category has to see every ranked row.
                     const search = await searchOrgs(query, SEARCH_FULL);
@@ -251,15 +272,23 @@ export function registerOrgTools(server: McpServer) {
                     // reports 179, of which 16 mention medicine at all, and the
                     // tail is the Actuarial Science Club and Longhorn Baja
                     // Racing.
-                    notes.push(
-                        `HornsLink matched any word in "${query}", so these ${matched} are everything in ${category} that matched any of those words, ranked by its relevance. The lower-ranked ones may have little to do with "${query}".`,
-                    );
+                    // Only when there is a tail to warn about. One perfect row
+                    // got a note reading "these 1 are" and warning about "the
+                    // lower-ranked ones" that do not exist, which teaches an
+                    // agent that notes are boilerplate -- and the per-row
+                    // marker below depends on it reading them.
+                    if (matched > 1) {
+                        notes.push(
+                            `HornsLink matched any word in "${query}", so these ${matched} are everything in ${category} that matched any of those words, ranked by its relevance. The lower-ranked ones may have little to do with "${query}".`,
+                        );
+                    }
                 } else if (query) {
                     const search = await searchOrgs(query, SEARCH_OVERFETCH);
                     rows = search.rows;
                     // Upstream's own total, not the size of our fetch. It is
                     // broad because HornsLink matches any word in the query.
                     matched = search.total;
+                    matchedIsUpstreamTotal = search.total > search.rows.length;
                     if (search.total > search.rows.length) {
                         notes.push(
                             `HornsLink matched any word in "${query}", so ${search.total} is a broad total; these are its top-ranked rows. Add a category, or use more specific words, to narrow it.`,
@@ -292,27 +321,22 @@ export function registerOrgTools(server: McpServer) {
                     const tried = [query && `"${query}"`, category].filter(Boolean).join(" in ");
                     return textWith(`No HornsLink org matched ${tried}.`, {
                         matched: 0,
-                        matchedIsFinal: true,
+                        matchedMeaning: "exact" as const,
                         showing: 0,
                         orgs: [],
                         notes,
                     });
                 }
 
-                // Said before the rows are trimmed, because the question is
-                // whether UPSTREAM understood the query, not whether this page
-                // of it happens to look relevant.
-                if (query) {
-                    const relevance = queryRelevance(rows, query);
-                    if (relevance.matchedAll.length === 0) {
-                        const words = relevance.found.length
-                            ? `only on ${relevance.found.map((w) => `"${w}"`).join(" and ")}`
-                            : "on none of those words in a name or description";
-                        notes.push(
-                            `No org matched all of "${query}". These matched ${words}, so treat them as near misses rather than as what was asked for; there may be nothing at UT for this.`,
-                        );
-                    }
-                }
+                // Per row, not per result set. Gating the warning on "NO row
+                // matched" meant one good row silenced it for every irrelevant
+                // row beside it, which is the common shape of a HornsLink near
+                // miss: "climbing" returns Texas Rock Climbing AND the American
+                // Society of Mechanical Engineers, formatted identically, and
+                // an agent hands the student ASME's inbox.
+                const relevance = query ? queryRelevance(rows, query) : null;
+                const whole = new Set(relevance?.matchedAll.map((org) => org.websiteKey) ?? []);
+                const matchesWholeQuery = (org: Org) => !relevance || whole.has(org.websiteKey);
 
                 // Contact details need one request per org, so only the rows
                 // that could be returned are looked up. `acceptingMembers`
@@ -329,14 +353,21 @@ export function registerOrgTools(server: McpServer) {
                 );
                 const detailed: Row[] = candidates.map((org, i) => {
                     const result = settled[i]!;
-                    return result.status === "fulfilled"
-                        ? { ...org, ...result.value, upcomingEvents: null }
-                        : { ...org, ...UNKNOWN_CONTACT, upcomingEvents: null };
+                    const contact = result.status === "fulfilled" ? result.value : UNKNOWN_CONTACT;
+                    return {
+                        ...org,
+                        ...contact,
+                        upcomingEvents: null,
+                        matchesWholeQuery: matchesWholeQuery(org),
+                    };
                 });
                 const detailFailures = settled.filter((r) => r.status === "rejected").length;
                 if (detailFailures > 0) {
                     notes.push(
-                        `HornsLink did not answer for ${detailFailures} org(s), so their contact details and join status are missing here rather than absent upstream.`,
+                        `HornsLink did not answer for ${detailFailures} org(s), so their contact details and join status are missing here rather than absent upstream.` +
+                            (input.acceptingMembers
+                                ? " Because this was an acceptingMembers search, those orgs were dropped from the list rather than shown without a join status."
+                                : ""),
                     );
                 }
 
@@ -350,6 +381,24 @@ export function registerOrgTools(server: McpServer) {
                     }
                 }
                 kept = kept.slice(0, limit);
+
+                if (relevance && query) {
+                    const loose = kept.filter((row) => !row.matchesWholeQuery);
+                    if (loose.length === kept.length) {
+                        const words = relevance.found.length
+                            ? `only on ${relevance.found.map((w) => `"${w}"`).join(" and ")}`
+                            : "on none of those words in a name or description";
+                        notes.push(
+                            `No org here matched all of "${query}". These matched ${words}, so treat them as near misses rather than as what was asked for; there may be nothing at UT for this.`,
+                        );
+                    } else if (loose.length > 0) {
+                        notes.push(
+                            `${loose.length} of these matched only part of "${query}" and may be unrelated: ` +
+                                `${loose.map((row) => row.name).join("; ")}. HornsLink ranks on any word, ` +
+                                "including words in a description this tool does not show.",
+                        );
+                    }
+                }
 
                 if (capApplies && rows.length > limit) {
                     notes.push(
@@ -388,7 +437,11 @@ export function registerOrgTools(server: McpServer) {
                     body + (notes.length ? `\n\n${notes.map((n) => `NOTE: ${n}`).join("\n")}` : ""),
                     {
                         matched,
-                        matchedIsFinal: input.acceptingMembers !== true,
+                        matchedMeaning: input.acceptingMembers
+                            ? ("before-join-filter" as const)
+                            : matchedIsUpstreamTotal
+                              ? ("upstream-broad" as const)
+                              : ("exact" as const),
                         showing: kept.length,
                         orgs: kept.map((row) => ({
                             name: row.name,
@@ -403,6 +456,7 @@ export function registerOrgTools(server: McpServer) {
                             youtube: row.youtube,
                             acceptingJoinRequests: row.acceptingJoinRequests,
                             organizationType: row.organizationType,
+                            matchesWholeQuery: row.matchesWholeQuery,
                             upcomingEvents: row.upcomingEvents,
                         })),
                         notes,

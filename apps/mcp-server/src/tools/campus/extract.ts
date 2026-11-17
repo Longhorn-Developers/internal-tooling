@@ -215,11 +215,15 @@ const DESCRIPTION_LIMIT = 400;
  *
  * `DESCRIPTION_LIMIT` is a display budget: a few hundred full abstracts is most
  * of a context window. Searching that truncation was a wrong answer rather than
- * a short one, so the search text keeps far more. 4,000 characters covers every
- * description in a 60-day pull (the longest measured was about 1,500) while
- * still bounding what one pathological row can put in the cache.
+ * a short one, so the search text keeps far more.
+ *
+ * Measured over a 60-day pull on 2026-11-18: 244 events, longest description
+ * 7,583 characters, two above 4,000. An earlier 4,000 cap therefore cut the
+ * tail off those two, which lost "Central Texas Food Bank" from an event about
+ * food rescue. 8,000 covers the feed as it stands and still bounds what one
+ * pathological row can put in the cache. Worth re-measuring if the feed grows.
  */
-const SEARCH_TEXT_LIMIT = 4_000;
+const SEARCH_TEXT_LIMIT = 8_000;
 
 /** The full plain-text description, uncut. `describe` cuts it for display. */
 function fullDescription(raw: NonNullable<RawEvent["event"]>): string {
@@ -432,6 +436,8 @@ export interface EventFilters {
     from?: Date;
     to?: Date;
     query?: string;
+    /** Let a short query match a longer word. See `matchesQuery`. */
+    looseQuery?: boolean;
     categories?: string[];
     audiences?: string[];
     venue?: VenueType;
@@ -465,23 +471,54 @@ const lower = (list: string[]) => list.map((value) => value.trim().toLowerCase()
  * makes "engineer" find "engineering" and "robotic" find "robotics", while
  * refusing a match in the middle of an unrelated word.
  */
-function matchesQuery(event: CampusEvent, query: string): boolean {
+function queryPattern(needle: string, loose: boolean): RegExp | null {
+    // `\b` only works next to a word character, so a needle led by punctuation
+    // gets a plain substring test instead. "c++" is led by "c" and so comes
+    // through here, escaped.
+    if (!/^[a-z0-9]/.test(needle)) return null;
+    const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
+    if (!words.length) return null;
+    const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Punctuation BETWEEN words is flexible, so "pre-med" finds "premed" and
+    // "pre-medical", and "women's" finds "women's" whichever apostrophe the
+    // client typed -- UT's feed carries both the straight and the curly one,
+    // and an LLM that emits the typographic form used to get nothing.
+    //
+    // Never a newline: `searchText` joins the fields with newlines precisely so
+    // a phrase cannot straddle two of them.
+    const body = words.map(escape).join("[^a-z0-9\\n]*");
+
+    // A one-word needle of three characters or fewer is an acronym, and an open
+    // prefix made "AI" match "aid", "aim" and "air" -- 48 of one week's 105
+    // events. But a bare word boundary was worse in the other direction:
+    // "art" could not see "Arts" and lost 13 of 20 arts events. So a short
+    // needle may take a plural and nothing else.
+    const tail = !loose && words.length === 1 && needle.length <= 3 ? "(?:e?s)?(?![a-z])" : "";
+    return new RegExp(`\\b${body}${tail}`);
+}
+
+/**
+ * `loose` drops the short-needle restriction, so "bio" reaches "biology".
+ *
+ * It is not the default: the caller retries with it only when the strict pass
+ * found nothing, and says in the answer that it did. That way a three-letter
+ * query cannot silently return the wrong set, and cannot silently return none.
+ */
+function matchesQuery(event: CampusEvent, query: string, loose = false): boolean {
     const needle = query.trim().toLowerCase();
     if (!needle) return true;
-    // Escaped, because a student query is free text: "c++", "(un)learning" and
-    // "what's on?" are all regexes that either throw or mean something else.
-    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // A short needle is an acronym, so it has to be a WHOLE word: "AI" must
-    // not match "aid", "aim" or "air", which a word-start anchor alone allows.
-    // Longer needles keep the open end, which is what makes "engineer" find
-    // "engineering".
-    const whole = needle.length <= 3 && /[a-z0-9]$/.test(needle);
-    // `\b` only works next to a word character. A needle starting with
-    // punctuation gets a plain substring test, which is the honest fallback.
-    const anchored = /^[a-z0-9]/.test(needle)
-        ? new RegExp(`\\b${escaped}${whole ? "\\b" : ""}`)
-        : null;
-    return anchored ? anchored.test(event.searchText) : event.searchText.includes(needle);
+    const pattern = queryPattern(needle, loose);
+    if (!pattern) return event.searchText.includes(needle);
+    if (pattern.test(event.searchText)) return true;
+    // A one-word needle gets a second look at the text with its punctuation
+    // removed, so "premed" finds "Pre-Med" as well as the other way round. The
+    // needle cannot know where the feed chose to put a hyphen, and UT writes it
+    // both ways. Spaces and newlines are kept, so word boundaries still mean
+    // what they say and a phrase still cannot straddle two fields.
+    return /^[a-z0-9]+$/.test(needle)
+        ? pattern.test(event.searchText.replace(/[^a-z0-9\s]/g, ""))
+        : false;
 }
 
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
@@ -525,7 +562,7 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
         // all-day events, and `occurrences` counted a day outside the window.
         if (filters.to && startMs >= filters.to.getTime()) return false;
 
-        if (filters.query && !matchesQuery(event, filters.query)) return false;
+        if (filters.query && !matchesQuery(event, filters.query, filters.looseQuery)) return false;
         if (
             wantCategories.length &&
             !event.categories.some((category) => wantCategories.includes(category.toLowerCase()))

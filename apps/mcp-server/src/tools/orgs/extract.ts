@@ -411,22 +411,38 @@ export function queryRelevance(
     rows: Org[],
     query: string,
 ): { matchedAll: Org[]; found: string[]; missing: string[] } {
-    const haystack = (org: Org) => norm(`${org.name} ${org.summary ?? ""}`);
+    const haystack = (org: Org) => `${org.name} ${org.summary ?? ""}`.toLowerCase();
+
+    // Split on WHITESPACE, not on every non-alphanumeric. Splitting "pre-med"
+    // into "pre" and "med" made both findable inside "president" and "media",
+    // so a hyphenated query could never register as a near miss -- which is
+    // most of the queries this check exists for.
     const words = query
         .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .map((word) => norm(word))
-        // One-character words carry no signal and match almost anything.
-        .filter((word) => word.length > 1);
+        .split(/\s+/)
+        .filter((word) => word.replace(/[^a-z0-9]/g, "").length > 1);
     if (!words.length) return { matchedAll: rows, found: [], missing: [] };
+
+    // Punctuation-flexible and anchored at a word start, so "pre-med" finds
+    // "Pre Med Society" and "pre-medical" but not "president".
+    const test = (word: string) => {
+        const parts = word
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean)
+            .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        if (!parts.length) return () => false;
+        const pattern = new RegExp(`\\b${parts.join("[^a-z0-9]*")}`);
+        return (org: Org) => pattern.test(haystack(org));
+    };
+    const tests = words.map((word) => [word, test(word)] as const);
 
     const found: string[] = [];
     const missing: string[] = [];
-    for (const word of words) {
-        (rows.some((org) => haystack(org).includes(word)) ? found : missing).push(word);
+    for (const [word, matches] of tests) {
+        (rows.some(matches) ? found : missing).push(word);
     }
     return {
-        matchedAll: rows.filter((org) => words.every((word) => haystack(org).includes(word))),
+        matchedAll: rows.filter((org) => tests.every(([, matches]) => matches(org))),
         found,
         missing,
     };

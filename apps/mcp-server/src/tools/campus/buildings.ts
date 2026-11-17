@@ -71,9 +71,12 @@ export const LOCATION_ALIASES: Record<string, string> = {
     // these, `resolve_ut_location` answered "No UT building matched CLA 1.106"
     // and offered no suggestion, for a building that is in the data under its
     // new code.
+    // Only the retired CODES, not the spelled-out college name: "College of
+    // Liberal Arts" names a college with departments in a dozen buildings, and
+    // it is also what Localist puts in an event's `departments`. As a phrase
+    // alias it beat the building the string actually named, so "College of
+    // Liberal Arts, Burdine Hall 108" resolved to Patton Hall.
     CLA: "RLP", // College of Liberal Arts Building, now Patton Hall
-    "COLLEGE OF LIBERAL ARTS": "RLP",
-    "LIBERAL ARTS BUILDING": "RLP",
     BMC: "DMC", // Belo Center for New Media, now the Dealey Center
     "BELO CENTER": "DMC",
     "BELO CENTER FOR NEW MEDIA": "DMC",
@@ -464,27 +467,50 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
         if (building) return { building, matchedBy: "code" };
     }
 
+    // Periods kept, so a room number's floor separator survives for the
+    // room-reference rule at the end. Everything else works off `normalized`.
+    const rawTokens = location
+        .toUpperCase()
+        .replace(/['’&]/g, "")
+        .split(/[^A-Z0-9.]+/)
+        .filter(Boolean);
+
     const exactAlias = ALIAS_EXACT.get(normalized);
     if (exactAlias) return { building: exactAlias, matchedBy: "alias" };
 
     const exactCode = BY_CODE.get(normalized);
     if (exactCode) return { building: exactCode, matchedBy: "code" };
 
+    const tokens = normalized.split(" ");
+    const tokenHit = (source: Map<string, UtBuilding>) => {
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            if (!token) continue;
+            const building = source.get(token);
+            if (!building) continue;
+            // An ambiguous code only counts when it leads, which is how a room
+            // reference reads. Anywhere else it is probably the English word.
+            if (AMBIGUOUS_CODES.has(token) && i !== 0) continue;
+            return building;
+        }
+        return null;
+    };
+
+    // A real building CODE anywhere in the string is an explicit statement of
+    // the building, so it is tried before any nickname. Both the phrase table
+    // and the one-word table used to run first, so "UT Tower, GDC 2.216"
+    // answered the Tower and "College of Liberal Arts, Burdine Hall 108"
+    // answered Patton Hall -- in each case ignoring the building the string
+    // actually names.
+    const byCode = tokenHit(BY_CODE);
+    if (byCode) return { building: byCode, matchedBy: "code" };
+
     for (const { key, building } of ALIAS_PHRASES) {
         if (normalized.includes(key)) return { building, matchedBy: "alias" };
     }
 
-    const tokens = normalized.split(" ");
-    for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        if (!token) continue;
-        const building = BY_CODE.get(token) ?? ALIAS_TOKENS.get(token);
-        if (!building) continue;
-        // An ambiguous code only counts when it leads, which is how a room
-        // reference reads. Anywhere else it is probably the English word.
-        if (AMBIGUOUS_CODES.has(token) && i !== 0) continue;
-        return { building, matchedBy: ALIAS_TOKENS.has(token) ? "alias" : "code" };
-    }
+    const byAlias = tokenHit(ALIAS_TOKENS);
+    if (byAlias) return { building: byAlias, matchedBy: "alias" };
 
     for (const { key, building } of BY_NAME) {
         if (normalized.includes(key)) return { building, matchedBy: "name" };
@@ -495,7 +521,12 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
     }
 
     const first = tokens[0];
-    const second = tokens[1];
+    // The RAW second token, because `normalize` strips periods: "2.014" arrives
+    // here as "2014", which the year guard then threw away along with every
+    // real floor-2 room numbered 0xx and every floor-1 room numbered 9xx.
+    // "Gearing 2.014" stopped resolving. Testing the shape before the periods
+    // are gone is what makes the dotted form reachable at all.
+    const second = rawTokens[1];
     if (first && second && isRoomNumber(second)) {
         const building = SURNAME_TOKENS.get(first);
         if (building) return { building, matchedBy: "room-reference" };

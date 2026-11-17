@@ -8,6 +8,7 @@ import {
     filterOrgs,
     matchCategory,
     orgDetail,
+    queryRelevance,
     type Org,
 } from "../src/tools/orgs/extract";
 import {
@@ -21,7 +22,7 @@ import { CAMPUS_NOW, stubFetch, toolCaller, toolTextCaller, type FetchLog } from
 
 type OrgsStructured = {
     matched: number;
-    matchedIsFinal: boolean;
+    matchedMeaning: "exact" | "upstream-broad" | "before-join-filter";
     showing: number;
     notes: string[];
     orgs: {
@@ -34,6 +35,7 @@ type OrgsStructured = {
         instagram: string | null;
         acceptingJoinRequests: boolean;
         organizationType: string | null;
+        matchesWholeQuery: boolean;
         upcomingEvents: { name: string; startsOn: string; rsvpTotal: number }[] | null;
     }[];
 };
@@ -615,7 +617,7 @@ describe("gaps found by the live blindspot audit", () => {
         });
         expect(result.orgs).toHaveLength(2);
         const notes = result.notes.join(" ");
-        expect(notes).toMatch(/No org matched all of "muay thai"/);
+        expect(notes).toMatch(/No org here matched all of "muay thai"/);
         // And it names which word did the matching, so the agent can say why.
         expect(notes).toMatch(/"thai"/);
         expect(notes).toMatch(/near misses/);
@@ -674,11 +676,11 @@ describe("gaps found by the live blindspot audit", () => {
             category: "Educational",
             acceptingMembers: true,
         });
-        expect(filtered.matchedIsFinal).toBe(false);
+        expect(filtered.matchedMeaning).toBe("before-join-filter");
 
         resetCache();
         const plain = await call<OrgsStructured>("find_orgs", { category: "Educational" });
-        expect(plain.matchedIsFinal).toBe(true);
+        expect(plain.matchedMeaning).toBe("exact");
     });
 
     it("still answers when one org's detail request fails", async () => {
@@ -745,5 +747,156 @@ describe("input limits", () => {
     it("still accepts a realistic multi-word query", async () => {
         const result = await call<OrgsStructured>("find_orgs", { query: "robotics" });
         expect(result.orgs.length).toBeGreaterThan(0);
+    });
+});
+
+describe("gaps found auditing the fixes", () => {
+    it("does not claim an upstream any-word total is an exact count", async () => {
+        // `query: "a cappella"` answered matched 1222 with matchedIsFinal
+        // true, 1,222 being HornsLink's count of every org matching "a" OR
+        // "cappella". The flag asserted finality over the least final number
+        // the tool produces.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=a": JSON.stringify({
+                "@odata.count": 1222,
+                value: [
+                    {
+                        Id: "1",
+                        Name: "Re:Sound A Cappella",
+                        WebsiteKey: "resound",
+                        CategoryNames: [],
+                    },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "a cappella",
+        });
+        expect(result.matched).toBe(1222);
+        expect(result.matchedMeaning).toBe("upstream-broad");
+    });
+
+    it("marks the irrelevant rows when only some matched the whole query", async () => {
+        // "climbing" returns Texas Rock Climbing AND the American Society of
+        // Mechanical Engineers, formatted identically, with notes: []. The
+        // hedge was gated on NO row matching, so one good row silenced it.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=climbing": JSON.stringify({
+                "@odata.count": 2,
+                value: [
+                    {
+                        Id: "1",
+                        Name: "Texas Rock Climbing",
+                        WebsiteKey: "txclimbing",
+                        CategoryNames: ["Sport Clubs"],
+                        Summary: "The official climbing team at UT Austin.",
+                    },
+                    {
+                        Id: "2",
+                        Name: "American Society of Mechanical Engineers",
+                        WebsiteKey: "asme",
+                        CategoryNames: ["Academic"],
+                        Summary: "Aiding students in their professional development.",
+                    },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "climbing",
+        });
+        expect(result.orgs).toHaveLength(2);
+        const byName = new Map(result.orgs.map((org) => [org.name, org]));
+        expect(byName.get("Texas Rock Climbing")!.matchesWholeQuery).toBe(true);
+        expect(byName.get("American Society of Mechanical Engineers")!.matchesWholeQuery).toBe(
+            false,
+        );
+        expect(result.notes.join(" ")).toMatch(
+            /1 of these matched only part of "climbing".*Mechanical Engineers/,
+        );
+    });
+
+    it("can register a hyphenated query as a near miss", async () => {
+        // queryRelevance split "pre-med" into "pre" and "med", which norm()
+        // then found inside "president" and "media", so a hyphenated query
+        // could never be reported as loose.
+        const rows = [
+            { name: "Presidential Media Society", summary: "About the presidency and media." },
+        ].map((r, i) => ({
+            id: String(i),
+            name: r.name,
+            summary: r.summary,
+            categories: [],
+            profileUrl: "https://example.test/x",
+            imageUrl: null,
+            websiteKey: `k${i}`,
+        }));
+        const relevance = queryRelevance(rows, "pre-med");
+        expect(relevance.matchedAll).toHaveLength(0);
+        expect(relevance.missing).toContain("pre-med");
+    });
+
+    it("matches a hyphenated query across the punctuation", async () => {
+        const rows = [
+            { name: "Plan II Pre Med Society", summary: "Pre-medical students." },
+            { name: "Premed Longhorns", summary: "" },
+        ].map((r, i) => ({
+            id: String(i),
+            name: r.name,
+            summary: r.summary,
+            categories: [],
+            profileUrl: "https://example.test/x",
+            imageUrl: null,
+            websiteKey: `k${i}`,
+        }));
+        expect(queryRelevance(rows, "pre-med").matchedAll).toHaveLength(2);
+    });
+
+    it("does not hedge a one-row exact answer twice", async () => {
+        // One perfect row got two notes, one of which read "these 1 are" and
+        // talked about "the lower-ranked ones" that do not exist. That is how
+        // an agent learns the notes are boilerplate.
+        const result = await call<OrgsStructured>("find_orgs", {
+            query: "robotics",
+            category: "Academic",
+        });
+        if (result.matched === 1) {
+            expect(result.notes.join(" ")).not.toMatch(/lower-ranked/);
+        }
+        expect(result.notes.join(" ")).not.toMatch(/these 1 are/);
+    });
+});
+
+describe("gaps the fix audit's mutation run exposed", () => {
+    it("does not hedge a single exact row about its lower-ranked siblings", async () => {
+        // One perfect row got a note reading "these 1 are" and warning about
+        // "the lower-ranked ones" that do not exist.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch({
+            "query=quilting": JSON.stringify({
+                "@odata.count": 1,
+                value: [
+                    {
+                        Id: "1",
+                        Name: "Longhorn Quilting Guild",
+                        WebsiteKey: "quilting",
+                        CategoryNames: ["Recreational"],
+                        Summary: "A quilting club.",
+                    },
+                ],
+            }),
+        });
+        const result = await toolCaller(registerOrgTools)<OrgsStructured>("find_orgs", {
+            query: "quilting",
+            category: "Recreational",
+        });
+        expect(result.matched).toBe(1);
+        const notes = result.notes.join(" ");
+        expect(notes).not.toMatch(/lower-ranked/);
+        expect(notes).not.toMatch(/these 1 are/);
     });
 });

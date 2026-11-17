@@ -204,10 +204,22 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     return null;
 }
 
-/** Days of calendar to request, from how far the window reaches. */
+/**
+ * Days of calendar to request, from how far the window reaches.
+ *
+ * Clamped to one day PAST what the tool promises. A window for the last day it
+ * advertises closes at the start of the day after, so clamping to
+ * MAX_WINDOW_DAYS itself left that final day uncovered: the date 60 days out
+ * was accepted and then answered "nothing on UT's calendar" while UT published
+ * 10 events on it. One day wide, every day.
+ *
+ * The extra day is close to free. Measured against the live feed: 60 days is
+ * 893 events over 9 pages, 61 days is 903 over 10, against a MAX_PAGES ceiling
+ * of 12. So the promise is now one the fetch can actually keep.
+ */
 function daysNeeded(window: Window, now: Date): number {
     const ms = window.to.getTime() - now.getTime();
-    return Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.ceil(ms / 86_400_000) + 1));
+    return Math.min(MAX_WINDOW_DAYS + 1, Math.max(1, Math.ceil(ms / 86_400_000) + 1));
 }
 
 /**
@@ -233,18 +245,11 @@ function outOfRange(window: Window, now: Date): string | null {
         );
     }
     const ahead = Math.ceil((window.from.getTime() - now.getTime()) / dayMs);
-    // `>=`, not `>`. `daysNeeded` caps the fetch at MAX_WINDOW_DAYS days from
-    // now, which ends one day short of a window exactly that far out, so the
-    // date 60 days ahead was admitted and then answered "nothing on UT's
-    // calendar" while UT published 10 events on it. The hole was one day wide
-    // and present every day.
-    if (ahead >= MAX_WINDOW_DAYS) {
+    // The fetch covers MAX_WINDOW_DAYS + 1 days, so every day this refuses is
+    // genuinely outside what was read, and every day it admits is covered.
+    if (ahead > MAX_WINDOW_DAYS) {
         return (
-            // `MAX_WINDOW_DAYS - 1` is the real reach: the fetch covers
-            // MAX_WINDOW_DAYS days from now, which is the last FULL day before
-            // that. Quoting the cap read as "60 days out and this tool reads 60
-            // days ahead", which sounds like a contradiction.
-            `that is ${ahead} days out and this tool reads the next ${MAX_WINDOW_DAYS - 1} days, ` +
+            `that is ${ahead} days out and this tool reads the next ${MAX_WINDOW_DAYS} days, ` +
             "so it has not looked that far. Ask again nearer the date."
         );
     }

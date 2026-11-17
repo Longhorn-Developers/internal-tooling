@@ -11,6 +11,7 @@ import {
     walkMinutes,
 } from "../src/tools/campus/buildings";
 import {
+    MAX_WINDOW_DAYS,
     collapseSeries,
     filterEvents,
     getCalendar,
@@ -1672,17 +1673,26 @@ describe("gaps the fix audit's mutation run exposed", () => {
         expect(data.notes.join(" ")).not.toMatch(/as the start of a longer word/);
     });
 
-    it("refuses the date at the far edge of what it fetches", async () => {
-        // The fetch covers MAX_WINDOW_DAYS days FROM NOW, which ends one day
-        // short of a window exactly that far out, so this date used to be
-        // admitted and then answered "nothing" while UT published events on it.
-        // Clock is 2026-11-09 09:00 Austin.
+    it("fetches far enough to cover the last day it advertises", async () => {
+        // The fetch used to stop at MAX_WINDOW_DAYS days from now, which ends
+        // partway through the last day the tool advertises, so that date was
+        // accepted and then answered "nothing" while UT published events on it.
+        // Clock is 2026-11-09 09:00 Austin, so the 60th day out is 2027-01-08.
         const edge = await call("find_events", { when: "2027-01-08" });
-        expect(edge.isError).toBe(true);
-        expect(edge.content[0]!.text).toMatch(/days out and this tool reads/);
+        expect(edge.isError).toBeFalsy();
+        const days = log
+            .filter((entry) => entry.url.includes("calendar.utexas.edu"))
+            .map((entry) => Number(new URL(entry.url).searchParams.get("days")));
+        // It has to ask for one day MORE than the window's own reach, or the
+        // window's final hours are not in the response it filters.
+        expect(Math.max(...days)).toBe(MAX_WINDOW_DAYS + 1);
+    });
 
-        // And the day before it still answers.
-        const inside = await call("find_events", { when: "2027-01-07" });
-        expect(inside.isError).toBeFalsy();
+    it("still refuses a date past what it reads, and says how far that is", async () => {
+        const past = await call("find_events", { when: "2027-02-20" });
+        expect(past.isError).toBe(true);
+        expect(past.content[0]!.text).toMatch(
+            new RegExp(`days out and this tool reads the next ${MAX_WINDOW_DAYS} days`),
+        );
     });
 });

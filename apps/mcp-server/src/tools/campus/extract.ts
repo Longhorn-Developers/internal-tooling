@@ -38,6 +38,9 @@ export const AUDIENCES = ["Students", "Faculty", "Staff", "Alumni", "Families", 
 export const VENUE_TYPES = ["inperson", "virtual", "hybrid"] as const;
 export type VenueType = (typeof VENUE_TYPES)[number];
 
+/** Every calendar find_events reads. One per provider. */
+export type EventSource = "calendar.utexas.edu" | "apps.cs.utexas.edu";
+
 export interface CampusEvent {
     id: number;
     instanceId: number;
@@ -71,7 +74,8 @@ export interface CampusEvent {
     streamUrl: string | null;
     url: string;
     photoUrl: string | null;
-    source: "calendar.utexas.edu";
+    /** Which calendar this came from. */
+    source: EventSource;
 }
 
 interface RawInstance {

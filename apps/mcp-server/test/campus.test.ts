@@ -21,7 +21,8 @@ import {
     type CampusEvent,
 } from "../src/tools/campus/extract";
 import { parseWindow, registerCampusTools } from "../src/tools/campus";
-import { CAMPUS_NOW, stubFetch, type FetchLog } from "./fixtures";
+import { CAMPUS_NOW, fixture, stubFetch, type FetchLog } from "./fixtures";
+import { CS_SOURCE, csInstant, getCsCalendar, parseRooms } from "../src/tools/campus/cs";
 
 type LocationStructured = {
     query: string;
@@ -59,6 +60,7 @@ type EventsStructured = {
         allDay: boolean;
         end: string | null;
         departments: string[];
+        source: string;
         description: string | null;
     }[];
 };
@@ -1725,5 +1727,95 @@ describe("a department filter that matches nothing", () => {
         const { data } = await events({ when: "this week", department: known[0]!, limit: 5 });
         expect(data.events.length).toBeGreaterThan(0);
         expect(data.notes.join(" ")).not.toMatch(/is tagged with a department matching/);
+    });
+});
+
+describe("the CS department calendar", () => {
+    // The CS feed is forward-looking: the November feed starts on the 18th, so
+    // these fixtures have their own era rather than the shared campus clock.
+    const CS_NOW = new Date("2026-11-18T15:00:00Z");
+    beforeEach(() => {
+        vi.setSystemTime(CS_NOW);
+    });
+
+    it("parses the feed and joins the room from the monthly view", async () => {
+        const { events, failed } = await getCsCalendar(CS_NOW, 8);
+        expect(failed).toEqual([]);
+        expect(events.length).toBeGreaterThan(0);
+
+        const social = events.find((e) => e.title.includes("Longhorn Developers"));
+        expect(social).toBeTruthy();
+        // The feed carries no location. The room comes from the monthly HTML,
+        // and the resolver turns it into coordinates.
+        expect(social!.room).toMatch(/^GDC /);
+        expect(social!.buildingCode).toBe("GDC");
+        expect(social!.latitude).toBeTypeOf("number");
+        expect(social!.coordinateSource).toBe("building");
+        expect(social!.source).toBe(CS_SOURCE);
+        expect(social!.departments).toEqual(["Computer Science"]);
+    });
+
+    it("reads a Central offset from the feed rather than trusting Date.parse", () => {
+        // Date.parse treats a named zone as a hint it may ignore, so the same
+        // string can land an hour out depending on the runtime.
+        expect(csInstant("Wed, 18 Nov 2026 18:00 CST")).toBe("2026-11-18T18:00:00-06:00");
+        expect(csInstant("Thu, 2 Apr 2026 09:05 CDT")).toBe("2026-04-02T09:05:00-05:00");
+        expect(csInstant("not a date")).toBeNull();
+    });
+
+    it("does not return the organiser's name", async () => {
+        // The feed's dc:creator names a student. Same decision as HornsLink's
+        // officer record: not read at all.
+        const { events } = await getCsCalendar(CS_NOW, 8);
+        expect(JSON.stringify(events)).not.toMatch(/dc:creator|Nikki/);
+    });
+
+    it("takes the room from whichever field carries it", () => {
+        // The view renders a room field and a location field and leaves one
+        // empty. Preferring whichever MATCHED found 12 of 102 rooms; checking
+        // the values finds 101.
+        const rooms = parseRooms(fixture("cs-events-month.html"));
+        expect(rooms.size).toBeGreaterThan(0);
+        for (const room of rooms.values()) expect(room).not.toMatch(/^Room:/i);
+    });
+
+    it("surfaces CS events through find_events", async () => {
+        const { data } = await events({ when: "this week", limit: 40 });
+        expect(data.events.some((e) => e.source === "apps.cs.utexas.edu")).toBe(true);
+    });
+
+    it("answers a Computer Science department search", async () => {
+        // The question that started this: the central calendar has no Computer
+        // Science department value at all, so this used to answer "nothing".
+        const { data } = await events({
+            when: "this week",
+            department: "Computer Science",
+            limit: 10,
+        });
+        expect(data.events.length).toBeGreaterThan(0);
+        for (const e of data.events) expect(e.source).toBe("apps.cs.utexas.edu");
+    });
+});
+
+describe("one calendar failing", () => {
+    it("still answers from the central calendar, and says which source was lost", async () => {
+        // Clock stays on the shared campus era, where the central fixture has
+        // events and the CS fixture has none, so this isolates the failure.
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch();
+        const stubbed = globalThis.fetch;
+        vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url =
+                typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            if (url.includes("apps.cs.utexas.edu")) throw new Error("cs feed down");
+            return stubbed(input as never, init);
+        });
+
+        const result = await call("find_events", { when: "this week", limit: 5 });
+        expect(result.isError).toBeFalsy();
+        const data = result.structuredContent as EventsStructured;
+        expect(data.events.length).toBeGreaterThan(0);
+        expect(data.notes.join(" ")).toMatch(/apps\.cs\.utexas\.edu did not answer/);
     });
 });

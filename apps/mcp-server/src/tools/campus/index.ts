@@ -12,6 +12,7 @@ import {
     walkMinutes,
     type UtBuilding,
 } from "./buildings.ts";
+import { CS_SOURCE, getCsCalendar } from "./cs.ts";
 import {
     AUDIENCES,
     EVENT_CATEGORIES,
@@ -107,6 +108,8 @@ const EVENTS_OUTPUT = z.object({
             categories: z.array(z.string()),
             audiences: z.array(z.string()),
             departments: z.array(z.string()),
+            /** Which calendar this came from, since they cover different things. */
+            source: z.string(),
             freeAdmission: z.boolean(),
             mentionsFreeFood: z.boolean(),
             /** null when there is no location to judge from. */
@@ -402,13 +405,15 @@ export function registerCampusTools(server: McpServer) {
                 "Filter by when, by interest category, by who it is for, by department, by " +
                 "whether it is in person, and by how close it is to a building. Every event " +
                 "comes back with a link, and with coordinates where they can be worked out. " +
-                "COVERAGE: this is the central calendar only, about 245 events over 60 days, " +
-                "and it skews to arts, student affairs and HR. Most academic departments run " +
-                "their own calendars that do not feed into it -- Computer Science, Cockrell " +
-                "engineering, Natural Sciences and the iSchool all do, so lab meetings, " +
-                "seminars, reading groups and office hours are usually absent. Student club " +
-                "events are mostly on social media or HornsLink. An empty answer here means " +
-                "nothing matched THIS calendar, not that nothing is happening.",
+                "COVERAGE: two calendars. UT's central one, about 245 events over 60 days, " +
+                "skewed to arts, student affairs and HR; and the Computer Science " +
+                "department's own, which carries its lab meetings, reading groups, talks and " +
+                "office hours and appears nowhere in the central one. Each event says which " +
+                "`source` it came from. Other departments -- Cockrell engineering, McCombs, " +
+                "Moody, Law, Liberal Arts, Nursing -- publish on their own sites and are not " +
+                "read yet, and student club events are mostly on social media or HornsLink. " +
+                "An empty answer means nothing matched these two calendars, not that nothing " +
+                "is happening.",
             outputSchema: EVENTS_OUTPUT,
             inputSchema: z
                 .object({
@@ -442,10 +447,10 @@ export function registerCampusTools(server: McpServer) {
                         .string()
                         .optional()
                         .describe(
-                            'e.g. "Fine Arts", "Libraries", "Student Affairs". Sparse: about ' +
-                                "half the events carry no department at all, and only ~23 " +
-                                "values ever appear. There is no Computer Science or " +
-                                "engineering department here. Prefer query for a subject.",
+                            'e.g. "Computer Science", "Fine Arts", "Libraries". Sparse on ' +
+                                "the central calendar: about half its events carry no " +
+                                'department and only ~23 values appear. "Computer Science" ' +
+                                "covers the CS department feed. Prefer query for a subject.",
                         ),
                     near: z
                         .string()
@@ -572,7 +577,29 @@ export function registerCampusTools(server: McpServer) {
                 const anchor = near;
                 const radius = input.withinMetres ?? DEFAULT_NEAR_METRES;
 
-                const calendar = await getCalendar(daysNeeded(window, now));
+                // Two sources, settled independently. The central calendar
+                // carries almost no departmental activity: cross-checked for
+                // one week, 23 of 23 CS events were absent from it. Neither
+                // source failing may take the other's answer down.
+                const days = daysNeeded(window, now);
+                const [central, cs] = await Promise.allSettled([
+                    getCalendar(days),
+                    getCsCalendar(now, days),
+                ]);
+                if (central.status === "rejected") throw central.reason;
+                const calendar = {
+                    ...central.value,
+                    events: [
+                        ...central.value.events,
+                        ...(cs.status === "fulfilled" ? cs.value.events : []),
+                    ].sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId),
+                };
+                const sourceNote =
+                    cs.status === "rejected"
+                        ? `${CS_SOURCE} did not answer, so Computer Science events are missing from this answer.`
+                        : cs.value.failed.length
+                          ? `${CS_SOURCE} did not answer for ${cs.value.failed.join(", ")}, so some Computer Science events may be missing.`
+                          : null;
                 const filters: EventFilters = {
                     from: window.from,
                     to: window.to,
@@ -605,6 +632,7 @@ export function registerCampusTools(server: McpServer) {
                 let matched = series.map((entry) => entry.event);
 
                 const notes: string[] = [];
+                if (sourceNote) notes.push(sourceNote);
                 if (looseNote) notes.push(looseNote);
 
                 // A department that matches nothing is the tool's most
@@ -626,7 +654,7 @@ export function registerCampusTools(server: McpServer) {
                         `No event in this window is tagged with a department matching "${input.department}". ` +
                             `${withNone} of ${inWindow.length} events here carry no department at all, and the ones that do are: ` +
                             `${present.join("; ") || "none"}. ` +
-                            "Most academic departments keep their own calendar that this one does not include, so " +
+                            "Most departments other than Computer Science keep their own calendar that is not read here, so " +
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }
@@ -728,6 +756,7 @@ export function registerCampusTools(server: McpServer) {
                         categories: event.categories,
                         audiences: event.audiences,
                         departments: event.departments,
+                        source: event.source,
                         freeAdmission: event.freeAdmission,
                         mentionsFreeFood: mentionsFreeFood(event),
                         onCampus: onCampus(event),

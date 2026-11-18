@@ -196,6 +196,9 @@ importers:
       '@storybook/addon-links':
         specifier: ^10.6.2
         version: 10.6.2(@types/react@18.3.31)(react@18.3.1)(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))
+      '@storybook/addon-themes':
+        specifier: ^10.6.6
+        version: 10.6.6(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))
       '@storybook/react':
         specifier: ^10.6.2
         version: 10.6.2(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))(supports-color@10.2.2)(typescript@5.9.3)
@@ -214,6 +217,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.0
         version: 18.3.7(@types/react@18.3.31)
+      addon-storybook-sync:
+        specifier: ^0.1.0
+        version: 0.1.0(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))
       concurrently:
         specifier: ^10.0.6
         version: 10.0.6
@@ -1837,6 +1843,11 @@ packages:
       react:
         optional: true
 
+  '@storybook/addon-themes@10.6.6':
+    resolution: {integrity: sha512-R47S85vAHy52esRjPwn4YMqziVhwflMX+8B/DcxShUh1OexlC4DcZ3XRBbzmANz1DTOZAXzOAarjBA9ctmwlPw==}
+    peerDependencies:
+      storybook: ^10.6.6
+
   '@storybook/builder-vite@10.6.2':
     resolution: {integrity: sha512-SzeQEGjvybdhP2coF4aIX6JX/7rZTrQCpRU3vAEO/R98Vr3xM8jdg7a3nvt91TeF/P8iWqljLIpaDjTdk2r/sQ==}
     peerDependencies:
@@ -2430,6 +2441,12 @@ packages:
     resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
+
+  addon-storybook-sync@0.1.0:
+    resolution: {integrity: sha512-KPeTv9RTbhrfT9YL7/6JKpwiXlHpLhk4s/G1IO7De7yn9h8p1agq4YKJUagQzXPIIPOoqzsIfq3zy4P2Xb5Cgw==}
+    engines: {node: '>=22.18.0'}
+    peerDependencies:
+      storybook: '*'
 
   agents@0.28.1:
     resolution: {integrity: sha512-rhQax1hg0v4QWQhkIH3W2kywrj55fsHde3E+bSnsGkv2gH5nJUVyw6o6xeVnQrCbaLt8YXMhGw+hj4v82at/4g==}
@@ -4991,6 +5008,11 @@ snapshots:
       '@types/react': 18.3.31
       react: 18.3.1
 
+  '@storybook/addon-themes@10.6.6(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))':
+    dependencies:
+      storybook: 10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))
+      ts-dedent: 2.3.0
+
   '@storybook/builder-vite@10.6.2(@voidzero-dev/vite-plus-core@1.3.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)))':
     dependencies:
       storybook: 10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))
@@ -5765,6 +5787,14 @@ snapshots:
       negotiator: 1.1.0
 
   acorn@8.19.0: {}
+
+  addon-storybook-sync@0.1.0(storybook@10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))):
+    dependencies:
+      storybook: 10.6.2(@types/react@18.3.31)(react@18.3.1)(vite-plus@1.3.0(@types/node@26.6.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1))
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   agents@0.28.1(@babel/core@8.0.7)(@babel/runtime@7.29.10)(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(@modelcontextprotocol/server@2.0.0)(@types/node@26.6.5)(jiti@2.7.0)(rolldown@1.2.14)(typescript@6.0.3)(zod@4.6.7):
     dependencies:

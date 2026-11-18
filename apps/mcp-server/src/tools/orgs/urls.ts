@@ -1,12 +1,12 @@
 // HornsLink is UT's Anthology/Campus Labs Engage instance. The discovery API is
-// public; member actions like RSVP sit behind UT SSO and are not used here.
+// public; member actions like RSVP need UT SSO and are not used here.
 
 const ENGAGE = "https://utexas.campuslabs.com/engage";
 const API = `${ENGAGE}/api/discovery`;
 
-// The two search endpoints ignore each other's page parameter and return a full
-// result set that looks filtered. Both also ignore OData `filter=`, and the org
-// search ignores `categoryIds=`, so category filtering happens in extract.ts.
+// Each search endpoint ignores the other's page parameter and returns a full
+// result set that looks filtered. Both ignore OData `filter=`, and the org search
+// ignores `categoryIds=`, so category filtering happens in extract.ts.
 const ORG_PAGE_PARAM = "top"; // search/organizations; `take` falls back to 25
 const EVENT_PAGE_PARAM = "take"; // event/search; `top` falls back to 10
 

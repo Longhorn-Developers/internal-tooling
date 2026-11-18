@@ -10,8 +10,7 @@ export function calendarUrl(opts: { days: number; page: number; groupId?: number
     url.searchParams.set("days", String(opts.days));
     url.searchParams.set("pp", String(PAGE_SIZE));
     url.searchParams.set("page", String(opts.page));
-    // `group_id` is the only filter Localist honours. `department_id` and
-    // `dept_id` are ignored and return the unfiltered feed.
+    // `group_id` is the only filter Localist honours.
     if (opts.groupId !== undefined) url.searchParams.set("group_id", String(opts.groupId));
     return url.toString();
 }

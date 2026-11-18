@@ -1,12 +1,5 @@
-// Reads the HornsLink org directory.
-//
-// The detail endpoint carries `primaryContact` -- a named student, their
-// personal email and photo. That is dropped in `orgDetail` and never reaches a
-// response; only the org-level address is read.
-//
-// This is the directory, not an events feed: over an 878-event pull 823 had
-// zero RSVPs and 478 titles were a variant of "General Meeting". An org's
-// events are opt-in and capped. Campus events come from find_events.
+// Reads the HornsLink org directory. The detail endpoint's `primaryContact` -- a
+// named student, their email and photo -- is dropped and never reaches a response.
 
 import { cached, getJson, norm, text } from "../../shared.ts";
 import {
@@ -18,11 +11,7 @@ import {
     orgSearchUrl,
 } from "./urls.ts";
 
-/**
- * Bump whenever the shape of anything cached below changes. The Cloudflare
- * cache outlives a deploy, so when `searchOrgs` moved from a bare array to
- * `{ total, rows }` the old entries were read by the new code and threw.
- */
+/** Bump on any shape change: the CF cache outlives a deploy. */
 const CACHE_VERSION = 2;
 
 /** The directory is edited by hand and changes on the order of weeks. */
@@ -42,11 +31,7 @@ export interface Org {
 }
 
 export interface OrgContact {
-    /**
-     * The address the org publishes. Free text, so some orgs put an officer's
-     * own @utexas.edu there; what is guaranteed is that it never comes from the
-     * officer record, which this tool does not read.
-     */
+    /** The address the org publishes. */
     email: string | null;
     website: string | null;
     instagram: string | null;
@@ -65,11 +50,7 @@ export interface OrgEvent {
     rsvpTotal: number;
 }
 
-/**
- * The 14 categories HornsLink publishes, 2026-11-14. Hardcoded because upstream
- * ignores `categoryIds`: this only validates what a caller typed. Live list is
- * at /api/discovery/organization/category.
- */
+/** The 14 categories HornsLink publishes, 2026-11-14. */
 export const ORG_CATEGORIES = [
     "Academic",
     "Arts/Entertainment",
@@ -87,11 +68,7 @@ export const ORG_CATEGORIES = [
     "Sport Clubs",
 ] as const;
 
-/**
- * Names on orgs that the category endpoint does not publish: it lists 14 while
- * the rows carry 20 distinct names, left over from a rename. Without this,
- * "Cultural/International" misses the 5 orgs tagged "Culture".
- */
+/** On orgs but not in the category endpoint: 14 published, 20 in the rows. */
 const LEGACY_CATEGORY_NAMES: Record<string, string> = {
     Culture: "Cultural/International",
     Art: "Arts/Entertainment",
@@ -135,18 +112,10 @@ const CATEGORY_ALIASES: Record<string, string> = {
     social: "Social",
 };
 
-/**
- * Aliases that count only as the WHOLE input. "club" is in almost every phrase
- * a student types, so the phrase rule made it a wildcard: "pre-med club" and
- * "running club" both resolved to Recreational.
- */
+/** Whole-input only: "club" is in almost every phrase a student types. */
 const WHOLE_INPUT_ONLY = new Set(["club", "clubs"]);
 
-/**
- * Map what a caller typed onto one of the 14, or null. Conservative on purpose:
- * matching the first name containing the input turned "ed" into "Graduate
- * Student Oriented", which contains "orient-ed" and sorts first.
- */
+/** Map what a caller typed onto one of the 14, or null. */
 export function matchCategory(input: string): string | null {
     const raw = input.trim();
     const wanted = norm(raw);
@@ -159,8 +128,6 @@ export function matchCategory(input: string): string | null {
     if (whole) return whole;
 
     // An alias inside a phrase, so "Greek life" and "intramural sports" work.
-    // Only when the words agree: a phrase pointing at two categories is
-    // ambiguous and refusing says so.
     const hits = new Set<string>();
     for (const word of raw.toLowerCase().split(/[^a-z0-9]+/)) {
         if (!word || WHOLE_INPUT_ONLY.has(norm(word))) continue;
@@ -169,8 +136,7 @@ export function matchCategory(input: string): string | null {
     }
     if (hits.size === 1) return [...hits][0]!;
 
-    // Substring, but only for an input long enough to carry meaning, and only
-    // when exactly one category matches.
+    // Substring only for a long enough input, and only on a single match.
     if (wanted.length >= 4) {
         const partial = ORG_CATEGORIES.filter(
             (c) => norm(c).includes(wanted) || wanted.includes(norm(c)),
@@ -193,10 +159,7 @@ interface RawSearchRow {
     Visibility?: string | null;
 }
 
-/**
- * Needs an id and a website key: the key builds the profile link, and a row
- * without one cannot be linked to. Inactive and non-public rows go too.
- */
+/** Needs an id and a website key, which is what builds the profile link. */
 function toOrg(raw: RawSearchRow): Org | null {
     const id = raw.Id?.trim();
     const name = raw.Name?.trim();
@@ -205,10 +168,7 @@ function toOrg(raw: RawSearchRow): Org | null {
     if (raw.Status && raw.Status !== "Active") return null;
     if (raw.Visibility && raw.Visibility !== "Public") return null;
 
-    // `Summary` is the feed's own plain-text blurb, but it is not reliably
-    // plain: some rows carry entities, and a few carry tags. Running it through
-    // `text` costs nothing and means a description never reaches a user as
-    // "&nbsp;" or with a stray <span>.
+    // Not reliably plain: some rows carry entities, a few carry tags.
     const summary = raw.Summary ? text(raw.Summary) : raw.Description ? text(raw.Description) : "";
 
     return {
@@ -230,11 +190,7 @@ function parseOrgs(parsed: { value?: RawSearchRow[] }): Org[] {
 }
 
 export interface OrgSearch {
-    /**
-     * What upstream says matches, which is NOT how many were returned. It
-     * matches any word, so "pre-med" reports 469 of 1,226 orgs. Still the only
-     * honest total: reporting our own fetch size would be a made-up number.
-     */
+    /** What upstream says matches, which is NOT how many were returned. */
     total: number;
     rows: Org[];
 }
@@ -284,8 +240,8 @@ export async function orgDetail(websiteKey: string): Promise<OrgContact> {
         async () => {
             const raw = await getJson<RawDetail>(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS);
             const social = raw.socialMedia ?? {};
-            // Note what is NOT read here: raw.primaryContact (a named student and
-            // their personal email) and raw.contactInfo (street address, phone).
+            // Not read: raw.primaryContact (a named student, personal email) and
+            // raw.contactInfo (street address, phone).
             return {
                 email: link(raw.email),
                 website: link(social.ExternalWebsite),
@@ -333,37 +289,23 @@ export async function orgEvents(
     );
 }
 
-/**
- * Narrow a set of rows by category, and by words when the words could not be
- * handed to upstream.
- *
- * `category` is matched against the row's own CategoryNames rather than
- * re-derived, so a row carrying two categories matches either.
- */
-/**
- * How much of the query the returned rows actually contain. HornsLink ranks on
- * ANY word, so a small result set looks authoritative when it is a near miss:
- * `query: "muay thai"` returned two Thai cultural associations, and there is no
- * muay thai club at UT. Hedging on result-set SIZE missed that entirely.
- */
+/** Which query words the rows actually contain. HornsLink ranks on ANY word. */
 export function queryRelevance(
     rows: Org[],
     query: string,
 ): { matchedAll: Org[]; found: string[]; missing: string[] } {
     const haystack = (org: Org) => `${org.name} ${org.summary ?? ""}`.toLowerCase();
 
-    // Split on WHITESPACE, not on every non-alphanumeric. Splitting "pre-med"
-    // into "pre" and "med" made both findable inside "president" and "media",
-    // so a hyphenated query could never register as a near miss -- which is
-    // most of the queries this check exists for.
+    // Whitespace, not every non-alphanumeric: splitting "pre-med" into "pre" and
+    // "med" found both inside "president" and "media".
     const words = query
         .toLowerCase()
         .split(/\s+/)
         .filter((word) => word.replace(/[^a-z0-9]/g, "").length > 1);
     if (!words.length) return { matchedAll: rows, found: [], missing: [] };
 
-    // Punctuation-flexible and anchored at a word start, so "pre-med" finds
-    // "Pre Med Society" and "pre-medical" but not "president".
+    // Anchored at a word start and flexible across punctuation, so "pre-med"
+    // finds "Pre Med Society" and "pre-medical" but not "president".
     const test = (word: string) => {
         const parts = word
             .split(/[^a-z0-9]+/)

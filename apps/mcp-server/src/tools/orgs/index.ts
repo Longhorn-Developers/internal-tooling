@@ -40,48 +40,19 @@ const guard =
 const DEFAULT_ROWS = 6;
 const MAX_ROWS = 15;
 
-/**
- * A Worker invocation gets 50 subrequests. Worst case here is 1 search + 15
- * detail + 8 event requests, since an org's events cannot be batched.
- */
+/** A Worker gets 50 subrequests; worst case here is 1 + 15 + 8. */
 const DETAIL_BUDGET = 15;
 const EVENT_BUDGET = 8;
 
-/**
- * Rows pulled from a keyword search when nothing else has to be filtered.
- *
- * Enough to serve any `limit`, and no more: upstream has already ranked them.
- */
+/** Rows pulled from a keyword search when nothing else has to be filtered. */
 const SEARCH_OVERFETCH = 50;
 
-/**
- * Rows pulled when a category has to be applied to a keyword search.
- *
- * Filtering a 50-row relevance window by category drops every lower-ranked
- * match in that category and then reports the survivors as the total, which is
- * a confident wrong count. Upstream serves its whole ranked result set in one
- * request, so take it and filter that. Above the 1,226 orgs that exist, so one
- * request always covers it.
- */
+/** Rows pulled when a category has to be applied to a keyword search. */
 const SEARCH_FULL = DIRECTORY_PAGE_SIZE;
 
 const ORG_OUTPUT = z.object({
     matched: z.number(),
-    /**
-     * What `matched` actually counts, because the three paths differ.
-     *
-     * A single `matchedIsFinal` boolean was worse than nothing: it meant only
-     * "the join filter did not cut this", and so read `true` on exactly the
-     * counts that are least final -- `query: "a cappella"` answered
-     * `matched: 1222, matchedIsFinal: true`, 1,222 being HornsLink's count of
-     * every org matching "a" OR "cappella". Either half of the answer has to be
-     * safe to read alone, so this says which kind of number it is.
-     *
-     *  "exact"              counted here, and it is the number of rows that match
-     *  "upstream-broad"     HornsLink's any-word total; far larger than the answer
-     *  "before-join-filter" counted before `acceptingMembers`, which reached only
-     *                       the first DETAIL_BUDGET rows
-     */
+    /** What `matched` actually counts, because the three paths differ. */
     matchedMeaning: z.enum(["exact", "upstream-broad", "before-join-filter"]),
     showing: z.number(),
     orgs: z.array(
@@ -98,13 +69,7 @@ const ORG_OUTPUT = z.object({
             youtube: z.string().nullable(),
             acceptingJoinRequests: z.boolean(),
             organizationType: z.string().nullable(),
-            /**
-             * False when this row matched only part of the query.
-             *
-             * HornsLink ranks on any word, including words in a description
-             * this tool does not return, so a result set mixes real answers
-             * with near misses. Without this the two are indistinguishable.
-             */
+            /** False when this row matched only part of the query. */
             matchesWholeQuery: z.boolean(),
             upcomingEvents: z
                 .array(
@@ -123,13 +88,7 @@ const ORG_OUTPUT = z.object({
 
 type Row = Org & OrgContact & { upcomingEvents: OrgEvent[] | null; matchesWholeQuery: boolean };
 
-/**
- * Stand-in when an org's detail request fails.
- *
- * `acceptingJoinRequests: false` is deliberate: it means "not shown as open",
- * so `acceptingMembers` drops the row rather than promising a student they can
- * join something we could not read. The accompanying note says the difference.
- */
+/** Stand-in when an org's detail request fails. */
 const UNKNOWN_CONTACT: OrgContact = {
     email: null,
     website: null,
@@ -192,10 +151,7 @@ export function registerOrgTools(server: McpServer) {
                 .object({
                     query: z
                         .string()
-                        // HornsLink answers 404 to a very long query string,
-                        // which reached the client as "HTTP 404" and reads as
-                        // "the directory is broken" rather than "your query was
-                        // too long". No real search needs more than this.
+                        // A very long query 404s upstream, which reads as a broken directory.
                         .max(200, "query is too long; a few words is what this searches best")
                         .optional()
                         .describe('What to look for, e.g. "robotics", "climbing", "pre-med"'),
@@ -238,10 +194,7 @@ export function registerOrgTools(server: McpServer) {
                     input.limit ?? DEFAULT_ROWS,
                     wantEvents ? EVENT_BUDGET : MAX_ROWS,
                 );
-                // Whether the cap BIT is only known once the rows are in, so
-                // the note is deferred. Announcing "Capped at 8 rows" for a
-                // search that matched 2 told the student results were withheld
-                // that never existed.
+                // Whether the cap bites is only known once the rows are in.
                 const capApplies = input.limit !== undefined && input.limit > limit;
 
                 let category: string | null = null;
@@ -265,13 +218,10 @@ export function registerOrgTools(server: McpServer) {
                     }
                 }
 
-                // A query goes upstream, where it is relevance-ranked. Without
-                // one there is nothing to rank by, so the directory is pulled
-                // and filtered here -- upstream ignores `categoryIds`.
+                // A query goes upstream, where it is relevance-ranked.
                 let rows: Org[];
                 let matched: number;
-                // True only on the query-only path, where `matched` is
-                // HornsLink's any-word total rather than a count of rows.
+                // Query-only path: `matched` is HornsLink's any-word total.
                 let matchedIsUpstreamTotal = false;
                 if (query && category) {
                     // Both filters, so the category has to see every ranked row.
@@ -281,18 +231,7 @@ export function registerOrgTools(server: McpServer) {
                     notes.push(
                         "Some orgs carry no category at all, so a category search cannot reach them; a query on its own can.",
                     );
-                    // The same hedge as the query-only path. Narrowing by
-                    // category removed the warning AND the top-50 relevance
-                    // cut, so the count was least trustworthy exactly where it
-                    // looked most precise: "pre-med" in Pre-Professional/Career
-                    // reports 179, of which 16 mention medicine at all, and the
-                    // tail is the Actuarial Science Club and Longhorn Baja
-                    // Racing.
-                    // Only when there is a tail to warn about. One perfect row
-                    // got a note reading "these 1 are" and warning about "the
-                    // lower-ranked ones" that do not exist, which teaches an
-                    // agent that notes are boilerplate -- and the per-row
-                    // marker below depends on it reading them.
+                    // The same hedge as the query-only path.
                     if (matched > 1) {
                         notes.push(
                             `HornsLink matched any word in "${query}", so these ${matched} are everything in ${category} that matched any of those words, ranked by its relevance. The lower-ranked ones may have little to do with "${query}".`,
@@ -301,8 +240,7 @@ export function registerOrgTools(server: McpServer) {
                 } else if (query) {
                     const search = await searchOrgs(query, SEARCH_OVERFETCH);
                     rows = search.rows;
-                    // Upstream's own total, not the size of our fetch. It is
-                    // broad because HornsLink matches any word in the query.
+                    // Upstream's own total, not the size of our fetch.
                     matched = search.total;
                     matchedIsUpstreamTotal = search.total > search.rows.length;
                     if (search.total > search.rows.length) {
@@ -316,9 +254,6 @@ export function registerOrgTools(server: McpServer) {
                     matched = rows.length;
                     if (category) {
                         // Counted from the directory in hand, not hardcoded.
-                        // The constants said "87 of the 1,226" and upstream is
-                        // already at 1,227 and 88; a number a student could
-                        // check is a number that has to be measured.
                         const uncategorized = directory.filter(
                             (org) => org.categories.length === 0,
                         ).length;
@@ -344,26 +279,15 @@ export function registerOrgTools(server: McpServer) {
                     });
                 }
 
-                // Per row, not per result set. Gating the warning on "NO row
-                // matched" meant one good row silenced it for every irrelevant
-                // row beside it, which is the common shape of a HornsLink near
-                // miss: "climbing" returns Texas Rock Climbing AND the American
-                // Society of Mechanical Engineers, formatted identically, and
-                // an agent hands the student ASME's inbox.
+                // Per row, not per result set.
                 const relevance = query ? queryRelevance(rows, query) : null;
                 const whole = new Set(relevance?.matchedAll.map((org) => org.websiteKey) ?? []);
                 const matchesWholeQuery = (org: Org) => !relevance || whole.has(org.websiteKey);
 
-                // Contact details need one request per org, so only the rows
-                // that could be returned are looked up. `acceptingMembers`
-                // filters on a detail-only field, which is why it reaches
-                // further down the list than `limit` alone would.
+                // One request per org, so only returnable rows are looked up.
                 const reach = input.acceptingMembers ? DETAIL_BUDGET : limit;
                 const candidates = rows.slice(0, reach);
-                // allSettled, not all: contact details are an enrichment, and
-                // one org's 404 used to fail the whole answer. The org still
-                // has a name, a summary and a HornsLink link, which is most of
-                // what the student needs.
+                // allSettled: one org's 404 used to fail the whole answer.
                 const settled = await Promise.allSettled(
                     candidates.map((org) => orgDetail(org.websiteKey)),
                 );
@@ -424,8 +348,7 @@ export function registerOrgTools(server: McpServer) {
 
                 if (wantEvents) {
                     const nowIso = new Date().toISOString();
-                    // allSettled for the same reason as the details above:
-                    // events are opt-in garnish and must not fail the answer.
+                    // Same reason: events are opt-in and must not fail the answer.
                     await Promise.all(
                         kept.map(async (row) => {
                             row.upcomingEvents = await orgEvents(row.id, nowIso, 2).catch(
@@ -438,10 +361,7 @@ export function registerOrgTools(server: McpServer) {
                     );
                 }
 
-                // `matched` is counted BEFORE the join-request filter, which
-                // needs a per-org request and so only reaches `reach` rows.
-                // Presenting it as the number accepting members would be wrong
-                // wherever some of them refuse.
+                // Counted BEFORE the join filter, which only reaches `reach` rows.
                 const countLabel = input.acceptingMembers
                     ? `${matched} org(s) matched before the join-request filter`
                     : `${matched} org(s) matched`;

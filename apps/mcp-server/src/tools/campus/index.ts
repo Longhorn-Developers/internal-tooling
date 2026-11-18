@@ -121,13 +121,7 @@ const EVENTS_OUTPUT = z.object({
     ),
 });
 
-/**
- * Austin's UTC offset at a given instant, in minutes behind UTC.
- *
- * Central time is UTC-6 in winter and UTC-5 in summer, so a window cannot be
- * built by subtracting a constant. Reading the offset from the zone database is
- * the only way this stays right across the March and November transitions.
- */
+/** Austin's UTC offset at a given instant, in minutes behind UTC. */
 function austinOffsetMinutes(at: Date): number {
     const name = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Chicago",
@@ -145,8 +139,7 @@ function austinOffsetMinutes(at: Date): number {
 function austinInstant(year: number, month: number, day: number, hour: number, minute = 0): Date {
     const guess = Date.UTC(year, month - 1, day, hour, minute);
     const first = new Date(guess + austinOffsetMinutes(new Date(guess)) * 60_000);
-    // One correction pass: the offset at the guessed instant can differ from the
-    // offset at the real one on a DST changeover day.
+    // One correction pass, for a DST changeover day.
     return new Date(guess + austinOffsetMinutes(first) * 60_000);
 }
 
@@ -158,12 +151,7 @@ export interface Window {
     label: string;
 }
 
-/**
- * Turn a phrase into a window in Austin time.
- *
- * Returns null rather than guessing, because a window silently reinterpreted is
- * an answer about the wrong day, and the caller cannot tell.
- */
+/** Turn a phrase into a window in Austin time. */
 export function parseWindow(phrase: string | undefined, now = new Date()): Window | null {
     const today = austinNow(now);
     const dayStart = (offset: number) =>
@@ -176,8 +164,7 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
 
     const value = (phrase ?? "today").trim().toLowerCase();
     if (!value || value === "today") {
-        // From now, not from midnight: nobody asking what is on today wants the
-        // lecture that finished this morning.
+        // From now, not midnight: this morning's lecture is over.
         return { from: now, to: dayStart(1), label: "today" };
     }
     if (value === "tonight" || value === "this evening") {
@@ -189,15 +176,9 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (value === "next week") return span(7, 14, "next week");
     if (value === "weekend" || value === "this weekend") {
         // dayIndex is 0 = Monday, so Saturday is 5 and Sunday is 6.
-        //
-        // `(5 - dayIndex + 7) % 7` is 6 on a Sunday, which is NEXT Saturday:
-        // asked on a Sunday the tool reported next weekend's events under the
-        // label "this weekend" and missed everything happening that day. On a
-        // Sunday the weekend started yesterday, so the window opens now.
         if (today.dayIndex === 6) return { from: now, to: dayStart(1), label: "this weekend" };
         if (today.dayIndex === 5) {
-            // Saturday: from now, consistent with "today", rather than from
-            // midnight, which would include events that finished this morning.
+            // Saturday: from now, consistent with "today".
             return { from: now, to: dayStart(2), label: "this weekend" };
         }
         return span(5 - today.dayIndex, 7 - today.dayIndex, "this weekend");
@@ -215,8 +196,7 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (iso) {
         const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
         const from = austinInstant(year, month, day, 0);
-        // Reject a date that rolled: "2026-02-30" would otherwise answer about
-        // 2 March without saying so.
+        // Reject a date that rolled: "2026-02-30" would otherwise answer about 2 March without saying so.
         const check = austinNow(from);
         if (check.year !== year || check.month !== month || check.day !== day) return null;
         return { from, to: austinInstant(year, month, day + 1, 0), label: value };
@@ -224,40 +204,16 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     return null;
 }
 
-/**
- * Days of calendar to request, from how far the window reaches.
- *
- * Clamped to one day PAST what the tool promises. A window for the last day it
- * advertises closes at the start of the day after, so clamping to
- * MAX_WINDOW_DAYS itself left that final day uncovered: the date 60 days out
- * was accepted and then answered "nothing on UT's calendar" while UT published
- * 10 events on it. One day wide, every day.
- *
- * The extra day is close to free. Measured against the live feed: 60 days is
- * 893 events over 9 pages, 61 days is 903 over 10, against a MAX_PAGES ceiling
- * of 12. So the promise is now one the fetch can actually keep.
- */
+/** Days of calendar to request, from how far the window reaches. */
 function daysNeeded(window: Window, now: Date): number {
     const ms = window.to.getTime() - now.getTime();
     return Math.min(MAX_WINDOW_DAYS + 1, Math.max(1, Math.ceil(ms / 86_400_000) + 1));
 }
 
-/**
- * Is the window something one call can actually answer for?
- *
- * A past date, or one past MAX_WINDOW_DAYS, used to come back as a confident
- * "Nothing on UT's calendar 2027-05-01" plus a count of events that were never
- * in that window. The tool had not looked, and said so nowhere.
- */
+/** Is the window something one call can actually answer for?. */
 function outOfRange(window: Window, now: Date): string | null {
     const dayMs = 86_400_000;
-    // `<= now`, not `<= now - dayMs`. The day of grace meant YESTERDAY was
-    // accepted at every hour: for `when` = yesterday the window closes at
-    // today 00:00, which only falls behind `now - 24h` once tomorrow starts.
-    // So "what was on yesterday?" came back as 46 finished events presented
-    // exactly like upcoming ones, with no note that the day was over. The feed
-    // serves no past events, so a window that has already closed cannot be
-    // answered whatever the hour.
+    // `<= now`, not `<= now - dayMs`.
     if (window.to.getTime() <= now.getTime()) {
         return (
             "that is in the past. UT's calendar feed only serves upcoming events, so this " +
@@ -265,8 +221,7 @@ function outOfRange(window: Window, now: Date): string | null {
         );
     }
     const ahead = Math.ceil((window.from.getTime() - now.getTime()) / dayMs);
-    // The fetch covers MAX_WINDOW_DAYS + 1 days, so every day this refuses is
-    // genuinely outside what was read, and every day it admits is covered.
+    // The fetch covers MAX_WINDOW_DAYS + 1 days, so what this refuses is unread.
     if (ahead > MAX_WINDOW_DAYS) {
         return (
             `that is ${ahead} days out and this tool reads the next ${MAX_WINDOW_DAYS} days, ` +
@@ -516,9 +471,8 @@ export function registerCampusTools(server: McpServer) {
                         .optional()
                         .describe(`Rows to return. Default ${DEFAULT_ROWS}, max ${MAX_ROWS}.`),
                 })
-                // An unknown key here would be dropped by a non-strict schema and
-                // the answer would silently ignore the filter, which in the dining
-                // tools meant an allergy filter coming back as an unfiltered menu.
+                // A non-strict schema drops an unknown key and ignores the filter: in
+                // dining that meant an allergy filter returning an unfiltered menu.
                 .strict(),
         },
         guard(
@@ -575,9 +529,8 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
 
-                // A blank `near` used to skip the guard below entirely, so the
-                // radius was computed and never applied: asking for events
-                // within 50 m returned the whole campus with no note.
+                // A blank `near` skipped the guard, so the radius was never applied
+                // and a 50 m request returned the whole campus.
                 if (input.near !== undefined && !input.near.trim()) {
                     throw new Error(
                         'near was empty. Give a building, e.g. "GDC" or "the SAC", or leave it out.',
@@ -611,15 +564,7 @@ export function registerCampusTools(server: McpServer) {
                     from: window.from,
                     to: window.to,
                     query: input.query?.trim() || undefined,
-                    // Trimmed here so validation above and matching below see
-                    // the same strings; they did not, and " Academics" passed
-                    // validation then matched nothing.
-                    //
-                    // `lower()` in extract.ts trims too, deliberately: that
-                    // function is exported and a caller who has not been
-                    // through this validation still needs the right answer.
-                    // Neither is dead code, and mutation testing reports each
-                    // as survivable only because the other is there.
+                    // Trimmed so validation and matching see the same strings.
                     categories: input.categories?.map((value) => value.trim()),
                     audiences: input.audiences?.map((value) => value.trim()),
                     venue: input.venue,
@@ -628,11 +573,7 @@ export function registerCampusTools(server: McpServer) {
                     onCampusOnly: input.onCampusOnly,
                 };
                 let rows = filterEvents(calendar.events, filters);
-                // A three-letter query is held to a whole word, so that "AI"
-                // cannot match "aid". When that finds nothing, try again
-                // letting it match the start of a longer word -- "bio" reaching
-                // "biology" -- and say which way it matched. The answer is then
-                // never silently empty and never silently the wrong set.
+                // A three-letter query is held to a whole word, so that "AI" cannot match "aid".
                 const looseNote =
                     input.query && rows.length === 0
                         ? (() => {
@@ -646,9 +587,7 @@ export function registerCampusTools(server: McpServer) {
                           })()
                         : null;
                 if (input.freeFood) rows = rows.filter(mentionsFreeFood);
-                // Collapse before anything is counted or capped. Localist
-                // repeats a multi-day event once per day, so "245 events this
-                // week" was really 153, and `limit` was spent on repeats.
+                // Collapse before anything is counted or capped.
                 let series = collapseSeries(rows);
                 let matched = series.map((entry) => entry.event);
 
@@ -796,12 +735,7 @@ export function registerCampusTools(server: McpServer) {
                           `Nothing on UT's calendar ${window.label}` +
                               (anchor ? ` within ${radius} m of ${anchor.code}` : "") +
                               ".",
-                          // Counted in the window and collapsed to one row per
-                          // event. `calendar.events` is the whole multi-day
-                          // fetch in occurrence rows, so it said "the window
-                          // held 130 event(s)" for a day holding 45, and 227
-                          // for a week holding 105 -- a number that invited the
-                          // agent to tell the student the filter was at fault.
+                          // Counted in the window and collapsed to one row per event.
                           `The window held ${
                               collapseSeries(
                                   filterEvents(calendar.events, {

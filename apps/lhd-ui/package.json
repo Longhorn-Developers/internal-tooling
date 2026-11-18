@@ -41,6 +41,7 @@
         "@tailwindcss/vite": "^4.3.3",
         "@types/react": "^18.3.0",
         "@types/react-dom": "^18.3.0",
+        "addon-storybook-sync": "^0.1.0",
         "concurrently": "^10.0.6",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",

@@ -1,4 +1,5 @@
+@reference "../src/styles.css";
+
 body {
-    background-color: var(--color-bg);
-    color: var(--color-text);
+    @apply bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-200;
 }

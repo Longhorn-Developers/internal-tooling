@@ -1,0 +1,94 @@
+/* ========= UT COLORS =========
+ * These are taken straight from https://umac.utexas.edu/brand-center/colors/
+ * All colors are prefixed with --color-ut-
+ * The unnumbered color (e.g. ut-burnt-orange) is the official shade; numbered steps are
+ * generated variations (lighter < 500 < darker). There is intentionally no 500.
+ */
+
+@theme {
+    --color-ut-white: #ffffff;
+
+    --color-ut-burnt-orange: #bf5700;
+    --color-ut-burnt-orange-50: #faf2eb;
+    --color-ut-burnt-orange-100: #f3e1d1;
+    --color-ut-burnt-orange-200: #e8c3a3;
+    --color-ut-burnt-orange-300: #dca373;
+    --color-ut-burnt-orange-400: #cd7c38;
+    --color-ut-burnt-orange-600: #a24a00;
+    --color-ut-burnt-orange-700: #823b00;
+    --color-ut-burnt-orange-800: #602c00;
+    --color-ut-burnt-orange-900: #3d1c00;
+    --color-ut-burnt-orange-950: #221000;
+
+    --color-ut-charcoal: #333f48;
+    --color-ut-charcoal-50: #eff0f0;
+    --color-ut-charcoal-100: #dadcde;
+    --color-ut-charcoal-200: #b6babd;
+    --color-ut-charcoal-300: #8f959a;
+    --color-ut-charcoal-400: #606970;
+    --color-ut-charcoal-600: #2b363d;
+    --color-ut-charcoal-700: #232b31;
+    --color-ut-charcoal-800: #1a2024;
+    --color-ut-charcoal-900: #101417;
+    --color-ut-charcoal-950: #090b0d;
+
+    --color-ut-orange: #f8971f;
+    --color-ut-orange-50: #fef7ed;
+    --color-ut-orange-100: #feecd7;
+    --color-ut-orange-200: #fcdaae;
+    --color-ut-orange-300: #fbc684;
+    --color-ut-orange-400: #faae50;
+    --color-ut-orange-600: #d3801a;
+    --color-ut-orange-700: #a96715;
+    --color-ut-orange-800: #7c4c10;
+    --color-ut-orange-900: #4f300a;
+    --color-ut-orange-950: #2d1b06;
+
+    --color-ut-khaki: #d6d2c4;
+    --color-ut-khaki-50: #fcfbfa;
+    --color-ut-khaki-100: #f8f7f4;
+    --color-ut-khaki-200: #f0efea;
+    --color-ut-khaki-300: #e8e6df;
+    --color-ut-khaki-400: #dfdcd1;
+    --color-ut-khaki-600: #b6b2a7;
+    --color-ut-khaki-700: #928f85;
+    --color-ut-khaki-800: #6b6962;
+    --color-ut-khaki-900: #44433f;
+    --color-ut-khaki-950: #272623;
+
+    --color-ut-steel: #9cadb7;
+    --color-ut-steel-50: #f7f8f9;
+    --color-ut-steel-100: #edf0f2;
+    --color-ut-steel-200: #dbe1e5;
+    --color-ut-steel-300: #c9d2d7;
+    --color-ut-steel-400: #b2bfc7;
+    --color-ut-steel-600: #85939c;
+    --color-ut-steel-700: #6a767c;
+    --color-ut-steel-800: #4e565c;
+    --color-ut-steel-900: #32373b;
+    --color-ut-steel-950: #1c1f21;
+
+    --color-ut-blue: #005f86;
+    --color-ut-blue-50: #ebf2f5;
+    --color-ut-blue-100: #d1e2e9;
+    --color-ut-blue-200: #a3c5d3;
+    --color-ut-blue-300: #73a7bc;
+    --color-ut-blue-400: #3882a1;
+    --color-ut-blue-600: #005172;
+    --color-ut-blue-700: #00415b;
+    --color-ut-blue-800: #003043;
+    --color-ut-blue-900: #001e2b;
+    --color-ut-blue-950: #001118;
+
+    --color-ut-teal: #00a9b7;
+    --color-ut-teal-50: #ebf8f9;
+    --color-ut-teal-100: #d1f0f2;
+    --color-ut-teal-200: #a3e0e5;
+    --color-ut-teal-300: #73d0d7;
+    --color-ut-teal-400: #38bcc7;
+    --color-ut-teal-600: #00909c;
+    --color-ut-teal-700: #00737c;
+    --color-ut-teal-800: #00545c;
+    --color-ut-teal-900: #00363b;
+    --color-ut-teal-950: #001e21;
+}

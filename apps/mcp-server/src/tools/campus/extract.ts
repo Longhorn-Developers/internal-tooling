@@ -1,60 +1,32 @@
-// Reads UT's central Localist calendar and turns it into something a model can
-// answer questions from.
+// Reads UT's Localist calendar. Loop's own API is not the source: it serves 29
+// upcoming events because 8 of its 11 scrapers yield nothing (Longhorn-Loop#472)
+// where the calendar underneath carries ~324 over 60 days. `source` is on every
+// event so a Loop provider can be added alongside later.
 //
-// WHY NOT LONGHORN LOOP'S API. Loop is the club's campus-events app and the
-// obvious thing to call. It serves 29 upcoming events, because 8 of its 11
-// scrapers currently yield nothing (Longhorn-Developers/Longhorn-Loop#472).
-// The calendar underneath it carries ~324 distinct events over 60 days. So
-// this reads the source directly: no dependency on those scrapers being
-// fixed, and no second hop. `source` is on every event here so a Loop
-// provider can be added alongside later for the user-created events that
-// exist only there.
-//
-// Count carefully when comparing those two numbers. A 60-day pull returns
-// 1,046 ROWS but only 324 distinct event ids, because Localist repeats a
-// multi-day event once per day of the window. Reading the row count as an
-// event count overstates the feed by about 3x. See `collapseSeries`.
+// A 60-day pull is 1,046 ROWS but 324 distinct events: Localist repeats a
+// multi-day event once per day. See `collapseSeries`.
 
 import { cached, decode, getText, text } from "../../shared.ts";
 import { metresBetween, resolveBuilding, type Precision } from "./buildings.ts";
 import { calendarUrl, eventUrl } from "./urls.ts";
 
 /**
- * Bump whenever a cached value's SHAPE or its DERIVED CONTENT changes.
- *
- * The Cloudflare Cache API outlives a deploy, so without this an entry written
- * by the old code is read by the new code. This already happened once in the
- * orgs tool: changing a return type from an array to `{ total, rows }` made
- * every recently-queried term throw for the rest of its TTL.
- *
- * "Derived content" matters as much as shape here, because a cached
- * `CampusEvent` bakes in `latitude`, `longitude`, `buildingCode` and
- * `searchText`, which come from `buildings.json`, `LOCATION_ALIASES` and
- * `SEARCH_TEXT_LIMIT`. Editing any of those without bumping this serves the old
- * resolution for up to one TTL.
+ * Bump whenever a cached value's shape OR its derived content changes. The
+ * Cloudflare cache outlives a deploy, so old entries are read by new code. A
+ * cached event bakes in coordinates resolved from buildings.json and its
+ * searchText, so editing either without bumping serves the old resolution.
  */
 const CACHE_VERSION = 1;
 
 /** 30 minutes. The calendar is edited by hand; it does not move minute to minute. */
 const TTL_SECONDS = 1_800;
 
-/**
- * Pages fetched per call, each one a subrequest.
- *
- * A Worker invocation gets 50 subrequests on the free plan and this tool is not
- * the only thing that might run in one, so 12 pages (~1,200 events, about 60
- * days) is the ceiling. Past that the answer says it was truncated rather than
- * quietly returning a prefix.
- */
+/** A Worker invocation gets 50 subrequests and this is not the only tool in it. */
 const MAX_PAGES = 12;
 
 /**
- * How far ahead one call can answer for.
- *
- * Bounded by MAX_PAGES above, not by Localist, which accepts up to 370 days
- * (and 400 gets `Date range is too big`). The tool refuses a window past this
- * rather than fetching 60 days and reporting "nothing" for a date in 2027,
- * which is what it used to do.
+ * Bounded by MAX_PAGES, not by Localist, which accepts up to 370 days. A window
+ * past this is refused rather than answered "nothing" from a short fetch.
  */
 export const MAX_WINDOW_DAYS = 60;
 
@@ -86,14 +58,10 @@ export interface CampusEvent {
     /** Cut to DESCRIPTION_LIMIT. For showing a person, never for searching. */
     description: string | null;
     /**
-     * Everything worth searching, lowercased: title, the FULL description, tags,
-     * departments and the location text.
-     *
-     * Separate from `description` because that one is truncated for display and
-     * searching the stump was silently wrong. Measured over a 60-day pull: the
-     * free-food test found 2 of 6 real matches, and "mental health" found 2 of
-     * 11, because UT writes "Lunch will be provided" and the accessibility
-     * notes at the END of a long description. Not returned to the client.
+     * Title, the FULL description, tags, departments and location, lowercased.
+     * Separate from `description`, which is truncated for display: searching
+     * that found 2 of 6 free-food events and 2 of 11 mentioning mental health,
+     * because UT puts those phrases at the end. Not returned to the client.
      */
     searchText: string;
     /** ISO 8601 with a Central offset, as Localist publishes it. */
@@ -180,14 +148,7 @@ function names(list: { name?: string }[] | undefined): string[] {
         .filter((name): name is string => typeof name === "string" && name.length > 0);
 }
 
-/**
- * Localist publishes coordinates as strings, and "0" is not a campus.
- *
- * `bound` rejects a value outside the legal range for that axis. A latitude and
- * longitude swapped upstream gives latitude -97.73, which is not a latitude at
- * all, and passing it through would put the answer's coordinate somewhere no
- * map can show.
- */
+/** Coordinates arrive as strings, and "0" is not a campus. `bound` is per axis. */
 function coordinate(value: string | null | undefined, bound: number): number | null {
     if (value === null || value === undefined || value === "") return null;
     const n = Number(value);
@@ -200,28 +161,13 @@ function venueOf(experience: string | null | undefined): VenueType {
     return value === "virtual" || value === "hybrid" ? value : "inperson";
 }
 
-/**
- * Description text, bounded.
- *
- * `description_text` is Localist's own plain-text rendering and is there most of
- * the time; `description` is HTML and needs stripping. Long ones are cut because
- * a few hundred events of full abstracts is most of a context window and none
- * of it helps choose between them.
- */
+/** `description_text` is plain; `description` is HTML and needs stripping. */
 const DESCRIPTION_LIMIT = 400;
 
 /**
- * How much description stays searchable.
- *
- * `DESCRIPTION_LIMIT` is a display budget: a few hundred full abstracts is most
- * of a context window. Searching that truncation was a wrong answer rather than
- * a short one, so the search text keeps far more.
- *
- * Measured over a 60-day pull on 2026-11-18: 244 events, longest description
- * 7,583 characters, two above 4,000. An earlier 4,000 cap therefore cut the
- * tail off those two, which lost "Central Texas Food Bank" from an event about
- * food rescue. 8,000 covers the feed as it stands and still bounds what one
- * pathological row can put in the cache. Worth re-measuring if the feed grows.
+ * DESCRIPTION_LIMIT is a display budget; this is the search budget, which has
+ * to be bigger. Longest description in a 60-day pull is 7,583 characters and
+ * two exceed 4,000, so a 4,000 cap cut real text out of search.
  */
 const SEARCH_TEXT_LIMIT = 8_000;
 
@@ -233,14 +179,8 @@ function fullDescription(raw: NonNullable<RawEvent["event"]>): string {
 }
 
 /**
- * Defensive, not a response to anything in the feed.
- *
- * UT serves this endpoint as clean `application/json; charset=utf-8` and a full
- * 30-day pull contains no U+FFFD at all, so nothing here is currently needed.
- * It stays because `res.text()` substitutes U+FFFD for any byte sequence it
- * cannot decode, so a single bad byte upstream would otherwise put a black
- * diamond in a user-facing answer. `text()` in shared.ts strips the same
- * character on the HTML paths for the same reason.
+ * Defensive: nothing in the feed needs it today. `res.text()` substitutes
+ * U+FFFD for any byte it cannot decode, which would reach a user-facing answer.
  */
 const clean = (value: string): string =>
     decode(typeof value === "string" ? value : "")
@@ -255,12 +195,7 @@ function describe(plain: string): string | null {
         : plain;
 }
 
-/**
- * One row per occurrence, not per event.
- *
- * A weekly seminar is a single Localist event with an instance per week. The
- * question is always "what is on at this time", so the occurrence is the unit.
- */
+/** One row per occurrence: the question is always "what is on at this time". */
 export function normalizeEvent(raw: RawEvent): CampusEvent[] {
     const event = raw.event;
     // typeof checks, not truthiness: a numeric title reached `.replace` and
@@ -360,12 +295,7 @@ export interface CalendarResult {
     truncated: boolean;
 }
 
-/**
- * Fetch and normalise the calendar.
- *
- * Cached whole rather than per page: the pages only mean anything together, and
- * a partial set in the cache would answer a later call with a prefix.
- */
+/** Cached whole, not per page: a partial set would answer a later call with a prefix. */
 export async function getCalendar(days: number, groupId?: number): Promise<CalendarResult> {
     const key = `calendar:v${CACHE_VERSION}:${days}:${groupId ?? "all"}`;
     return cached(key, TTL_SECONDS, async () => {
@@ -402,14 +332,9 @@ export async function getCalendar(days: number, groupId?: number): Promise<Calen
         const totalItems = first.page?.total_items ?? 0;
         const wanted = Math.min(totalPages, MAX_PAGES);
 
-        // Page 1 already said how many pages there are, so the rest go out
-        // together. The subrequest count is unchanged; a 12-page pull goes from
-        // 12 round trips to 2, which is most of this tool's latency.
-        //
-        // No "stop early if page 1 was short" check: `page.total` is
-        // authoritative and a short first page with more to come is exactly what
-        // the fixture has. Guessing from the row count skipped page 2 and lost
-        // half the calendar.
+        // Page 1 reports the page count, so the rest go out together: a 12-page
+        // pull is 2 round trips, not 12. No "stop if page 1 was short" check --
+        // `page.total` is authoritative and guessing lost half the calendar.
         const rest =
             wanted > 1
                 ? await Promise.all(Array.from({ length: wanted - 1 }, (_, i) => readPage(i + 2)))
@@ -449,27 +374,15 @@ export interface EventFilters {
     onCampusOnly?: boolean;
 }
 
-/**
- * Trim as well as lowercase.
- *
- * The tool validates a category with `.trim().toLowerCase()` and then passed the
- * raw string here, so `" Academics"` passed validation and matched nothing: a
- * 19-event answer became "nothing on UT's calendar" over one leading space.
- */
+/** Trim as well as lowercase: `" Academics"` passed validation and matched nothing. */
 const lower = (list: string[]) => list.map((value) => value.trim().toLowerCase());
 
 /**
- * Anchored at a word START, over the event's full search text.
- *
- * A plain substring was wrong in both directions. Too wide: `query: "AI"`
- * matched "N-a-i-on-Building", "Applications" and "Chair", returning 48 of the
- * week's 105 events as AI events. Too narrow: it searched the 400-character
- * display truncation, so 9 of the 11 events mentioning mental health were
- * invisible.
- *
- * Anchoring at `\b` but NOT at the end keeps prefix matching, which is what
- * makes "engineer" find "engineering" and "robotic" find "robotics", while
- * refusing a match in the middle of an unrelated word.
+ * Anchored at a word START, over the full search text. A plain substring was
+ * wrong both ways: `query: "AI"` matched "Chair" and returned 48 of a week's
+ * 105 events, while searching the display truncation missed 9 of 11 events
+ * mentioning mental health. The open end keeps "engineer" finding
+ * "engineering".
  */
 function queryPattern(needle: string, loose: boolean): RegExp | null {
     // `\b` only works next to a word character, so a needle led by punctuation
@@ -480,30 +393,20 @@ function queryPattern(needle: string, loose: boolean): RegExp | null {
     if (!words.length) return null;
     const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Punctuation BETWEEN words is flexible, so "pre-med" finds "premed" and
-    // "pre-medical", and "women's" finds "women's" whichever apostrophe the
-    // client typed -- UT's feed carries both the straight and the curly one,
-    // and an LLM that emits the typographic form used to get nothing.
-    //
-    // Never a newline: `searchText` joins the fields with newlines precisely so
-    // a phrase cannot straddle two of them.
+    // Flexible between words, so "pre-med" finds "premed" and "women's" matches
+    // whichever apostrophe the client typed. Never a newline: searchText joins
+    // the fields with them so a phrase cannot straddle two fields.
     const body = words.map(escape).join("[^a-z0-9\\n]*");
 
-    // A one-word needle of three characters or fewer is an acronym, and an open
-    // prefix made "AI" match "aid", "aim" and "air" -- 48 of one week's 105
-    // events. But a bare word boundary was worse in the other direction:
-    // "art" could not see "Arts" and lost 13 of 20 arts events. So a short
-    // needle may take a plural and nothing else.
+    // A short needle is an acronym: an open prefix made "AI" match "aid" and
+    // "air", but a bare boundary stopped "art" seeing "Arts". Plural only.
     const tail = !loose && words.length === 1 && needle.length <= 3 ? "(?:e?s)?(?![a-z])" : "";
     return new RegExp(`\\b${body}${tail}`);
 }
 
 /**
- * `loose` drops the short-needle restriction, so "bio" reaches "biology".
- *
- * It is not the default: the caller retries with it only when the strict pass
- * found nothing, and says in the answer that it did. That way a three-letter
- * query cannot silently return the wrong set, and cannot silently return none.
+ * `loose` drops the short-needle restriction, so "bio" reaches "biology". The
+ * caller retries with it only when the strict pass found nothing, and says so.
  */
 function matchesQuery(event: CampusEvent, query: string, loose = false): boolean {
     const needle = query.trim().toLowerCase();
@@ -511,11 +414,8 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     const pattern = queryPattern(needle, loose);
     if (!pattern) return event.searchText.includes(needle);
     if (pattern.test(event.searchText)) return true;
-    // A one-word needle gets a second look at the text with its punctuation
-    // removed, so "premed" finds "Pre-Med" as well as the other way round. The
-    // needle cannot know where the feed chose to put a hyphen, and UT writes it
-    // both ways. Spaces and newlines are kept, so word boundaries still mean
-    // what they say and a phrase still cannot straddle two fields.
+    // Second look with punctuation removed, so "premed" finds "Pre-Med" too. UT
+    // writes it both ways. Spaces and newlines stay, so boundaries still hold.
     return /^[a-z0-9]+$/.test(needle)
         ? pattern.test(event.searchText.replace(/[^a-z0-9\s]/g, ""))
         : false;
@@ -534,18 +434,9 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
         // An unparseable date cannot be placed in a window, and letting it
         // through would put it wherever the sort happened to leave it.
         if (!Number.isFinite(startMs)) return false;
-        // An event is still on until it ends, so the window is compared against
-        // the end. Without this a talk that began an hour ago drops out of
-        // "what is on right now".
-        //
-        // Two cases have no end to compare against:
-        //
-        //   all day      Localist writes these as midnight with end null. Taken
-        //                literally they are over before anyone is awake, which
-        //                dropped every all-day exhibition from "today".
-        //   timed, none  Assume an hour. A 7pm talk should not vanish from
-        //                "tonight" at 7:01, and an hour is the shortest guess
-        //                that fixes that without keeping things on all evening.
+        // Compared against the END, or a talk that began an hour ago drops out of
+        // "what is on now". With no end: all-day events are midnight with end
+        // null, so assume a day; a timed event with no end gets an hour.
         const ASSUMED_DURATION_MS = 3_600_000;
         const DAY_MS = 86_400_000;
         const parsedEnd = event.end ? Date.parse(event.end) : NaN;
@@ -588,16 +479,9 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
 }
 
 /**
- * Words that mean food is being served.
- *
- * Localist has no free-food field. Its `free` flag means free ADMISSION and is
- * true for 11 events in 300, none of which is about food. Loop has a real
- * `benefits` table with "Free Food" in it, and exactly one event carrying it.
- *
- * So this is a text heuristic over the title and description, and any answer
- * built on it has to say so. It is deliberately narrow: "lunch will be
- * provided" counts, "lunch" alone does not, because every seminar between
- * noon and 1pm mentions lunch.
+ * Localist has no free-food field; its `free` flag means free ADMISSION. So
+ * this is a text heuristic and any answer built on it has to say so.
+ * Deliberately narrow: "lunch will be provided" counts, "lunch" does not.
  */
 const FOOD_PHRASES = [
     /\bfree\s+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|coffee|donuts?|tacos?|boba)\b/i,
@@ -625,24 +509,10 @@ const CAMPUS_CENTRE = { latitude: 30.2849, longitude: -97.7341 };
 const AUSTIN_RADIUS_M = 15_000;
 
 /**
- * Anywhere that is not Texas, as UT's athletics listings write it.
- *
- * "University of Texas Women's Tennis vs ITF Lincoln W15" is published on UT's
- * own calendar with the location "Lincoln, Neb., Sid and Hazel Dillon Tennis
- * Center". It is a real UT event and it is 1,200 km away, and calling it a
- * campus event is wrong.
- *
- * BOTH spellings are needed. A first pass matched only AP abbreviations with a
- * trailing period and so caught the tennis fixtures but missed every men's
- * basketball road game, which are written out in full: "San Diego,
- * California", "Louisville, Kentucky", "Athens, Georgia". Over a 60-day pull
- * that was 4 away games returned as campus events by `onCampusOnly`.
- *
- * `geo.state` would be the better signal and is unusable: it is null on every
- * one of these rows, and "TX" only on rows that already have coordinates.
- *
- * No state name collides with any UT building name or address, so matching
- * these against the location text is safe.
+ * Out-of-state road games, which UT publishes on its own calendar: "Lincoln,
+ * Neb., Sid and Hazel Dillon Tennis Center" is a real UT event 1,200 km away.
+ * Both spellings are needed -- tennis uses AP abbreviations, basketball writes
+ * "Louisville, Kentucky" in full. `geo.state` is null on every one of these.
  */
 const STATE_ABBREVIATIONS =
     "Ala|Ariz|Ark|Calif|Colo|Conn|Del|Fla|Ga|Ill|Ind|Kan|Ky|La|Md|Mass|Mich|Minn|Miss|Mo|Mont|" +
@@ -657,12 +527,8 @@ const STATE_NAMES =
     "West Virginia|Wisconsin|Wyoming";
 
 /**
- * Two alternatives with their own anchors, not one group with a shared \b.
- *
- * An abbreviation ends in a period followed by a space, and there is no word
- * boundary between "." and " ", because neither is a word character. A single
- * group with one trailing \b therefore matched none of the abbreviations, which
- * silently un-fixed the tennis fixtures while fixing the basketball ones.
+ * Two alternatives with their own anchors: there is no word boundary between
+ * "." and " ", so one trailing \b matched none of the abbreviations.
  */
 const NON_TEXAS = new RegExp(`\\b(?:${STATE_ABBREVIATIONS})\\.|\\b(?:${STATE_NAMES})\\b`, "i");
 
@@ -687,17 +553,10 @@ export function onCampus(event: CampusEvent): boolean | null {
 }
 
 /**
- * The in-state road game, which the state tests cannot see.
- *
- * Athletics rows are written "City, Texas, Venue" whichever side of the state
- * line they are on, so `onCampusOnly` kept "College Station, Texas, Kyle Field"
- * and "Midland, Texas" and reported them with no marker: a student asking
- * what was on campus was told to go to a football game 100 miles away.
- *
- * Every HOME row is written "Austin, Texas, <venue>" ("Austin, Texas, Moody
- * Center", "Austin, Texas, DKR-Texas Memorial Stadium"), so the leading city is
- * a clean test. Only applied to `locationName`, because an address legitimately
- * contains "Austin, Texas" after a street.
+ * In-state road games, which the state tests cannot see: rows read "City,
+ * Texas, Venue" on both sides of the line, so `onCampusOnly` kept Kyle Field.
+ * Home rows are always "Austin, Texas, <venue>". Only `locationName`, because
+ * an address legitimately contains "Austin, Texas" after a street.
  */
 function texasCityAwayFromAustin(locationName: string | null): boolean {
     if (!locationName) return false;
@@ -707,20 +566,10 @@ function texasCityAwayFromAustin(locationName: string | null): boolean {
 }
 
 /**
- * One row per event, not one per day it is open.
- *
- * Localist repeats a multi-day event as a separate top-level entry for every
- * day of the requested window, each carrying a single instance. A 60-day pull
- * is 1,046 rows and 324 events; a 7-day one is 236 rows and 153 events. Left
- * alone, "what is on this week" answered "245 events" when there were 153, six
- * exhibitions filled eight rows each, and `limit` was spent on repeats.
- *
- * Collapsing keeps the earliest occurrence inside the window and records how
- * many days it covers, so a run reads as one thing with a date range. Genuine
- * recurrences, such as a weekly seminar, collapse the same way and are
- * likewise reported with a count rather than repeated.
- *
- * Expects an already-filtered, already-sorted list.
+ * One row per event, not one per day it is open. Localist repeats a multi-day
+ * event once per day of the window: a 7-day pull is 236 rows and 153 events, so
+ * "this week" answered 245 and spent `limit` on repeats. Keeps the earliest
+ * occurrence and a day count. Expects a filtered, sorted list.
  */
 export interface Collapsed {
     event: CampusEvent;

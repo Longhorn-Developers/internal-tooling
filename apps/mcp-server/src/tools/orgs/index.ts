@@ -14,19 +14,35 @@ import {
     type OrgContact,
     type OrgEvent,
 } from "./extract.ts";
-import { guard, textWith } from "../respond.ts";
 import { DIRECTORY_PAGE_SIZE } from "./urls.ts";
+
+const textWith = <T>(body: string, structuredContent: T) => ({
+    content: [{ type: "text" as const, text: body }],
+    structuredContent,
+});
+
+/** Answer with a readable message instead of throwing at the client. */
+const guard =
+    <A>(
+        run: (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>,
+    ) =>
+    async (args: A) => {
+        try {
+            return await run(args);
+        } catch (error) {
+            return {
+                content: [{ type: "text" as const, text: (error as Error).message }],
+                isError: true,
+            };
+        }
+    };
 
 const DEFAULT_ROWS = 6;
 const MAX_ROWS = 15;
 
 /**
- * Subrequest budget. A Worker invocation gets 50 and this tool is not the only
- * thing that might run in one.
- *
- * Worst case here is 1 search + DETAIL_BUDGET detail + EVENT_BUDGET event
- * requests, because `organizationIds` honours only its first value so an org's
- * events cannot be batched (see urls.ts). 1 + 15 + 8 = 24.
+ * A Worker invocation gets 50 subrequests. Worst case here is 1 search + 15
+ * detail + 8 event requests, since an org's events cannot be batched.
  */
 const DETAIL_BUDGET = 15;
 const EVENT_BUDGET = 8;

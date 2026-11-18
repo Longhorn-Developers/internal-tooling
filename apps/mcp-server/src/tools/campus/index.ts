@@ -24,7 +24,27 @@ import {
     onCampus,
     type EventFilters,
 } from "./extract.ts";
-import { guard, textWith } from "../respond.ts";
+
+const textWith = <T>(body: string, structuredContent: T) => ({
+    content: [{ type: "text" as const, text: body }],
+    structuredContent,
+});
+
+/** Answer with a readable message instead of throwing at the client. */
+const guard =
+    <A>(
+        run: (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>,
+    ) =>
+    async (args: A) => {
+        try {
+            return await run(args);
+        } catch (error) {
+            return {
+                content: [{ type: "text" as const, text: (error as Error).message }],
+                isError: true,
+            };
+        }
+    };
 
 const MAX_ROWS = 40;
 const DEFAULT_ROWS = 15;

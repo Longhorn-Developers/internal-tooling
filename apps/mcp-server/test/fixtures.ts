@@ -52,19 +52,13 @@ const ROUTES: [string, string][] = [
         "organization/bykey/ieeeroboticsandautomationsociety",
         "hornslink-detail-ieeeroboticsandautomationsociety.json",
     ],
-    ["organization/bykey/texasmarinerobotics", "hornslink-detail-texasmarinerobotics.json"],
-    ["organization/bykey/eclair", "hornslink-detail-eclair.json"],
     ["organization/bykey/unjaded", "hornslink-detail-unjaded.json"],
-    ["organization/bykey/trgs", "hornslink-detail-trgs.json"],
     // The only captured org with `showJoin: false`, so it is what makes the
-    // `acceptingMembers` filter observable. Five of the 39 directory rows are
-    // genuinely not accepting join requests upstream; this is the one that also
-    // carries a category several other rows share, so a category browse returns
-    // a mix and the filter has something to remove.
+    // `acceptingMembers` filter observable, and it shares a category with
+    // several open orgs so a browse returns a mix.
     ["organization/bykey/blantonmuseum", "hornslink-detail-blantonmuseum.json"],
-    // Any other org's detail: the shape is the same whichever org was asked
-    // about, and a category browse reaches orgs no fixture is captured for.
-    // Tests that assert on a specific org's contacts use the named routes above.
+    // Any other org: the shape is the same whichever was asked about, and a
+    // category browse reaches orgs no fixture is captured for.
     ["organization/bykey/", "hornslink-detail-unjaded.json"],
     ["query=robotics", "hornslink-search-robotics.json"],
     ["top=1300", "hornslink-directory.json"],

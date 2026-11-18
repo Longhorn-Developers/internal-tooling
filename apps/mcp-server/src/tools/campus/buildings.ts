@@ -1,15 +1,7 @@
-// Turns the building references UT students actually write into coordinates.
-//
-// "GSB 2.126", "utc 2.102", "Welch 2.224", "the SAC". Nobody publishes a
-// latitude next to a room number, so every other tool that knows where
-// something is happening needs this one to say where that is.
-//
-// The resolver is adapted from Longhorn-Loop (server/src/lib/utBuildings.ts),
-// where it was written against real scraped event locations. The ordering
-// rules and the guards below are not arbitrary -- each one is a miss that
-// happened there, and the comments say which. buildings.json is a trimmed copy
-// of that repo's data file, regenerated from UT's own Building Information
-// pages; it is the only place coordinates live.
+// Turns the building references students write ("GSB 2.126", "the SAC",
+// "Gearing 114") into coordinates. Adapted from Longhorn-Loop's
+// server/src/lib/utBuildings.ts. buildings.json is regenerated from UT's
+// Building Information pages and is the only place coordinates live.
 
 import buildingData from "./buildings.json";
 
@@ -25,19 +17,7 @@ export interface UtBuilding {
     precision: Precision;
 }
 
-/**
- * Campus bounds, as a last line of defence.
- *
- * Nothing in buildings.json fails this today, so removing it changes no
- * behaviour and no test can catch its removal. It stays for the next
- * regeneration of that file, which is the only way a bad coordinate gets in.
- *
- * Every entry in the file is inside these already. The check is here to catch
- * the failure that would otherwise ship silently: a latitude and longitude
- * swapped somewhere upstream. Reversed UT coordinates land at 30N 97E, in
- * western China, and an answer pointing at China is much harder to trace back
- * than a building that simply refuses to resolve.
- */
+/** Guards the next regeneration of buildings.json: swapped lat/long lands in China. */
 const CAMPUS_BOUNDS = { minLat: 29.5, maxLat: 31, minLng: -98.5, maxLng: -96.5 };
 
 function isPlausible(b: UtBuilding): boolean {
@@ -52,30 +32,16 @@ function isPlausible(b: UtBuilding): boolean {
 }
 
 /**
- * Names students use that are not the official code.
- *
- * Kept out of the JSON on purpose: that file is regenerated from UT's data and
- * anything hand-added would be lost. This table is the place for local
- * knowledge.
- *
- * SAC matters most. The building is officially WCP, William C. Powers Jr.
- * Student Activity Center, and "SAC" appears nowhere in UT's data while being
- * what every student calls it.
+ * Names students use that are not the official code. Kept out of the JSON,
+ * which is regenerated and would lose anything hand-added. SAC is the one that
+ * matters: the building is officially WCP and "SAC" is in none of UT's data.
  */
 export const LOCATION_ALIASES: Record<string, string> = {
     SAC: "WCP",
     "STUDENT ACTIVITY CENTER": "WCP",
-    // Renamed buildings. UT retired the code, so it is in no feed and in no
-    // official list, while syllabi, students and room signs still use it --
-    // "CLA 1.106" is one of the most written room references on campus. Without
-    // these, `resolve_ut_location` answered "No UT building matched CLA 1.106"
-    // and offered no suggestion, for a building that is in the data under its
-    // new code.
-    // Only the retired CODES, not the spelled-out college name: "College of
-    // Liberal Arts" names a college with departments in a dozen buildings, and
-    // it is also what Localist puts in an event's `departments`. As a phrase
-    // alias it beat the building the string actually named, so "College of
-    // Liberal Arts, Burdine Hall 108" resolved to Patton Hall.
+    // Retired codes. UT renamed these, so they are in no feed, while syllabi
+    // and room signs still use them. Codes only: "College of Liberal Arts"
+    // names a college in a dozen buildings and is also a Localist department.
     CLA: "RLP", // College of Liberal Arts Building, now Patton Hall
     BMC: "DMC", // Belo Center for New Media, now the Dealey Center
     "BELO CENTER": "DMC",
@@ -94,16 +60,8 @@ export const LOCATION_ALIASES: Record<string, string> = {
     // of its own and no listing ever writes SRH.
     "BENSON LATIN AMERICAN COLLECTION": "SRH",
     "BENSON COLLECTION": "SRH",
-    // Dining, so a dining answer and an events answer agree on a place. J2,
-    // JCL and Kins are rooms inside Jester and Kinsolving, not buildings, and
-    // the dining tools are the only thing on this server that uses those names.
-    //
-    // Both Jester names go to JES (Jester Center) rather than JCD (Jester
-    // Residence Hall). The two are the same complex and about 50m apart, so
-    // either coordinate answers the question, but "Jester" means the centre to
-    // everyone who is not reading a housing contract. JESTER on its own is
-    // here because it resolves to nothing otherwise: the word appears in two
-    // building names, so the uniqueness guards below correctly refuse it.
+    // Dining hall names, so dining and events answers agree on a place. Both
+    // Jester names go to JES rather than JCD; same complex, ~50 m apart.
     JESTER: "JES",
     J2: "JES",
     "JESTER SECOND": "JES",
@@ -113,14 +71,8 @@ export const LOCATION_ALIASES: Record<string, string> = {
     KINSOLVING: "KIN",
     "KINSOLVING DINING": "KIN",
 
-    // Venues inside a building, and buildings the feed writes differently from
-    // UT's data. Each is a string Localist publishes with no coordinate, with
-    // the number of rows it covered in a 60-day pull measured 2026-11-09.
-    //
-    // The swimming centre is the one that mattered: TSC is in buildings.json
-    // and still did not resolve, because athletics rows prefix the city and
-    // UT's data writes CTR where the feed writes Center. A multi-word alias is
-    // matched anywhere in the string, so the city prefix stops mattering.
+    // Venues inside a building, and names the feed writes differently from UT's
+    // data. Row counts are from a 60-day pull, 2026-11-09.
     "TEXAS SWIMMING CENTER": "TSC", // 16 rows
     "CACTUS CAFE": "UNB", // 20 rows; inside the Texas Union
     // SEA is on the ambiguous-code list, so it only resolves when it leads the
@@ -146,23 +98,13 @@ export const LOCATION_ALIASES: Record<string, string> = {
 };
 
 /**
- * Codes that are also ordinary English words.
- *
- * AND is Andrews Residence Hall. Without this list "Jester and Gregory Gym"
- * resolves to Andrews, confidently. ART, BIO, GAR, PAR, SEA and WIN have the
- * same problem in milder form.
- *
- * They still resolve, because "ART 1.102" has to work, but only when the code
- * leads the string, which is how a room reference is written and is not how a
- * conjunction appears.
+ * Codes that are also English words: AND is Andrews Residence Hall, so
+ * "Jester and Gregory Gym" resolved to Andrews. They count only when leading,
+ * which is how a room reference reads and is not how a conjunction appears.
  */
 const AMBIGUOUS_CODES = new Set(["AND", "ART", "BIO", "GAR", "PAR", "SEA", "WIN", "TOWER"]);
 
-/**
- * Locations that are not places. These resolve to null and are reported as
- * absent rather than unrecognised: an online event has no coordinate, and that
- * is the correct answer, not a gap in the data.
- */
+/** Not places. Reported as absent rather than unrecognised. */
 const NON_PHYSICAL = [
     "ONLINE",
     "ZOOM",
@@ -184,15 +126,7 @@ const NON_PHYSICAL = [
 
 const PRECISIONS: readonly Precision[] = ["marker", "centroid", "geocoded"];
 
-/**
- * Read the data file without asserting its type.
- *
- * `precision` widens to `string` coming out of JSON, so a casual cast would let
- * an unexpected value through as a valid Precision and the "approximate"
- * warning would then be decided by a string nobody checked. An unknown value
- * degrades to "geocoded", the loosest, so a mistake in the data over-warns
- * rather than over-promising.
- */
+/** `precision` widens to `string` out of JSON; an unknown value degrades to the loosest. */
 /** Exported so the fallback is testable; the data file has no bad values today. */
 export function toPrecision(value: string): Precision {
     return PRECISIONS.find((known) => known === value) ?? "geocoded";
@@ -211,13 +145,9 @@ export const ALL_BUILDINGS: readonly UtBuilding[] = [...BY_CODE.values()].sort((
 );
 
 /**
- * Uppercase, punctuation to spaces, whitespace collapsed.
- *
- * Ampersands, periods and apostrophes are deleted rather than spaced, because
- * they sit inside words. "AT&T" spaced becomes "AT T" and the ATT token never
- * appears, which is how the AT&T Conference Center went unresolved against a
- * file that contains it. Deleting gives "ATT". Room numbers survive either
- * way: "GSB 2.126" becomes "GSB 2126" and the code is still its own token.
+ * Uppercase, punctuation to spaces, whitespace collapsed. Ampersands, periods
+ * and apostrophes are deleted rather than spaced, because they sit inside
+ * words: "AT&T" spaced gives "AT T" and the ATT token never appears.
  */
 function normalize(value: string): string {
     return value
@@ -233,40 +163,22 @@ function nameKey(building: UtBuilding): string {
     return normalize(building.name).replace(/\s+(BLDG|BUILDING)$/, "");
 }
 
-/**
- * Official names, longest first.
- *
- * Longest-first matters: "ART BUILDING AND MUSEUM" and "ART" would both match
- * a string containing the former, and the longer name is the more specific
- * claim. Sorting once here beats deciding per lookup.
- */
+/** Official names, longest first, so the more specific name wins. */
 const BY_NAME: { key: string; building: UtBuilding }[] = [];
 for (const building of BY_CODE.values()) {
     const key = nameKey(building);
-    // Short names are too loose to match inside a sentence: a key of a few
-    // characters fires on anything that happens to contain it. The floor is a
-    // blunt instrument and deliberately permissive, so "2400 NUECES" (11
-    // characters) is indexed and does resolve.
+    // A key of a few characters fires on anything containing it, so there is a
+    // length floor. Deliberately permissive: "2400 NUECES" is indexed.
     if (key.length >= 9) BY_NAME.push({ key, building });
 }
 BY_NAME.sort((a, b) => b.key.length - a.key.length);
 
 /**
- * Official names carry donors; students do not.
- *
- * BEL is "L. THEO BELLMONT HALL" in UT's data and "Bellmont Hall" in every
- * listing, so full-name matching misses it. Same for SRH, PCL, WEL and a dozen
- * more.
- *
- * So each name is also indexed by its last two words, the distinguishing word
- * plus the building type, under three guards, because a loose key here
- * mislabels a place rather than merely missing it:
- *
- *   the last word is a building type   HALL, CENTER, LIBRARY...
- *   the word before it is >= 5 chars   drops "AND MUSEUM", "CONF CENTER"
- *   and appears in no other name       drops "CONFERENCE CENTER", which sent a
- *                                      Pickle-campus event to Thompson, and
- *                                      "RESIDENCE HALL", which is 13 dorms
+ * Official names carry donors and listings do not: BEL is "L. THEO BELLMONT
+ * HALL" in UT's data and "Bellmont Hall" everywhere else. So each name is also
+ * indexed by its last two words, under three guards -- the last word is a
+ * building type, the word before it is >= 5 chars, and it appears in no other
+ * name. Without the third, "CONFERENCE CENTER" and "RESIDENCE HALL" match many.
  */
 const BUILDING_TYPE_WORDS = new Set([
     "HALL",
@@ -306,36 +218,13 @@ for (const building of BY_CODE.values()) {
 }
 
 /**
- * "Gearing 114" -- a surname and a room number, with no building type at all.
- *
- * The short-name index needs the type word, so "Bellmont Hall 962" resolves
- * and "Gearing 114" does not, and listings write both. Each distinctive word
- * is therefore indexed on its own.
- *
- * On its own that is dangerous, and word-uniqueness is not enough to make it
- * safe. Exactly one building name contains "CAMPUS" (East Campus Garage), so
- * uniqueness admits it, and "UT Austin campus" would then resolve to a car
- * park. COLLEGE, BIOLOGY, DINING and ENERGY are the same.
- *
- * The guard is positional: the word must lead the string and be followed
- * immediately by something starting with a digit. The digit test alone was not
- * enough, because addresses put numbers after words too, and "Patton Center
- * for Marine Science Education 855 E. Cotter Ave. Port Aransas" matched on
- * EDUCATION and put a marine lab 200 miles away inside EER.
- *
- * First position was NOT enough on its own, because plenty of real strings
- * start with a generic word followed by something that merely begins with a
- * digit. Measured against the live resolver, all four of these came back
- * `resolved: true` with full coordinates and no hedge:
- *
- *   "North 1st Street"           -> NEZ, North End Zone Building
- *   "Education 2.302"            -> EER  (UT's College of Education is SZB)
- *   "Austin 2026 Climate Summit" -> LAC, Lake Austin Centre
- *   "Campus 2 West"              -> ECG, East Campus Garage
- *
- * So two further guards: the generic words below are excluded outright, and the
- * token after the name has to look like a UT room number rather than merely
- * start with a digit.
+ * "Gearing 114" -- a surname and a room number, with no building type, which
+ * the short-name index cannot see. Each distinctive word is indexed on its own,
+ * under three guards, because uniqueness alone is not safe: exactly one name
+ * contains "CAMPUS" (East Campus Garage). The word must lead the string, must
+ * not be generic, and the token after it must look like a room number.
+ * Otherwise "North 1st Street" resolves to the North End Zone and
+ * "Education 2.302" to EER, which is not UT's College of Education.
  */
 const GENERIC_NAME_WORDS = new Set([
     "AUSTIN",
@@ -358,16 +247,8 @@ const GENERIC_NAME_WORDS = new Set([
 ]);
 
 /**
- * A UT room number: "2.126", "114", "1.106", "4.244", "962".
- *
- * Deliberately not `^\d`: "1st" and "2 West" start with a digit and neither is
- * a room. UT numbers rooms either as floor.number or as three to four bare
- * digits.
- *
- * The year exclusion is the case the digit count alone misses: "2026" is four
- * digits, so "Austin 2026 Climate Summit" satisfied a bare length test and put
- * a conference inside Lake Austin Centre. No UT room is numbered in the 1900s
- * or 2000s, and event titles carry years constantly.
+ * "2.126", "114", "962". Not `^\d`: "1st" and "2 West" start with a digit and
+ * are not rooms, and a year like "2026" passes a bare four-digit test.
  */
 const ROOM_NUMBER = /^(?:\d{1,2}\.\d{1,4}[A-Z]?|\d{3,4}[A-Z]?)$/;
 const YEAR_LIKE = /^(?:19|20)\d\d$/;
@@ -386,13 +267,9 @@ for (const building of BY_CODE.values()) {
 }
 
 /**
- * Aliases split by shape, because one word and several behave differently.
- *
- * A multi-word alias is safe to look for anywhere in a string: "Student
- * Activity Center" means one thing. A single word is not. TOWER matched inside
- * `"HQ" Room, Floor 1 North Tower, EER Building` and put an engineering
- * lecture at the top of the UT Tower, so single words go through the token
- * path where the ambiguity rule applies to them too.
+ * Split by shape. A multi-word alias is safe anywhere in a string; a single
+ * word is not, so it goes through the token path where the ambiguity rule
+ * applies -- TOWER matched inside "Floor 1 North Tower, EER Building".
  */
 const ALIAS_EXACT = new Map<string, UtBuilding>();
 const ALIAS_TOKENS = new Map<string, UtBuilding>();
@@ -414,12 +291,8 @@ const NON_PHYSICAL_NORMALIZED = NON_PHYSICAL.map(normalize);
 export function isNonPhysicalLocation(location: string | null | undefined): boolean {
     if (!location || !location.trim()) return true;
     const normalized = normalize(location);
-    // The terms are normalized too. Comparing raw terms against a normalized
-    // candidate made two of them unreachable: normalize("N/A") is "N A", which
-    // never equals "N/A", so "N/A" fell through to the suggestion path and
-    // offered five confident buildings for a string meaning "unknown".
-    // "OFF-CAMPUS" was dead the same way, harmlessly, because "OFF CAMPUS" is
-    // listed separately.
+    // Terms are normalized too: normalize("N/A") is "N A" and never equals the
+    // raw term, so "N/A" used to fall through to the suggestion path.
     return NON_PHYSICAL_NORMALIZED.some(
         (term) =>
             normalized === term ||

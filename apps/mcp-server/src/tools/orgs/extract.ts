@@ -1,20 +1,12 @@
-// Reads the HornsLink org directory and turns it into something a model can
-// answer "what clubs should I look at" from.
+// Reads the HornsLink org directory.
 //
-// WHAT THIS DELIBERATELY DOES NOT RETURN. The detail endpoint carries
-// `primaryContact`: a named student, their personal email address, and their
-// profile photo. That is a real person's contact details, and an org directory
-// answer does not need them -- the org's own inbox and its Instagram do the
-// same job. Only the org-level address is read; the officer block is dropped in
-// `orgDetail` below and never reaches a tool response.
+// The detail endpoint carries `primaryContact` -- a named student, their
+// personal email and photo. That is dropped in `orgDetail` and never reaches a
+// response; only the org-level address is read.
 //
-// WHY NOT AN EVENT FEED. HornsLink is where orgs register events to reserve
-// rooms and meet reporting requirements, not where students find them. Over an
-// 878-event pull, 823 had zero RSVPs, the highest on any event was 5, and 91%
-// were occurrences of a recurring series -- 478 titles were a variant of
-// "General Meeting". So this tool is the directory, and an org's events are
-// opt-in and capped rather than a second events feed. Campus events come from
-// Localist, through find_events.
+// This is the directory, not an events feed: over an 878-event pull 823 had
+// zero RSVPs and 478 titles were a variant of "General Meeting". An org's
+// events are opt-in and capped. Campus events come from find_events.
 
 import { cached, getJson, norm, text } from "../../shared.ts";
 import {
@@ -27,17 +19,9 @@ import {
 } from "./urls.ts";
 
 /**
- * Bump this whenever the SHAPE of anything cached below changes.
- *
- * `cached` persists its values in the Cloudflare Cache API, which outlives a
- * deploy. When `searchOrgs` started returning `{ total, rows }` instead of a
- * bare array, every key already in that cache still held an array, and the new
- * code read `.rows` off it and threw -- for as long as the old entry's TTL had
- * left. Caught on a live worker that had answered the same queries under the
- * previous shape.
- *
- * A version in the key makes an entry written by older code unreachable
- * instead of wrong.
+ * Bump whenever the shape of anything cached below changes. The Cloudflare
+ * cache outlives a deploy, so when `searchOrgs` moved from a bare array to
+ * `{ total, rows }` the old entries were read by the new code and threw.
  */
 const CACHE_VERSION = 2;
 
@@ -59,13 +43,9 @@ export interface Org {
 
 export interface OrgContact {
     /**
-     * The org-level contact address.
-     *
-     * Usually an org inbox, but it is a free-text field an officer fills in,
-     * and some orgs put their own @utexas.edu address there (Alpha Kappa Psi
-     * does). So this is "the address the org publishes", not "never a personal
-     * address" -- what is guaranteed is that it never comes from the officer
-     * record, which this tool does not read at all.
+     * The address the org publishes. Free text, so some orgs put an officer's
+     * own @utexas.edu there; what is guaranteed is that it never comes from the
+     * officer record, which this tool does not read.
      */
     email: string | null;
     website: string | null;
@@ -86,11 +66,9 @@ export interface OrgEvent {
 }
 
 /**
- * The 14 categories HornsLink publishes, as of 2026-11-14.
- *
- * Hardcoded on purpose: upstream ignores `categoryIds`, so this list is only
- * used to validate and match what a caller typed, never to build a request. The
- * live list is at /api/discovery/organization/category if it needs regenerating.
+ * The 14 categories HornsLink publishes, 2026-11-14. Hardcoded because upstream
+ * ignores `categoryIds`: this only validates what a caller typed. Live list is
+ * at /api/discovery/organization/category.
  */
 export const ORG_CATEGORIES = [
     "Academic",
@@ -110,16 +88,9 @@ export const ORG_CATEGORIES = [
 ] as const;
 
 /**
- * Category names that appear on orgs but not in the category endpoint.
- *
- * The endpoint publishes 14 categories; the directory's rows carry 20 distinct
- * names. Measured over all 1,226 rows on 2026-11-14: Culture 5, Art 3, Service
- * and Philanthropy 2, Pre-Professional 2, Student Governance 1, Ideology and
- * Politics 1. They look like names from before a rename and nothing cleaned up
- * the rows.
- *
- * Without this, "Cultural/International" silently misses the 5 orgs tagged
- * "Culture" -- a filter that looks like it worked and quietly drops rows.
+ * Names on orgs that the category endpoint does not publish: it lists 14 while
+ * the rows carry 20 distinct names, left over from a rename. Without this,
+ * "Cultural/International" misses the 5 orgs tagged "Culture".
  */
 const LEGACY_CATEGORY_NAMES: Record<string, string> = {
     Culture: "Cultural/International",
@@ -130,12 +101,7 @@ const LEGACY_CATEGORY_NAMES: Record<string, string> = {
     "Ideology and Politics": "Political/Advocacy",
 };
 
-/**
- * Words students use that are not a category name.
- *
- * "sports" is the one that matters: the category is "Sport Clubs", and a plain
- * substring match on "sports" finds nothing because of the missing s.
- */
+/** "sports" is the one that matters: the category is "Sport Clubs". */
 const CATEGORY_ALIASES: Record<string, string> = {
     sports: "Sport Clubs",
     sport: "Sport Clubs",
@@ -170,28 +136,16 @@ const CATEGORY_ALIASES: Record<string, string> = {
 };
 
 /**
- * Aliases that only count as the WHOLE input, never as a word inside a phrase.
- *
- * "club" is in almost every phrase a student types, so the single-hit phrase
- * rule turned it into a wildcard: `category: "pre-med club"`, "engineering club"
- * and "running club" all resolved to Recreational and returned the same 52 rows
- * with a note claiming it had read the category. It was inconsistent too --
- * "sports clubs" worked while "sports club" was refused as ambiguous, because
- * the second one hit both `sports` and `club`.
- *
- * Kept as a whole-input alias, where `category: "club"` meaning Recreational is
- * a fair reading of a one-word input.
+ * Aliases that count only as the WHOLE input. "club" is in almost every phrase
+ * a student types, so the phrase rule made it a wildcard: "pre-med club" and
+ * "running club" both resolved to Recreational.
  */
 const WHOLE_INPUT_ONLY = new Set(["club", "clubs"]);
 
 /**
- * Map what a caller typed onto one of the 14, or null.
- *
- * Deliberately conservative. An earlier version took the first category whose
- * name contained the input, which turned "ed" into "Graduate Student Oriented"
- * (it contains "orient-ed", and it sorts before "Educational") and "a" into
- * "Academic". A confident wrong category is worse than refusing, because the
- * answer that comes back looks filtered.
+ * Map what a caller typed onto one of the 14, or null. Conservative on purpose:
+ * matching the first name containing the input turned "ed" into "Graduate
+ * Student Oriented", which contains "orient-ed" and sorts first.
  */
 export function matchCategory(input: string): string | null {
     const raw = input.trim();
@@ -240,13 +194,8 @@ interface RawSearchRow {
 }
 
 /**
- * A row is usable only if it has the two things every answer needs: an id and a
- * website key. The key is what builds the profile link, and a row without one
- * cannot be linked to, so it is dropped rather than returned unlinkable.
- *
- * Inactive and non-public rows are dropped too. The directory carries 1,226
- * rows and the club's own daily scrape counts 1,222, so a handful are not
- * things a student should be pointed at.
+ * Needs an id and a website key: the key builds the profile link, and a row
+ * without one cannot be linked to. Inactive and non-public rows go too.
  */
 function toOrg(raw: RawSearchRow): Org | null {
     const id = raw.Id?.trim();
@@ -282,12 +231,9 @@ function parseOrgs(parsed: { value?: RawSearchRow[] }): Org[] {
 
 export interface OrgSearch {
     /**
-     * How many rows upstream says match, which is NOT how many were returned.
-     *
-     * Upstream matches any word in the query and ranks the result loosely, so
-     * this number is broad: "pre-med" reports 469 of the 1,226 orgs and "ai"
-     * reports 238. It is still the only honest total available, and reporting
-     * the size of our own fetch instead would be a made-up number.
+     * What upstream says matches, which is NOT how many were returned. It
+     * matches any word, so "pre-med" reports 469 of 1,226 orgs. Still the only
+     * honest total: reporting our own fetch size would be a made-up number.
      */
     total: number;
     rows: Org[];
@@ -395,17 +341,10 @@ export async function orgEvents(
  * re-derived, so a row carrying two categories matches either.
  */
 /**
- * How much of the query the returned rows actually contain.
- *
- * HornsLink relevance-ranks on ANY word, which makes a small result set look
- * authoritative when it is a near miss. `query: "muay thai"` returned the Thai
- * Association of Austin and the Thai Lao Cambodian Student Association with
- * `notes: []` -- there is no muay thai club at UT, and an agent reading that
- * answer tells a student to email a cultural org about kickboxing.
- *
- * So the tool checks the rows itself and reports which words it could find.
- * Hedging on the SIZE of the result set, which is what it used to do, misses
- * this entirely: the hedge only fired above 50 rows.
+ * How much of the query the returned rows actually contain. HornsLink ranks on
+ * ANY word, so a small result set looks authoritative when it is a near miss:
+ * `query: "muay thai"` returned two Thai cultural associations, and there is no
+ * muay thai club at UT. Hedging on result-set SIZE missed that entirely.
  */
 export function queryRelevance(
     rows: Org[],

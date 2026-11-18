@@ -1689,3 +1689,41 @@ describe("falling back to a looser query, and how far ahead it reads", () => {
         );
     });
 });
+
+describe("a department filter that matches nothing", () => {
+    it("says what the field holds instead of implying nothing is happening", async () => {
+        // Asked for "Computer Science" this answered "Nothing on UT's calendar"
+        // and the agent reported there are no CS events at UT that week. There
+        // were 23, on the CS department's own calendar. The central feed has no
+        // Computer Science department value at all.
+        const { data, content } = await events({
+            when: "this week",
+            department: "Computer Science",
+            limit: 5,
+        });
+        expect(data.events).toHaveLength(0);
+
+        const notes = data.notes.join(" ");
+        expect(notes).toMatch(/No event in this window is tagged with a department matching/);
+        // The count has to be collapsed events, not occurrence rows, or it
+        // disagrees with the "window held N" line in the same answer.
+        const stated = Number(/of (\d+) events here/.exec(notes)![1]);
+        const held = Number(/held (\d+) event/.exec(content[0]!.text)![1]);
+        expect(stated).toBe(held);
+        // Names the departments that ARE present, so the agent can retry.
+        expect(notes).toMatch(/the ones that do are:/);
+        // And says what an empty answer does and does not mean.
+        expect(notes).toMatch(/rather than 'not happening'/);
+        expect(content[0]!.text).toContain("NOTE:");
+    });
+
+    it("does not add that note when the department did match", async () => {
+        const withDept = await events({ when: "this week", limit: 40 });
+        const known = withDept.data.events.flatMap((event) => event.departments ?? []);
+        if (!known.length) return; // fixture carries no departments; nothing to assert
+        resetCache();
+        const { data } = await events({ when: "this week", department: known[0]!, limit: 5 });
+        expect(data.events.length).toBeGreaterThan(0);
+        expect(data.notes.join(" ")).not.toMatch(/is tagged with a department matching/);
+    });
+});

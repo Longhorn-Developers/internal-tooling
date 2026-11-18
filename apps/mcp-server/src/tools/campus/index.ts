@@ -398,12 +398,17 @@ export function registerCampusTools(server: McpServer) {
         {
             title: "Find UT campus events",
             description:
-                "Find events happening at UT Austin from the university's official calendar. " +
+                "Find events happening at UT Austin from the university's central calendar. " +
                 "Filter by when, by interest category, by who it is for, by department, by " +
                 "whether it is in person, and by how close it is to a building. Every event " +
                 "comes back with a link, and with coordinates where they can be worked out. " +
-                "This covers institutional and departmental events; student club events are " +
-                "mostly promoted on social media and are not in this calendar.",
+                "COVERAGE: this is the central calendar only, about 245 events over 60 days, " +
+                "and it skews to arts, student affairs and HR. Most academic departments run " +
+                "their own calendars that do not feed into it -- Computer Science, Cockrell " +
+                "engineering, Natural Sciences and the iSchool all do, so lab meetings, " +
+                "seminars, reading groups and office hours are usually absent. Student club " +
+                "events are mostly on social media or HornsLink. An empty answer here means " +
+                "nothing matched THIS calendar, not that nothing is happening.",
             outputSchema: EVENTS_OUTPUT,
             inputSchema: z
                 .object({
@@ -433,7 +438,15 @@ export function registerCampusTools(server: McpServer) {
                         .enum(VENUE_TYPES)
                         .optional()
                         .describe("Restrict to in-person, virtual or hybrid"),
-                    department: z.string().optional().describe('e.g. "Fine Arts", "Libraries"'),
+                    department: z
+                        .string()
+                        .optional()
+                        .describe(
+                            'e.g. "Fine Arts", "Libraries", "Student Affairs". Sparse: about ' +
+                                "half the events carry no department at all, and only ~23 " +
+                                "values ever appear. There is no Computer Science or " +
+                                "engineering department here. Prefer query for a subject.",
+                        ),
                     near: z
                         .string()
                         .optional()
@@ -593,6 +606,30 @@ export function registerCampusTools(server: McpServer) {
 
                 const notes: string[] = [];
                 if (looseNote) notes.push(looseNote);
+
+                // A department that matches nothing is the tool's most
+                // misleading empty answer: asked for "Computer Science" it said
+                // "Nothing on UT's calendar", and the agent reported that there
+                // are no CS events at UT this week. There were 23 that week, on
+                // the department's own calendar. So say what this field holds.
+                if (input.department && matched.length === 0) {
+                    // Collapsed, or this counts occurrence rows and reports 170
+                    // events in a window the line above calls 96.
+                    const inWindow = collapseSeries(
+                        filterEvents(calendar.events, { from: filters.from, to: filters.to }),
+                    ).map((entry) => entry.event);
+                    const present = [
+                        ...new Set(inWindow.flatMap((event) => event.departments)),
+                    ].sort();
+                    const withNone = inWindow.filter((event) => !event.departments.length).length;
+                    notes.push(
+                        `No event in this window is tagged with a department matching "${input.department}". ` +
+                            `${withNone} of ${inWindow.length} events here carry no department at all, and the ones that do are: ` +
+                            `${present.join("; ") || "none"}. ` +
+                            "Most academic departments keep their own calendar that this one does not include, so " +
+                            "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
+                    );
+                }
                 if (anchor) {
                     const before = series.length;
                     series = series.filter(

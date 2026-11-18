@@ -582,10 +582,10 @@ describe("filterOrgs", () => {
 });
 
 /**
- * Found by working the live HornsLink endpoint. Each of these answered a real
- * student question confidently and wrongly while the suite was green.
+ * Each of these answered a real student question confidently and wrongly at
+ * some point, so they are the cases to re-check when the matching changes.
  */
-describe("gaps found by the live blindspot audit", () => {
+describe("loose matches, and saying so", () => {
     it("says so when nothing matched all of the query", async () => {
         // `query: "muay thai"` returned the Thai Association of Austin and the
         // Thai Lao Cambodian Student Association with notes: [] -- there is no
@@ -750,7 +750,7 @@ describe("input limits", () => {
     });
 });
 
-describe("gaps found auditing the fixes", () => {
+describe("what a count means, and which rows actually matched", () => {
     it("does not claim an upstream any-word total is an exact count", async () => {
         // `query: "a cappella"` answered matched 1222 with matchedIsFinal
         // true, 1,222 being HornsLink's count of every org matching "a" OR
@@ -868,9 +868,6 @@ describe("gaps found auditing the fixes", () => {
         }
         expect(result.notes.join(" ")).not.toMatch(/these 1 are/);
     });
-});
-
-describe("gaps the fix audit's mutation run exposed", () => {
     it("does not hedge a single exact row about its lower-ranked siblings", async () => {
         // One perfect row got a note reading "these 1 are" and warning about
         // "the lower-ranked ones" that do not exist.

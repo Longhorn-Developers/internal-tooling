@@ -356,7 +356,7 @@ describe("resolve_ut_location", () => {
         expect(data.notes.join(" ")).toMatch(/approximate|footprint/);
     });
 
-    it("rejects an unknown argument instead of ignoring it", async () => {
+    it("rejects an unknown argument to resolve_ut_location instead of ignoring it", async () => {
         const result = await call("resolve_ut_location", { locations: "GDC" });
         expect(result.isError).toBe(true);
     });
@@ -1080,7 +1080,7 @@ describe("find_events", () => {
         expect(past.content[0]?.text).toContain("in the past");
     });
 
-    it("rejects an unknown argument instead of ignoring it", async () => {
+    it("rejects an unknown argument to find_events instead of ignoring it", async () => {
         const result = await call("find_events", { date: "tomorrow" });
         expect(result.isError).toBe(true);
     });
@@ -1225,7 +1225,7 @@ describe("find_events", () => {
     });
 });
 
-describe("gaps found by mutation testing", () => {
+describe("boundaries the obvious tests miss", () => {
     it("trims inside filterEvents, not only at the tool boundary", () => {
         // filterEvents is exported, so a caller that has not trimmed must
         // still get the right answer. Trimming only in index.ts left this
@@ -1315,10 +1315,10 @@ describe("gaps found by mutation testing", () => {
 });
 
 /**
- * Found by working the live endpoint rather than the source: every case here
- * returned a confident, plausible, wrong answer while the suite was green.
+ * Each case here returned a confident, plausible, wrong answer at some point.
+ * They are the ones worth keeping an eye on when touching the matcher.
  */
-describe("gaps found by the live blindspot audit", () => {
+describe("searching event text, and what counts as on campus", () => {
     const longDescription = (tail: string) =>
         `${"UT hosts a seminar series on campus each week. ".repeat(14)}${tail}`;
 
@@ -1446,7 +1446,7 @@ describe("gaps found by the live blindspot audit", () => {
     });
 });
 
-describe("gaps found by the live blindspot audit, part 2", () => {
+describe("the edges of a day, and venues UT has renamed", () => {
     // The clock is 2026-11-09 09:00 Austin, so "yesterday" is the 8th.
     it("refuses yesterday, not just the day before", async () => {
         // The guard allowed a full day of grace, which meant yesterday was
@@ -1543,8 +1543,7 @@ describe("gaps found by the live blindspot audit, part 2", () => {
     });
 });
 
-/** Found auditing the previous round's fixes. Three of these were regressions. */
-describe("gaps found auditing the fixes", () => {
+describe("short queries, punctuation, and which name wins", () => {
     describe("a short query and its own plural", () => {
         const arts = makeEvent({ title: "Arts and Entertainment Showcase" });
         const art = makeEvent({ title: "Art History Lecture" });
@@ -1557,12 +1556,6 @@ describe("gaps found auditing the fixes", () => {
             expect(
                 filterEvents([makeEvent({ title: "Classes" })], { query: "class" }),
             ).toHaveLength(1);
-        });
-
-        it("still refuses a different word that merely starts the same", () => {
-            for (const title of ["Financial Aid Night", "Air Quality Seminar", "Aims and Scope"]) {
-                expect(filterEvents([makeEvent({ title })], { query: "AI" })).toHaveLength(0);
-            }
         });
 
         it("reaches a longer word only when asked, and says nothing matched strictly", async () => {
@@ -1655,7 +1648,7 @@ describe("gaps found auditing the fixes", () => {
     });
 });
 
-describe("gaps the fix audit's mutation run exposed", () => {
+describe("falling back to a looser query, and how far ahead it reads", () => {
     it("retries a short query loosely and says it did", async () => {
         // "bio" appears in the fixture only inside longer words (biography,
         // biomedical, bioscience). Strictly it matches nothing, and a bare

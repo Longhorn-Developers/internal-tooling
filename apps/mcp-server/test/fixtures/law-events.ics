@@ -1,0 +1,197 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//UNIVERSITY OF TEXAS SCHOOL OF LAW//NONSGML Events Calendar v1.0//EN
+X-WR-CALNAME:Texas Law - Events Calendar
+X-WR-TIMEZONE:America/Chicago
+BEGIN:VTIMEZONE
+TZID:US/Central
+X-LIC-LOCATION:America/Chicago
+BEGIN:DAYLIGHT
+TZOFFSETFROM:-0600
+TZOFFSETTO:-0500
+TZNAME:CDT
+DTSTART:19700308T020000
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
+END:DAYLIGHT
+BEGIN:STANDARD
+TZOFFSETFROM:-0500
+TZOFFSETTO:-0600
+TZNAME:CST
+DTSTART:19701101T020000
+RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T080000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T090000
+DTSTAMP:20261118T202400Z
+CREATED:20260818T230500Z
+LAST-MODIFIED:20260818T230500Z
+UID:20261118T080000-89693@law.utexas.edu
+SUMMARY:TLVA Weekly Wednesday Coffees
+DESCRIPTION:<p>Join the Texas Law Veterans Association for coffee and
+  conversation every Wednesday morning from 8 am to 9 am in the Tom Clark
+  Lounge (next to the Docket). It's a great way to connect with fellow
+  veterans\, build community\, and start your day with good company and
+  caffeine. All law veteran students\, alumni\, and supporters of the org
+  are welcome. </p>If you need an accommodation to participate in this
+  event, please contact the event sponsor or the Texas Law Special Events
+  Office at specialevents@law.utexas.edu no later than seven business days
+  prior to the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>Join the Texas Law Veterans Association
+  for coffee and conversation every Wednesday morning from 8 am to 9 am in
+  the Tom Clark Lounge (next to the Docket). It's a great way to connect
+  with fellow veterans\, build community\, and start your day with good
+  company and caffeine. All law veteran students\, alumni\, and supporters
+  of the org are welcome. </p><p>If you need an accommodation to
+  participate in this event, please contact the
+              event sponsor or the Texas Law Special Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+LOCATION:
+URL:https://law.utexas.edu/calendar/2026/11/18/89693/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T083000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T093000
+DTSTAMP:20261118T202400Z
+CREATED:20261021T031600Z
+LAST-MODIFIED:20261102T172100Z
+UID:20261118T083000-91777@law.utexas.edu
+SUMMARY:NRF & BOA Breakfast!
+DESCRIPTION:<p>Come join BOA and our friends from Norton Rose Fulbright
+  for breakfast and good chats! We'll be serving breakfast tacos\,
+  breakfast sandwiches\, coffee\, and juice from Two Goose Market &
+  Barbecue. Please RSVP\; registration will close on Friday\, November
+  13.</p>
+  <p><a
+  href="https://florecruit.com/v2/app/nrf/registration/events/110237/regist
+  er">https://florecruit.com/v2/app/nrf/registration/events/110237/register
+  </a></p>If you need an accommodation to participate in this event, please
+  contact the event sponsor or the Texas Law Special Events Office at
+  specialevents@law.utexas.edu no later than seven business days prior to
+  the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>Come join BOA and our friends from Norton
+  Rose Fulbright for breakfast and good chats! We'll be serving breakfast
+  tacos\, breakfast sandwiches\, coffee\, and juice from Two Goose Market &
+  Barbecue. Please RSVP\; registration will close on Friday\, November
+  13.</p>
+  <p><a
+  href="https://florecruit.com/v2/app/nrf/registration/events/110237/regist
+  er">https://florecruit.com/v2/app/nrf/registration/events/110237/register
+  </a></p><p>If you need an accommodation to participate in this event,
+  please contact the
+                                          event sponsor
+  or the Texas Law Special Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+LOCATION:TNH 2.100 - Susman Godfrey Atrium
+URL:https://law.utexas.edu/calendar/2026/11/18/91777/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T100000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T110000
+DTSTAMP:20261118T202400Z
+CREATED:20260910T234800Z
+LAST-MODIFIED:20260910T234800Z
+UID:20261118T100000-90512@law.utexas.edu
+SUMMARY:Buildings and Breakfast
+DESCRIPTION:<p>Members of the Texas Real Estate Law Society (TRELS) can
+  come grab a kolache and chat with other members at our weekly meeting!
+  </p>If you need an accommodation to participate in this event, please
+  contact the event sponsor or the Texas Law Special Events Office at
+  specialevents@law.utexas.edu no later than seven business days prior to
+  the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>Members of the Texas Real Estate Law
+  Society (TRELS) can come grab a kolache and chat with other members at
+  our weekly meeting! </p><p>If you need an accommodation to participate in
+  this event, please contact the
+  event sponsor or the Texas Law Special Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+URL:https://law.utexas.edu/calendar/2026/11/18/90512/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T113000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T133000
+DTSTAMP:20261118T202400Z
+CREATED:20261111T144900Z
+LAST-MODIFIED:20261111T144900Z
+UID:20261118T113000-92437@law.utexas.edu
+SUMMARY:DLA Piper | 1L Meet&Greet | Pavilion
+DESCRIPTION:<p>1Ls: Stop by to meet recruiters from DLA Piper to learn
+  more about their firm and grab lunch. </p>If you need an accommodation to
+  participate in this event, please contact the event sponsor or the Texas
+  Law Special Events Office at specialevents@law.utexas.edu no later than
+  seven business days prior to the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>1Ls: Stop by to meet recruiters from DLA
+  Piper to learn more about their firm and grab lunch. </p><p>If you need
+  an accommodation to participate in this event, please contact the
+                                  event sponsor or the Texas Law Special
+  Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+LOCATION:CCJ 2.300 - Jamail Pavilion
+URL:https://law.utexas.edu/calendar/2026/11/18/92437/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T115000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T125000
+DTSTAMP:20261118T202400Z
+CREATED:20260821T020500Z
+LAST-MODIFIED:20260821T020500Z
+UID:20261118T115000-89772@law.utexas.edu
+SUMMARY:CLS Bible Study
+DESCRIPTION:<p>Join the Christian Legal Society for Bible study\, lunch\,
+  and fellowship. Lunch is provided\, and all are welcome.</p>If you need
+  an accommodation to participate in this event, please contact the event
+  sponsor or the Texas Law Special Events Office at
+  specialevents@law.utexas.edu no later than seven business days prior to
+  the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>Join the Christian Legal Society for
+  Bible study\, lunch\, and fellowship. Lunch is provided\, and all are
+  welcome.</p><p>If you need an accommodation to participate in this event,
+  please contact the
+                                          event sponsor
+  or the Texas Law Special Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+LOCATION:TNH 3.127 - Roberts Classroom
+URL:https://law.utexas.edu/calendar/2026/11/18/89772/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE-TIME;TZID=US/Central:20261118T115000
+DTEND;VALUE=DATE-TIME;TZID=US/Central:20261118T125000
+DTSTAMP:20261118T202400Z
+CREATED:20260821T020600Z
+LAST-MODIFIED:20260908T162100Z
+UID:20261118T115000-89787@law.utexas.edu
+SUMMARY:CLSS
+DESCRIPTION:<p>Weekly meeting for the Catholic Law Student Society</p>If
+  you need an accommodation to participate in this event, please contact
+  the event sponsor or the Texas Law Special Events Office at
+  specialevents@law.utexas.edu no later than seven business days prior to
+  the event.
+X-ALT-DESC;FMTTYPE=text/html:<p>Weekly meeting for the Catholic Law
+  Student Society</p><p>If you need an accommodation to participate in this
+  event, please contact the
+                                          event
+  sponsor or the Texas Law Special Events Office at <a
+  href="mailto:specialevents@law.utexas.edu">specialevents@law.utexas.edu</
+  a> no later than seven business days prior to the event.</p>
+LOCATION:
+URL:https://law.utexas.edu/calendar/2026/11/18/89787/
+CLASS:PUBLIC
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR

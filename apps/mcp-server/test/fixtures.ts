@@ -29,6 +29,12 @@ const ROUTES: [string, string][] = [
     // exercised: `page.total` there is a count of PAGES, not of events, and
     // reading it as events stops the loop after one page. Matched on `pp`
     // because the number of days requested varies with the window asked for.
+    // Departmental calendars, captured 2026-11-18 and trimmed. Three different
+    // formats because UT has no universal one: an ICS feed, LiveWhale JSON and
+    // a WordPress REST collection.
+    ["law.utexas.edu/calendar/feed/ics", "law-events.ics"],
+    ["mccombs.utexas.edu/live/json/events", "mccombs-events.json"],
+    ["cockrell.utexas.edu/wp-json/wp/v2/event", "cockrell-events.json"],
     // The CS department's own calendar, captured 2026-11-18 and trimmed to six
     // events. Two routes because the feed carries the event and the monthly
     // view carries the room, joined on the event id.

@@ -23,6 +23,14 @@ import {
 import { parseWindow, registerCampusTools } from "../src/tools/campus";
 import { CAMPUS_NOW, fixture, stubFetch, type FetchLog } from "./fixtures";
 import { CS_SOURCE, csInstant, getCsCalendar, parseRooms } from "../src/tools/campus/cs";
+import {
+    getDepartmentCalendars,
+    icsInstant,
+    parseIcs,
+    parseLiveWhale,
+    parseWordPress,
+    unfoldIcs,
+} from "../src/tools/campus/providers";
 
 type LocationStructured = {
     query: string;
@@ -1808,6 +1816,7 @@ describe("one calendar failing", () => {
         vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
             const url =
                 typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            // Only the CS feed, so the note names it and not the others.
             if (url.includes("apps.cs.utexas.edu")) throw new Error("cs feed down");
             return stubbed(input as never, init);
         });
@@ -1817,5 +1826,127 @@ describe("one calendar failing", () => {
         const data = result.structuredContent as EventsStructured;
         expect(data.events.length).toBeGreaterThan(0);
         expect(data.notes.join(" ")).toMatch(/apps\.cs\.utexas\.edu did not answer/);
+    });
+});
+
+describe("departmental calendars in three formats", () => {
+    describe("law, an ICS feed", () => {
+        const parsed = () => parseIcs(fixture("law-events.ics"), "law.utexas.edu", "School of Law");
+
+        it("reads events with their rooms", () => {
+            const events = parsed();
+            expect(events.length).toBeGreaterThan(0);
+            for (const e of events) {
+                expect(e.title).toBeTruthy();
+                expect(e.source).toBe("law.utexas.edu");
+                expect(e.departments).toEqual(["School of Law"]);
+                expect(e.start).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+            }
+        });
+
+        it("unfolds a wrapped line before reading it", () => {
+            // RFC 5545 wraps a long value by starting the next line with a
+            // space, so a naive line parse reads half a LOCATION.
+            // The inserted space IS the fold marker, so unfolding deletes the
+            // newline and that space: "...was wr" + "\n apped" rejoins as
+            // "was wrapped".
+            const folded = "SUMMARY:A title that was wr\n apped\r\nLOCATION:TNH 2.1\n 23";
+            const out = unfoldIcs(folded);
+            expect(out).toContain("that was wrapped");
+            expect(out).toContain("TNH 2.123");
+        });
+
+        it("resolves a Central wall-clock time, not whatever Date.parse decides", () => {
+            // The feed writes DTSTART;TZID=US/Central:20261118T083000.
+            const iso = icsInstant("20261118T083000", "US/Central");
+            expect(new Date(iso!).toISOString()).toBe("2026-11-18T14:30:00.000Z");
+            // A trailing Z is already UTC and must not be shifted again.
+            expect(icsInstant("20261118T143000Z", null)).toBe("2026-11-18T14:30:00.000Z");
+            expect(icsInstant("nonsense", null)).toBeNull();
+        });
+
+        it("unescapes the commas and semicolons ICS escapes", () => {
+            const events = parsed();
+            const blob = events.map((e) => `${e.title} ${e.description ?? ""}`).join(" ");
+            // A BACKSLASH before a comma or semicolon, not the punctuation
+            // itself. The fixture legitimately contains plenty of both.
+            expect(blob).not.toMatch(/\\[,;]/);
+            // And the fixture really does exercise it.
+            expect(fixture("law-events.ics")).toMatch(/\\[,;]/);
+        });
+    });
+
+    describe("mccombs, LiveWhale JSON", () => {
+        it("reads the data array, not the envelope", () => {
+            // The payload is {meta, links, data}; reading the wrong key gave
+            // zero events while the feed carried 150.
+            const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            expect(events.length).toBeGreaterThan(0);
+            for (const e of events) expect(e.source).toBe("calendar.mccombs.utexas.edu");
+        });
+
+        it("has no coordinates, because the endpoint serves no location", () => {
+            const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            for (const e of events) {
+                expect(e.room).toBeNull();
+                expect(e.latitude).toBeNull();
+            }
+        });
+
+        it("returns nothing rather than throwing on an unexpected payload", () => {
+            expect(parseLiveWhale({})).toEqual([]);
+            expect(parseLiveWhale({ data: "not an array" })).toEqual([]);
+            expect(parseLiveWhale(null)).toEqual([]);
+        });
+    });
+
+    describe("cockrell, WordPress REST", () => {
+        const parsed = () => parseWordPress(JSON.parse(fixture("cockrell-events.json")));
+
+        it("builds a time from the date and the am/pm clock in post meta", () => {
+            const events = parsed();
+            expect(events.length).toBeGreaterThan(0);
+            const noon = events.find((e) => e.start.includes("T18:00"));
+            // 12:00 pm Central is 18:00Z in winter.
+            expect(noon ?? events[0]).toBeTruthy();
+            for (const e of events) {
+                expect(e.source).toBe("cockrell.utexas.edu");
+                expect(e.start).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+            }
+        });
+
+        it("flattens the markup in the location field before resolving it", () => {
+            // The field carries '"HQ" Room, Floor 1<br>North Tower, EER Building'.
+            const events = parsed();
+            for (const e of events) {
+                if (e.room) expect(e.room).not.toMatch(/<[a-z]/i);
+            }
+            // That string names EER, and the resolver should find it.
+            const eer = events.find((e) => e.buildingCode === "EER");
+            expect(eer).toBeTruthy();
+        });
+
+        it("returns nothing rather than throwing on an unexpected payload", () => {
+            expect(parseWordPress({})).toEqual([]);
+            expect(parseWordPress([{ id: 1 }])).toEqual([]);
+        });
+    });
+
+    it("keeps going when one department is down", async () => {
+        resetCache();
+        vi.unstubAllGlobals();
+        stubFetch();
+        const stubbed = globalThis.fetch;
+        vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url =
+                typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+            if (url.includes("law.utexas.edu")) throw new Error("law feed down");
+            return stubbed(input as never, init);
+        });
+        const { events, failed } = await getDepartmentCalendars(CAMPUS_NOW, 8);
+        expect(failed).toEqual(["law.utexas.edu"]);
+        // The others still answered.
+        expect(events.length).toBeGreaterThan(0);
+        expect(new Set(events.map((e) => e.source)).has("law.utexas.edu")).toBe(false);
     });
 });

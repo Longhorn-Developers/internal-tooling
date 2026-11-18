@@ -12,9 +12,10 @@ import {
     walkMinutes,
     type UtBuilding,
 } from "./buildings.ts";
-import { CS_SOURCE, getCsCalendar } from "./cs.ts";
+import { getDepartmentCalendars } from "./providers.ts";
 import {
     AUDIENCES,
+    austinInstant,
     EVENT_CATEGORIES,
     MAX_WINDOW_DAYS,
     VENUE_TYPES,
@@ -123,28 +124,6 @@ const EVENTS_OUTPUT = z.object({
         }),
     ),
 });
-
-/** Austin's UTC offset at a given instant, in minutes behind UTC. */
-function austinOffsetMinutes(at: Date): number {
-    const name = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Chicago",
-        timeZoneName: "longOffset",
-    })
-        .formatToParts(at)
-        .find((part) => part.type === "timeZoneName")?.value;
-    const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name ?? "");
-    if (!match) return 360; // CST, the safe assumption if the runtime surprises us
-    const sign = match[1] === "-" ? 1 : -1;
-    return sign * (Number(match[2]) * 60 + Number(match[3]));
-}
-
-/** An instant from an Austin wall-clock reading. */
-function austinInstant(year: number, month: number, day: number, hour: number, minute = 0): Date {
-    const guess = Date.UTC(year, month - 1, day, hour, minute);
-    const first = new Date(guess + austinOffsetMinutes(new Date(guess)) * 60_000);
-    // One correction pass, for a DST changeover day.
-    return new Date(guess + austinOffsetMinutes(first) * 60_000);
-}
 
 const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -405,15 +384,14 @@ export function registerCampusTools(server: McpServer) {
                 "Filter by when, by interest category, by who it is for, by department, by " +
                 "whether it is in person, and by how close it is to a building. Every event " +
                 "comes back with a link, and with coordinates where they can be worked out. " +
-                "COVERAGE: two calendars. UT's central one, about 245 events over 60 days, " +
-                "skewed to arts, student affairs and HR; and the Computer Science " +
-                "department's own, which carries its lab meetings, reading groups, talks and " +
-                "office hours and appears nowhere in the central one. Each event says which " +
-                "`source` it came from. Other departments -- Cockrell engineering, McCombs, " +
-                "Moody, Law, Liberal Arts, Nursing -- publish on their own sites and are not " +
-                "read yet, and student club events are mostly on social media or HornsLink. " +
-                "An empty answer means nothing matched these two calendars, not that nothing " +
-                "is happening.",
+                "COVERAGE: UT's central calendar, which skews to arts, student affairs and " +
+                "HR, plus four departmental ones that publish nothing to it -- Computer " +
+                "Science, the School of Law, McCombs and Cockrell engineering. Each event " +
+                "says which `source` it came from, and `department` is set for the " +
+                "departmental ones. Moody, Nursing, Fine Arts, Liberal Arts, Texas Global " +
+                "and the iSchool are not read, and student club events are mostly on social " +
+                "media or HornsLink. An empty answer means nothing matched these calendars, " +
+                "not that nothing is happening.",
             outputSchema: EVENTS_OUTPUT,
             inputSchema: z
                 .object({
@@ -447,10 +425,12 @@ export function registerCampusTools(server: McpServer) {
                         .string()
                         .optional()
                         .describe(
-                            'e.g. "Computer Science", "Fine Arts", "Libraries". Sparse on ' +
-                                "the central calendar: about half its events carry no " +
-                                'department and only ~23 values appear. "Computer Science" ' +
-                                "covers the CS department feed. Prefer query for a subject.",
+                            'e.g. "Computer Science", "School of Law", "McCombs", ' +
+                                '"Cockrell", "Fine Arts". The first four read that ' +
+                                "department's own calendar; the rest come from the central " +
+                                "one, where " +
+                                "about half the events carry no department at all. Prefer " +
+                                "query for a subject.",
                         ),
                     near: z
                         .string()
@@ -582,24 +562,26 @@ export function registerCampusTools(server: McpServer) {
                 // one week, 23 of 23 CS events were absent from it. Neither
                 // source failing may take the other's answer down.
                 const days = daysNeeded(window, now);
-                const [central, cs] = await Promise.allSettled([
+                const [central, departments] = await Promise.allSettled([
                     getCalendar(days),
-                    getCsCalendar(now, days),
+                    getDepartmentCalendars(now, days),
                 ]);
+                // The central calendar is the only one whose failure is fatal:
+                // without it there is no answer worth giving.
                 if (central.status === "rejected") throw central.reason;
+                const extra =
+                    departments.status === "fulfilled"
+                        ? departments.value
+                        : { events: [], failed: ["the departmental calendars"] };
                 const calendar = {
                     ...central.value,
-                    events: [
-                        ...central.value.events,
-                        ...(cs.status === "fulfilled" ? cs.value.events : []),
-                    ].sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId),
+                    events: [...central.value.events, ...extra.events].sort(
+                        (a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId,
+                    ),
                 };
-                const sourceNote =
-                    cs.status === "rejected"
-                        ? `${CS_SOURCE} did not answer, so Computer Science events are missing from this answer.`
-                        : cs.value.failed.length
-                          ? `${CS_SOURCE} did not answer for ${cs.value.failed.join(", ")}, so some Computer Science events may be missing.`
-                          : null;
+                const sourceNote = extra.failed.length
+                    ? `${extra.failed.join(", ")} did not answer, so some events are missing here.`
+                    : null;
                 const filters: EventFilters = {
                     from: window.from,
                     to: window.to,
@@ -654,7 +636,7 @@ export function registerCampusTools(server: McpServer) {
                         `No event in this window is tagged with a department matching "${input.department}". ` +
                             `${withNone} of ${inWindow.length} events here carry no department at all, and the ones that do are: ` +
                             `${present.join("; ") || "none"}. ` +
-                            "Most departments other than Computer Science keep their own calendar that is not read here, so " +
+                            "Departments other than Computer Science, Law, McCombs and Cockrell keep their own calendar that is not read here, so " +
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }

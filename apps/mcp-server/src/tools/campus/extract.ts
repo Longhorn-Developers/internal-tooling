@@ -38,8 +38,41 @@ export const AUDIENCES = ["Students", "Faculty", "Staff", "Alumni", "Families", 
 export const VENUE_TYPES = ["inperson", "virtual", "hybrid"] as const;
 export type VenueType = (typeof VENUE_TYPES)[number];
 
+/** Austin's UTC offset at a given instant, in minutes behind UTC. */
+export function austinOffsetMinutes(at: Date): number {
+    const name = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Chicago",
+        timeZoneName: "longOffset",
+    })
+        .formatToParts(at)
+        .find((part) => part.type === "timeZoneName")?.value;
+    const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name ?? "");
+    if (!match) return 360; // CST, the safe assumption if the runtime surprises us
+    const sign = match[1] === "-" ? 1 : -1;
+    return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+/** An instant from an Austin wall-clock reading. */
+export function austinInstant(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute = 0,
+): Date {
+    const guess = Date.UTC(year, month - 1, day, hour, minute);
+    const first = new Date(guess + austinOffsetMinutes(new Date(guess)) * 60_000);
+    // One correction pass, for a DST changeover day.
+    return new Date(guess + austinOffsetMinutes(first) * 60_000);
+}
+
 /** Every calendar find_events reads. One per provider. */
-export type EventSource = "calendar.utexas.edu" | "apps.cs.utexas.edu";
+export type EventSource =
+    | "calendar.utexas.edu"
+    | "apps.cs.utexas.edu"
+    | "law.utexas.edu"
+    | "calendar.mccombs.utexas.edu"
+    | "cockrell.utexas.edu";
 
 export interface CampusEvent {
     id: number;

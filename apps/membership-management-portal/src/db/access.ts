@@ -1,6 +1,6 @@
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import { drizzle, DrizzleD1Database } from 'drizzle-orm/d1'
-import { teams, teamUsers, users } from './schema'
+import { MAX_SLUG_LENGTH, teams, teamUsers, users } from './schema'
 import type { Vertical } from './schema'
 
 export type User = typeof users.$inferSelect
@@ -28,7 +28,7 @@ export function today() {
     return new Date().toISOString().slice(0, 10)
 }
 
-export const githubSlugOf = (name: string) =>
+export const teamSlugOf = (name: string) =>
     name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
@@ -37,9 +37,10 @@ export const githubSlugOf = (name: string) =>
 // A team's leads are the members of its GitHub child team with this slug.
 export const leadsSlugOf = (slug: string) => `${slug}-leads`
 
-/** Whether a team can't take this slug: empty, ending in the reserved "-leads", or colliding with a group (or a group colliding with its subteam). */
+/** Whether a team can't take this slug: empty, longer than Discord allows for a channel name, ending in the reserved "-leads", or colliding with a group (or a group colliding with its subteam). */
 export const slugUnavailable = (slug: string, groupSlugs: string[]) =>
     !slug ||
+    slug.length > MAX_SLUG_LENGTH ||
     slug.endsWith('-leads') ||
     groupSlugs.some((group) => group === slug || group === leadsSlugOf(slug))
 
@@ -50,7 +51,9 @@ function normalizeUser<T extends Partial<NewUser>>(data: T): T {
         ...(data.githubId !== undefined && {
             githubId: data.githubId?.trim().toLowerCase() || null,
         }),
-        ...(data.discordId !== undefined && { discordId: data.discordId.trim().toLowerCase() }),
+        ...(data.discordId !== undefined && {
+            discordId: data.discordId.trim().replace(/^@/, '').toLowerCase(),
+        }),
     }
 }
 
@@ -105,17 +108,20 @@ export class MembershipDatabase {
         return user
     }
 
-    async updateUser(userId: string, data: Partial<Omit<NewUser, 'id'>>): Promise<User> {
-        const user = await this.db
-            .update(users)
-            .set(normalizeUser(data))
-            .where(and(eq(users.id, userId), eq(users.status, 'active')))
-            .returning()
-            .get()
+    /** Updates an active user in one D1 round trip, returning the row as it was and as it is now. */
+    async updateUser(
+        userId: string,
+        data: Partial<Omit<NewUser, 'id'>>,
+    ): Promise<{ before: User; after: User }> {
+        const activeUser = and(eq(users.id, userId), eq(users.status, 'active'))
+        const [[before], [after]] = await this.db.batch([
+            this.db.select().from(users).where(activeUser),
+            this.db.update(users).set(normalizeUser(data)).where(activeUser).returning(),
+        ])
 
-        if (!user) throw new UpdateRecordError({ userId }, data)
+        if (!before || !after) throw new UpdateRecordError({ userId }, data)
 
-        return user
+        return { before, after }
     }
 
     async deactivateUser(userId: string): Promise<User> {
@@ -242,11 +248,11 @@ export class MembershipDatabase {
         return this.db.select().from(teams).orderBy(teams.name).all()
     }
 
-    async createTeam(data: Omit<NewTeam, 'id' | 'githubSlug'>): Promise<Team> {
+    async createTeam(data: Omit<NewTeam, 'id' | 'teamSlug'>): Promise<Team> {
         const teamData = {
             id: crypto.randomUUID(),
             ...data,
-            githubSlug: githubSlugOf(data.name),
+            teamSlug: teamSlugOf(data.name),
         }
 
         const team = await this.db.insert(teams).values(teamData).returning().get()

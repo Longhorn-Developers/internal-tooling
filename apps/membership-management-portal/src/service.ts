@@ -2,15 +2,9 @@ import type { Vertical } from './db/schema'
 import { MembershipDatabase, Team, User } from './db/access'
 import Env = Cloudflare.Env
 
-export const execRoles = [
-    'President',
-    'Product Director',
-    'SWE Director',
-    'Communications Director',
-    'Membership Director',
-    'UX Design Director',
-] as const
-export type ExecRole = (typeof execRoles)[number]
+export { execRoles } from './db/schema'
+export type { ExecRole } from './db/schema'
+import type { ExecRole } from './db/schema'
 
 /**
  * Something a service reports: an entity an action needs that doesn't exist, a setup problem,
@@ -35,9 +29,9 @@ export type FailedChange = { change: NeededChange; error: Error }
 export type ServiceResult = { changes: NeededChange[]; failed: boolean }
 
 /**
- * What a service's autoFix returns: `changes` are those it deferred, to resubmit; `failedChanges`
- * errored; `rejected` weren't attempted because they need a person or their kind/service isn't supported.
- * Only failedChanges make it `failed`; deferred and rejected changes are returned for the caller.
+ * `changes` contains deferred work or prerequisites; `failedChanges` contains errors.
+ * `rejected` contains selections not attempted (manual, unsupported, or blocked).
+ * Errors and blocking prerequisites set `failed`; a work-budget deferral alone does not.
  */
 export type FixServiceResult = ServiceResult & {
     failedChanges: FailedChange[]
@@ -72,11 +66,11 @@ export class ServiceError extends Error {
  *
  * - Actions first check the entities they need. If a required one doesn't exist they change
  *   nothing and return it as a blocking change with `failed: true`. Entities that exist but
- *   aren't set up right come back as non-blocking changes, and the action still runs. They never
- *   check memberships; the syncs do.
+ *   aren't set up right may be non-blocking drift; access/privacy problems must block.
  * - Syncs only report what differs from D1 (`failed` stays false); autoFix makes the changes.
  * - Removals are best-effort: anything already gone is skipped.
- * - Failed API calls throw ServiceError. Actions are idempotent, so re-running one is safe.
+ * - Failed API calls throw ServiceError. External writes cannot be rolled back atomically;
+ *   sync current state to recover after a runtime failure.
  */
 export abstract class Service {
     abstract readonly name: string
@@ -107,8 +101,14 @@ export abstract class Service {
     /** The user's details changed (D1 already has `after`); move their access if the account did. */
     abstract updateUser(before: User, after: User): Promise<ServiceResult>
 
-    abstract makeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
+    /** `previousRole` is the exec role they held before, if any, so a service can drop access only that role gave. */
+    abstract makeExec(
+        user: User,
+        execRole: ExecRole,
+        previousRole?: ExecRole,
+    ): Promise<ServiceResult>
 
+    /** They're no longer exec at all: remove everything `execRole` gave them. */
     abstract removeExec(user: User, execRole: ExecRole): Promise<ServiceResult>
 
     abstract createTeam(team: Team): Promise<ServiceResult>

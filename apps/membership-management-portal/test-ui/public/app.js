@@ -262,7 +262,7 @@ function changesPanel() {
             el(
                 'span',
                 { class: 'muted' },
-                'Removals are not selected by default. autoFix applies up to 10 at a time.',
+                'Removals are not selected by default. autoFix applies up to 50 at a time.',
             ),
         ),
         el(
@@ -525,7 +525,7 @@ function teamCard(team) {
     return el(
         'div',
         { class: 'card' },
-        el('h2', {}, team.name, ' ', el('code', { class: 'muted' }, team.githubSlug)),
+        el('h2', {}, team.name, ' ', el('code', { class: 'muted' }, team.teamSlug)),
         el(
             'table',
             {},

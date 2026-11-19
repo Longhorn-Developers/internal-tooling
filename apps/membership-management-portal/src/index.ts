@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
-import { Vertical } from './db/schema'
+import { MAX_SLUG_LENGTH, Vertical } from './db/schema'
+import { DiscordService } from './discord/discord-service'
 import { GitHubService } from './github/github-service'
 import { handleGitHubWebhook } from './github/github-webhook'
 import type {
@@ -11,11 +12,14 @@ import type {
     Service,
     ServiceResult,
 } from './service'
-import { githubSlugOf, MembershipDatabase, slugUnavailable } from './db/access'
+import { teamSlugOf, MembershipDatabase, slugUnavailable } from './db/access'
 import type { MembershipState } from './db/access'
 import Env = Cloudflare.Env
 
 // TODO: eventually publish types in repo frontend can import
+
+// autoFix attempts at most this many fixable changes per call and defers the rest.
+const MAX_FIX_CHANGES = 50
 
 /** The details of a user that can be edited; an empty `githubId` removes it. */
 type UserEdits = { name?: string; email?: string; githubId?: string | null; discordId?: string }
@@ -39,8 +43,11 @@ export default { fetch: handleGitHubWebhook } satisfies ExportedHandler<Env>
 // are wrangler vars.
 export class MembershipService extends WorkerEntrypoint {
     // instance (so services) per RPC call
-    private readonly db = new MembershipDatabase(this.env.membership_db)
-    private readonly allServices: Service[] = [new GitHubService(this.env, this.db)]
+    private readonly db = new MembershipDatabase(this.env.membership_db!)
+    private readonly allServices: Service[] = [
+        new GitHubService(this.env, this.db),
+        new DiscordService(this.env, this.db),
+    ]
 
     private async run(
         action: (service: Service) => Promise<ServiceResult>,
@@ -95,9 +102,6 @@ export class MembershipService extends WorkerEntrypoint {
 
     /** Changes a user's details; a changed GitHub account moves their access in the services. */
     async updateUser(userId: string, edits: UserEdits): Promise<RPCResult> {
-        // validates the user
-        const before = await this.db.getUser(userId)
-
         const data = {
             ...(edits.name !== undefined && { name: edits.name }),
             ...(edits.email !== undefined && { email: edits.email.toLowerCase() }),
@@ -108,7 +112,8 @@ export class MembershipService extends WorkerEntrypoint {
         }
         if (!Object.keys(data).length) return { failedServices: {} }
 
-        const after = await this.db.updateUser(userId, data)
+        // validates the user
+        const { before, after } = await this.db.updateUser(userId, data)
 
         return this.run((s) => s.updateUser(before, after))
     }
@@ -150,31 +155,31 @@ export class MembershipService extends WorkerEntrypoint {
 
     async makeExec(userId: string, execRole: ExecRole): Promise<RPCResult> {
         // validates the user and exec role
-        const user = await this.db.updateUser(userId, { execRole: execRole })
+        const { before, after: user } = await this.db.updateUser(userId, { execRole: execRole })
 
-        return this.run((s) => s.makeExec(user, execRole))
+        // services that care about moving between exec roles handle the old one themselves
+        return this.run((s) => s.makeExec(user, execRole, before.execRole ?? undefined))
     }
 
     async removeExec(userId: string): Promise<RPCResult> {
         // validates the user
-        const { execRole } = await this.db.getUser(userId)
-        if (!execRole) return { failedServices: {} }
+        const { before, after: user } = await this.db.updateUser(userId, { execRole: null })
+        if (!before.execRole) return { failedServices: {} }
 
-        // validates the exec role
-        const user = await this.db.updateUser(userId, { execRole: null })
-
-        return this.run((s) => s.removeExec(user, execRole))
+        return this.run((s) => s.removeExec(user, before.execRole!))
     }
 
     async createTeam(name: string): Promise<RPCResult> {
-        const slug = githubSlugOf(name)
+        const slug = teamSlugOf(name)
         if (
             slugUnavailable(
                 slug,
-                [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].map(githubSlugOf),
+                [this.env.GITHUB_EXEC_TEAM, this.env.GITHUB_LEADS_TEAM].map(teamSlugOf),
             )
         ) {
-            throw new Error(`Invalid or reserved GitHub team slug: ${slug}`)
+            throw new Error(
+                `Invalid, too long (max ${MAX_SLUG_LENGTH}) or reserved team slug: ${slug}`,
+            )
         }
         const team = await this.db.createTeam({ name })
 
@@ -223,13 +228,20 @@ export class MembershipService extends WorkerEntrypoint {
      */
     async autoFix(changes: NeededChange[]): Promise<FixResult> {
         const result: FixResult = { failedServices: {}, failedChanges: [], rejected: [] }
-        result.rejected.push(
-            ...changes.filter((change) => !this.allServices.some((s) => s.name === change.service)),
-        )
-        const deferred: NeededChange[] = []
+        const known = (change: NeededChange) =>
+            this.allServices.some((s) => s.name === change.service)
+        result.rejected.push(...changes.filter((change) => !known(change)))
+
+        // Only fixable changes count toward the limit; the rest still go through so their service can reject them.
+        const mine = changes.filter(known)
+        const fixable = mine.filter((change) => change.fixable)
+        const attempt = new Set(fixable.slice(0, MAX_FIX_CHANGES))
+        const deferred = fixable.slice(MAX_FIX_CHANGES)
+        const batch = mine.filter((change) => !change.fixable || attempt.has(change))
+
         for (const s of this.allServices) {
             try {
-                const next = await s.autoFix(changes.filter((change) => change.service === s.name))
+                const next = await s.autoFix(batch.filter((change) => change.service === s.name))
                 deferred.push(...(next.changes ?? []))
                 result.failedChanges.push(...next.failedChanges)
                 result.rejected.push(...next.rejected)

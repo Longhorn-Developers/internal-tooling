@@ -15,6 +15,13 @@
             "when": 1794361552126,
             "tag": "0001_exec_roles_github_slugs_unique_identities",
             "breakpoints": true
+        },
+        {
+            "idx": 2,
+            "version": "6",
+            "when": 1795000000000,
+            "tag": "0002_team_slug",
+            "breakpoints": true
         }
     ]
 }

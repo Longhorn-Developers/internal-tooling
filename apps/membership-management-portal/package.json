@@ -4,7 +4,6 @@
     "type": "module",
     "main": "src/index.ts",
     "scripts": {
-        "test": "tsx --test tests/*.test.ts",
         "dev": "wrangler dev --local",
         "deploy": "wrangler deploy --minify",
         "cf-typegen": "wrangler types --env-interface CloudflareBindings",
@@ -12,11 +11,13 @@
         "staging": "./test-ui/start.sh"
     },
     "dependencies": {
+        "@discordjs/rest": "^2.6.3",
         "@octokit/auth-app": "^8.3.1",
         "@octokit/core": "^7.0.8",
         "@octokit/plugin-paginate-rest": "^16.0.0",
         "@octokit/plugin-rest-endpoint-methods": "^18.0.0",
         "@octokit/request-error": "^7.1.2",
+        "discord-api-types": "^0.38.59",
         "drizzle-orm": "^0.45.4"
     },
     "devDependencies": {

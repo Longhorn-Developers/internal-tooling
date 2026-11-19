@@ -8,6 +8,78 @@ import Env = Cloudflare.Env
 
 // API names for repository roles; the GitHub UI calls `push` "Write"
 export type RepoPermission = 'pull' | 'triage' | 'push' | 'maintain' | 'admin'
+
+export class GitHubRateLimitError extends ServiceError {
+    constructor(public readonly retryAfterSeconds: number) {
+        super(
+            'github',
+            'GITHUB_RATE_LIMITED',
+            true,
+            `GitHub rate limit reached; retry after ${retryAfterSeconds} seconds`,
+        )
+    }
+}
+
+/**
+ * Per-RPC pacing and backoff, not an account-wide quota counter.
+ * No promises or timers cross RPC boundaries.
+ */
+class GitHubRequestGate {
+    private nextWriteAt = 0
+    private stopped?: GitHubRateLimitError
+
+    constructor(
+        private readonly now = Date.now,
+        private readonly sleep = (ms: number) =>
+            new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    ) {}
+
+    get blocked() {
+        return this.stopped !== undefined
+    }
+
+    async before(method: string) {
+        if (this.stopped) throw this.stopped
+        if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return
+        const now = this.now()
+        const start = Math.max(now, this.nextWriteAt)
+        // Reserve before awaiting so concurrent calls in this RPC get distinct slots.
+        this.nextWriteAt = start + 1000
+        if (start > now) await this.sleep(start - now)
+        if (this.stopped) throw this.stopped
+    }
+
+    observe(
+        status: number,
+        headers: Record<string, string | number | undefined>,
+        message = '',
+        graphqlErrors: Array<{ type?: string; message?: string }> = [],
+    ) {
+        const exhausted = Number(headers['x-ratelimit-remaining']) === 0
+        const rejected =
+            status === 429 ||
+            (status === 403 &&
+                (/rate.?limit|abuse/i.test(message) || exhausted || !!headers['retry-after'])) ||
+            graphqlErrors.some(
+                (e) => e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message ?? ''),
+            )
+        if (!rejected && !exhausted) return
+        const retry = Number(headers['retry-after']) || 0
+        const reset = exhausted
+            ? Math.ceil(Number(headers['x-ratelimit-reset']) - this.now() / 1000) + 1
+            : 0
+        this.stopped = new GitHubRateLimitError(
+            Math.max(
+                1,
+                retry,
+                Number.isFinite(reset) ? reset : 0,
+                rejected && !retry && !reset ? 60 : 0,
+            ),
+        )
+        // Preserve successful calls and partial GraphQL successes; stop the next request.
+        if (rejected && status !== 200) throw this.stopped
+    }
+}
 export type TeamRole = 'member' | 'maintainer'
 
 export type GitHubErrorCode =
@@ -206,8 +278,13 @@ type Snapshot = {
 
 export type TeamRepoGrant = { slug: string; repo: string; permission: RepoPermission }
 
-const CALL_BUDGET = 36
-const HARD_CALL_BUDGET = 44
+// Per-RPC cap on GitHub calls, a guard against runaway loops rather than a Workers limit. GitHub's
+// limits: an installation gets at least 5,000 REST requests and 5,000 GraphQL points per hour
+// (more with 20+ repos/members, up to 12,500), plus secondary limits of 100 concurrent requests,
+// 900 points/min per REST endpoint (writes cost 5), 80 content-creating requests/min and 500/hour.
+// 500 calls is a tenth of the hourly minimum, far above what 50 fixes need, and leaves room for webhooks.
+const CALL_BUDGET = 500
+const HARD_CALL_BUDGET = 550
 // Mutations per GraphQL request.
 const BATCH = 50
 const PAGE = 100
@@ -230,6 +307,7 @@ const auths = new Map<string, ReturnType<typeof createAppAuth>>()
 
 /** Per-RPC snapshot; writes skip no-ops and update memory only after remote success. */
 export class GitHubOrg {
+    private readonly requestGate = new GitHubRequestGate()
     constructor(
         private readonly env: Env,
         private readonly pageSize = PAGE,
@@ -270,12 +348,20 @@ export class GitHubOrg {
         if (!auth) auths.set(key, (auth = createAppAuth({ appId, privateKey, installationId })))
 
         const client = new GitHub({ authStrategy: () => auth, userAgent: 'lhd-membership-worker' })
-        client.hook.before('request', (options) => {
+        client.hook.before('request', async (options) => {
+            await this.requestGate.before(options.method)
             if (this.calls >= HARD_CALL_BUDGET) throw new GitHubBudgetExceeded()
             this.calls++
             options.headers['x-github-api-version'] = '2026-03-10'
         })
+        client.hook.after('request', (response) => {
+            const data = response.data as { errors?: Array<{ type?: string; message?: string }> }
+            this.requestGate.observe(response.status, response.headers, '', data?.errors)
+        })
         client.hook.error('request', (error) => {
+            if (error instanceof RequestError) {
+                this.requestGate.observe(error.status, error.response?.headers ?? {}, error.message)
+            }
             throw error instanceof RequestError
                 ? new GitHubError(error.status, error.message)
                 : error
@@ -285,7 +371,7 @@ export class GitHubOrg {
     }
 
     get callsLeft() {
-        return CALL_BUDGET - this.calls
+        return this.requestGate.blocked ? 0 : CALL_BUDGET - this.calls
     }
 
     // Reads reject partial results; batched writes inspect each mutation's errors.

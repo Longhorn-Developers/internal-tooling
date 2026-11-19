@@ -1,28 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { cacheStats, cached, getText, resetCache, UpstreamError } from "../src/shared";
 import { getCurrentHours, getLocations } from "../src/tools/dining/extract";
-import { stubFetch } from "./fixtures";
+import { stubFetch, stubCaches } from "./fixtures";
 
 /**
  * A stand-in for Cloudflare's Cache API that, like the real one, can only hold
  * bytes. Anything that does not survive JSON.stringify/parse comes back changed
  * -- which is how a cache HIT can behave differently from a MISS.
  */
-function stubCaches() {
-    const store = new Map<string, string>();
-    vi.stubGlobal("caches", {
-        default: {
-            async match(req: Request) {
-                const body = store.get(req.url);
-                return body === undefined ? undefined : new Response(body);
-            },
-            async put(req: Request, res: Response) {
-                store.set(req.url, await res.text());
-            },
-        },
-    });
-    return store;
-}
 
 beforeEach(() => resetCache());
 afterEach(() => vi.unstubAllGlobals());

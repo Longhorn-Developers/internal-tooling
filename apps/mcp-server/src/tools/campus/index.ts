@@ -421,7 +421,11 @@ export function registerCampusTools(server: McpServer) {
                     venue: z
                         .enum(VENUE_TYPES)
                         .optional()
-                        .describe("Restrict to in-person, virtual or hybrid"),
+                        .describe(
+                            "Restrict to in-person, virtual, hybrid, or unknown. Some " +
+                                "departmental calendars publish no venue, and those are " +
+                                '"unknown" rather than assumed in person.',
+                        ),
                     department: z
                         .string()
                         .optional()
@@ -627,12 +631,24 @@ export function registerCampusTools(server: McpServer) {
                 // "Nothing on UT's calendar", and the agent reported that there
                 // are no CS events at UT this week. There were 23 that week, on
                 // the department's own calendar. So say what this field holds.
-                if (input.department && matched.length === 0) {
-                    // Collapsed, or this counts occurrence rows and reports 170
-                    // events in a window the line above calls 96.
-                    const inWindow = collapseSeries(
-                        filterEvents(calendar.events, { from: filters.from, to: filters.to }),
-                    ).map((entry) => entry.event);
+                // Collapsed, or this counts occurrence rows and reports 170
+                // events in a window the line above calls 96.
+                const needsWindowCount = Boolean(input.department) || Boolean(input.venue);
+                const inWindowAll = needsWindowCount
+                    ? collapseSeries(
+                          filterEvents(calendar.events, { from: filters.from, to: filters.to }),
+                      ).map((entry) => entry.event)
+                    : [];
+                const inWindow = input.department ? inWindowAll : [];
+                // The DEPARTMENT has to be what emptied the list. Gating on
+                // "the answer is empty" fired for the venue, query, freeFood
+                // and freeAdmission filters too, so the tool told a student
+                // there are no law events this week while listing "School of
+                // Law" among the departments present in the same sentence.
+                const departmentMatched = input.department
+                    ? filterEvents(inWindow, { department: input.department }).length
+                    : 0;
+                if (input.department && matched.length === 0 && departmentMatched === 0) {
                     const present = [
                         ...new Set(inWindow.flatMap((event) => event.departments)),
                     ].sort();
@@ -645,6 +661,21 @@ export function registerCampusTools(server: McpServer) {
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }
+                if (input.venue && input.venue !== "unknown") {
+                    const unknown = inWindowAll.filter((event) => event.venue === "unknown").length;
+                    if (unknown > 0) {
+                        notes.push(
+                            `${unknown} event(s) in this window do not say whether they are online, so a venue filter excludes them. McCombs publishes no venue field; pass venue "unknown" to see them.`,
+                        );
+                    }
+                }
+
+                if (input.department && matched.length === 0 && departmentMatched > 0) {
+                    notes.push(
+                        `${departmentMatched} event(s) in this window are from "${input.department}", but the other filters removed all of them. Drop a filter rather than reading this as "nothing is happening".`,
+                    );
+                }
+
                 if (anchor) {
                     const before = series.length;
                     series = series.filter(
@@ -768,13 +799,20 @@ export function registerCampusTools(server: McpServer) {
                                       (row.walkMinutes !== null
                                           ? ` · ~${row.walkMinutes} min walk`
                                           : ""),
-                                  (row.occurrences > 1
-                                      ? `  runs on ${row.occurrences} days in this window` +
-                                        (row.lastStart
-                                            ? `, last on ${when(row.lastStart, row.allDay)}`
-                                            : "") +
-                                        "\n"
-                                      : "") +
+                                  (row.venue === "virtual"
+                                      ? "  online"
+                                      : row.venue === "hybrid"
+                                        ? "  hybrid"
+                                        : row.venue === "unknown"
+                                          ? "  no venue given; this calendar does not say whether it is online"
+                                          : "") +
+                                      (row.occurrences > 1
+                                          ? `  runs on ${row.occurrences} days in this window` +
+                                            (row.lastStart
+                                                ? `, last on ${when(row.lastStart, row.allDay)}`
+                                                : "") +
+                                            "\n"
+                                          : "") +
                                       `  ${row.categories.join(", ") || "uncategorised"}` +
                                       (row.freeAdmission ? " · free admission" : "") +
                                       (row.mentionsFreeFood ? " · says food provided" : "") +

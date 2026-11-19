@@ -22,10 +22,11 @@ import {
     type CampusEvent,
 } from "../src/tools/campus/extract";
 import { parseWindow, registerCampusTools } from "../src/tools/campus";
-import { CAMPUS_NOW, fixture, stubFetch, type FetchLog } from "./fixtures";
+import { CAMPUS_NOW, fixture, stubFetch, type FetchLog, stubCaches } from "./fixtures";
 import {
     CS_SOURCE,
     getCsCalendar,
+    type CsResult,
     monthsSpanned,
     parseFeedDescriptions,
     parseMonth,
@@ -1844,9 +1845,11 @@ describe("the CS department calendar", () => {
     });
 
     it("joins the feed's descriptions onto the month's events", () => {
-        const descriptions = parseFeedDescriptions(fixture("cs-events-rss.xml"));
-        expect(descriptions.size).toBeGreaterThan(0);
-        for (const text of descriptions.values()) expect(text).not.toMatch(/<[a-z]/i);
+        const pairs = parseFeedDescriptions(fixture("cs-events-rss.xml"));
+        // Pairs, not a Map: the value goes through a JSON cache.
+        expect(Array.isArray(pairs)).toBe(true);
+        expect(pairs.length).toBeGreaterThan(0);
+        for (const [, text] of pairs) expect(text).not.toMatch(/<[a-z]/i);
     });
 
     it("does not return the organiser's name", async () => {
@@ -2168,5 +2171,130 @@ describe("fixes from the five-source audit", () => {
         const calls = log.filter((e) => e.url.includes("mccombs.utexas.edu"));
         expect(calls.length).toBeGreaterThan(0);
         for (const c of calls) expect(c.url).toContain("page=");
+    });
+});
+
+describe("a warm edge cache, which only holds bytes", () => {
+    it("still returns CS events on the second call", async () => {
+        // The regression this catches: the descriptions were cached as a Map,
+        // which survives a MISS and comes back as `{}` on a HIT. `.get` then
+        // threw, the whole CS source was reported as "did not answer", and
+        // every answer after the first in a TTL had no CS events at all. A
+        // cold-only check passes, which is how it shipped.
+        resetCache();
+        stubCaches();
+        stubFetch();
+        vi.setSystemTime(new Date("2026-11-18T15:00:00Z"));
+
+        const first = await getCsCalendar(new Date("2026-11-18T15:00:00Z"), 8);
+        expect(first.failed).toEqual([]);
+        expect(first.events.length).toBeGreaterThan(0);
+
+        // A fresh isolate: the memo is gone and only the edge cache remains,
+        // so the second call reads back what was serialised.
+        resetCache();
+        const second = await getCsCalendar(new Date("2026-11-18T15:00:00Z"), 8);
+        expect(second.failed).toEqual([]);
+        expect(second.events.length).toBe(first.events.length);
+        // And the descriptions survived, which is what freeFood and query read.
+        const described = (r: CsResult) => r.events.filter((e) => e.description).length;
+        expect(described(second)).toBe(described(first));
+        expect(described(second)).toBeGreaterThan(0);
+    });
+
+    it("keeps every departmental source alive across a cache hit", async () => {
+        resetCache();
+        stubCaches();
+        stubFetch();
+        const first = await getDepartmentCalendars(CAMPUS_NOW, 8);
+        resetCache();
+        const second = await getDepartmentCalendars(CAMPUS_NOW, 8);
+        expect(second.failed).toEqual(first.failed);
+        expect(second.events.length).toBe(first.events.length);
+    });
+});
+
+describe("notes that used to contradict the rows", () => {
+    it("does not claim a department has nothing when another filter emptied the list", async () => {
+        // This said "No event in this window is tagged with a department
+        // matching McCombs" and then listed "McCombs School of Business" among
+        // the departments present, because the note fired whenever the answer
+        // was empty for ANY reason.
+        const { data } = await events({
+            when: "this week",
+            // Present in the window, so the department is NOT the reason the
+            // answer is empty -- the query is.
+            department: "Fine Arts",
+            query: "quantum chromodynamics",
+            limit: 5,
+        });
+        expect(data.events).toHaveLength(0);
+        const notes = data.notes.join(" ");
+        expect(notes).not.toMatch(/No event in this window is tagged with a department/);
+        // It says what actually happened instead.
+        expect(notes).toMatch(/are from "Fine Arts", but the other filters removed all of them/);
+    });
+
+    it("still explains a department the calendars genuinely do not carry", async () => {
+        const { data } = await events({
+            when: "this week",
+            department: "School of Nursing Quilting Society",
+            limit: 5,
+        });
+        expect(data.notes.join(" ")).toMatch(/No event in this window is tagged with a department/);
+    });
+
+    it("counts occurrences in days, not rows", () => {
+        // Two duplicate rows at the same instant reported "runs on 2 days"
+        // inside a one-day window.
+        const twice = [
+            makeEvent({ id: 9, instanceId: 1, start: "2026-11-19T09:00:00-06:00" }),
+            makeEvent({ id: 9, instanceId: 2, start: "2026-11-19T09:00:00-06:00" }),
+        ];
+        expect(collapseSeries(twice)[0]!.occurrences).toBe(1);
+
+        const twoDays = [
+            makeEvent({ id: 9, instanceId: 1, start: "2026-11-19T09:00:00-06:00" }),
+            makeEvent({ id: 9, instanceId: 2, start: "2026-11-20T09:00:00-06:00" }),
+        ];
+        expect(collapseSeries(twoDays)[0]!.occurrences).toBe(2);
+    });
+
+    it("says how many rows a venue filter held back as unknown", async () => {
+        const { data } = await events({ when: "this week", venue: "inperson", limit: 40 });
+        const unknowns = await events({ when: "this week", venue: "unknown", limit: 40 });
+        if (unknowns.data.events.length > 0) {
+            expect(data.notes.join(" ")).toMatch(/do not say whether they are online/);
+        }
+    });
+});
+
+describe("department shorthand a student would actually type", () => {
+    it.each([
+        ["CS", "Computer Science"],
+        ["cs", "Computer Science"],
+        ["comp sci", "Computer Science"],
+        ["CS Department", "Computer Science"],
+        ["utcs", "Computer Science"],
+        ["law", "School of Law"],
+        ["law school", "School of Law"],
+        ["Texas Law", "School of Law"],
+        ["business", "McCombs School of Business"],
+        ["mba", "McCombs School of Business"],
+        ["engineering", "Cockrell School of Engineering"],
+        ["Cockrell", "Cockrell School of Engineering"],
+    ])("resolves %j", (typed, published) => {
+        const event = makeEvent({ departments: [published] });
+        expect(filterEvents([event], { department: typed })).toHaveLength(1);
+    });
+
+    it("does not resolve an alias buried in an unrelated phrase", () => {
+        // "law" must not catch "Outlaw Film Society" through the squeeze.
+        const cs = makeEvent({ departments: ["Computer Science"] });
+        expect(filterEvents([cs], { department: "physics" })).toHaveLength(0);
+        const outlaw = makeEvent({ departments: ["Outlaw Film Society"] });
+        // The published name still matches as a plain substring, which is the
+        // pre-existing behaviour; the alias table must not widen it further.
+        expect(filterEvents([outlaw], { department: "law school" })).toHaveLength(0);
     });
 });

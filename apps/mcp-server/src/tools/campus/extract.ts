@@ -504,12 +504,30 @@ const DEPARTMENT_ALIASES: Record<string, string> = {
     mba: "mccombs",
     engineering: "cockrell",
     engr: "cockrell",
+    "comp sci": "computer science",
+    "law school": "school of law",
+    "computer sciences": "computer science",
 };
 
-/** Resolves an alias, else trims and lowercases. */
+/**
+ * Resolves an alias, else trims and lowercases.
+ *
+ * The lookup ignores punctuation and spacing, so "comp sci", "CS Department"
+ * and "law school" land on the same entry as "cs" and "law". An exact-match
+ * table answered "nothing" for all three.
+ */
 function departmentTerm(raw: string | undefined): string {
     const value = raw?.trim().toLowerCase() ?? "";
-    return DEPARTMENT_ALIASES[value] ?? value;
+    if (!value) return "";
+    const squeeze = (v: string) => v.replace(/[^a-z0-9]/g, "");
+    const key = squeeze(value);
+    for (const [alias, full] of Object.entries(DEPARTMENT_ALIASES)) {
+        const a = squeeze(alias);
+        // The alias, optionally with a word like "department" or "school"
+        // around it, but not an unrelated string that merely contains it.
+        if (key === a || key === `${a}department` || key === `${a}school`) return full;
+    }
+    return value;
 }
 
 /** Trim as well as lowercase: `" Academics"` passed validation and matched nothing. */
@@ -661,6 +679,8 @@ export interface Collapsed {
     occurrences: number;
     /** Start of the last occurrence in the window, or null if there is one. */
     lastStart: string | null;
+    /** The Austin dates seen, so `occurrences` counts days and not rows. */
+    days: Set<string>;
 }
 
 export function collapseSeries(events: CampusEvent[]): Collapsed[] {
@@ -674,10 +694,19 @@ export function collapseSeries(events: CampusEvent[]): Collapsed[] {
         const key = `${event.source}:${event.seriesKey ?? event.id}`;
         const seen = byId.get(key);
         if (!seen) {
-            byId.set(key, { event, occurrences: 1, lastStart: null });
+            byId.set(key, {
+                event,
+                occurrences: 1,
+                lastStart: null,
+                days: new Set([event.start.slice(0, 10)]),
+            });
             continue;
         }
-        seen.occurrences++;
+        // Distinct DAYS, which is what the schema and the rendered text both
+        // promise. Counting rows said "runs on 2 days" inside a one-day window
+        // for two duplicate rows at the same instant.
+        seen.days.add(event.start.slice(0, 10));
+        seen.occurrences = seen.days.size;
         // The list is sorted, so the newest one seen is the latest so far.
         seen.lastStart = event.start;
     }

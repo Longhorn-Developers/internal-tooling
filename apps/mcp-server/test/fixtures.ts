@@ -166,3 +166,28 @@ export function toolTextCaller(register: (server: McpServer) => void) {
     return async (name: string, args: Record<string, unknown> = {}): Promise<string> =>
         ((await raw(name, args)).content ?? []).map((part) => part.text).join("\n");
 }
+
+/**
+ * A stand-in for Cloudflare's Cache API that, like the real one, can only hold
+ * bytes. Anything that does not survive JSON.stringify/parse comes back
+ * changed -- which is how a cache HIT can behave differently from a MISS.
+ *
+ * Lives here rather than in one suite because the bug it catches is not
+ * specific to one: a `Map` put through `cached` returned `{}` on the second
+ * call and took a whole event source down with it.
+ */
+export function stubCaches() {
+    const store = new Map<string, string>();
+    vi.stubGlobal("caches", {
+        default: {
+            async match(req: Request) {
+                const body = store.get(req.url);
+                return body === undefined ? undefined : new Response(body);
+            },
+            async put(req: Request, res: Response) {
+                store.set(req.url, await res.text());
+            },
+        },
+    });
+    return store;
+}

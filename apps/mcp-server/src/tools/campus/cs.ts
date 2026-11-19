@@ -21,11 +21,15 @@ import { buildEvent, hashId, type CampusEvent } from "./extract.ts";
 export const CS_SOURCE = "apps.cs.utexas.edu";
 
 const BASE = "https://apps.cs.utexas.edu/calendar";
-const CACHE_VERSION = 3; // 2 read events from the month-blind RSS feed
+const CACHE_VERSION = 4; // 3 stored a Map, which a cache hit returned as {}
 /** 30 minutes, matching the central calendar. */
 const TTL_SECONDS = 1_800;
-/** A 60-day window touches at most three months. */
-const MAX_MONTHS = 3;
+/**
+ * A 61-day window can touch FOUR months: from 31 January it reaches 2 April.
+ * Capping at three silently dropped the last one, with no note, which is the
+ * same shape as the horizon bug this file was rewritten to fix.
+ */
+const MAX_MONTHS = 4;
 
 /** The YYYY-MM keys a window touches, in Austin's months rather than UTC's. */
 export function monthsSpanned(now: Date, days: number): string[] {
@@ -131,8 +135,8 @@ export function parseMonth(html: string): CsRow[] {
  * `dc:creator` is deliberately not read: it names the student who booked the
  * room, which is the same call as HornsLink's officer record.
  */
-export function parseFeedDescriptions(xml: string): Map<string, string> {
-    const out = new Map<string, string>();
+export function parseFeedDescriptions(xml: string): [string, string][] {
+    const out: [string, string][] = [];
     for (const [, block] of xml.matchAll(/<item>(.*?)<\/item>/gs)) {
         const pick = (tag: string) => {
             const m = new RegExp(`<${tag}[^>]*>(.*?)</${tag}>`, "s").exec(block ?? "");
@@ -140,7 +144,7 @@ export function parseFeedDescriptions(xml: string): Map<string, string> {
         };
         const id = pick("guid");
         const description = text(pick("description")).trim();
-        if (id && description) out.set(id, description);
+        if (id && description) out.push([id, description]);
     }
     return out;
 }
@@ -175,9 +179,15 @@ export interface CsResult {
  */
 export async function getCsCalendar(now: Date, days: number): Promise<CsResult> {
     const months = monthsSpanned(now, days);
-    const descriptions = await cached(`cs:v${CACHE_VERSION}:descriptions`, TTL_SECONDS, async () =>
+    // Pairs, not a Map. `cached` stores JSON and rehydrates with res.json(), so
+    // a Map survives a cache MISS and comes back as `{}` on a HIT -- which made
+    // `descriptions.get` throw, took the whole CS source down with it, and left
+    // only a "did not answer" note. It worked exactly once per TTL, so a cold
+    // check passed and every call after it returned nothing.
+    const pairs = await cached(`cs:v${CACHE_VERSION}:descriptions`, TTL_SECONDS, async () =>
         parseFeedDescriptions(await getText(`${BASE}/events/rss`, TTL_SECONDS)),
-    ).catch(() => new Map<string, string>());
+    ).catch((): [string, string][] => []);
+    const descriptions = new Map(pairs);
 
     const settled = await Promise.allSettled(
         months.map((month) =>

@@ -2357,7 +2357,11 @@ describe("fixes from the third audit round", () => {
         const [row] = collapseSeries([matinee, evening]);
         expect(row!.occurrences).toBe(1);
         expect(row!.starts).toHaveLength(2);
-        expect(row!.lastStart).toBe("2026-12-05T20:00:00-06:00");
+        // `lastStart` is about DAYS, which is what the schema says, so a
+        // same-day second showing is carried by `starts`/`alsoAt` instead.
+        // Setting it here shipped `occurrences: 1` with a non-null
+        // `lastStart`, a combination the schema says cannot happen.
+        expect(row!.lastStart).toBeNull();
     });
 
     it("still folds a duplicate published at the same instant", () => {
@@ -2493,5 +2497,134 @@ describe("note counts respect the other filters", () => {
             // It must not claim the whole window; the query narrowed it first.
             expect(note).toMatch(/matching your other filters/);
         }
+    });
+});
+
+describe("fixes from the fourth audit round", () => {
+    it("reads next <weekday> correctly for a day earlier in the week", () => {
+        // CAMPUS_NOW is a Monday. A flat +7 overshot whenever the named day
+        // sits earlier in the Mon-Sun week than today: asked on a Thursday,
+        // "next monday" landed a week late.
+        const thursday = new Date("2026-11-19T15:00:00Z"); // Thursday
+        expect(parseWindow("next monday", thursday)!.from.toISOString()).toBe(
+            "2026-11-23T06:00:00.000Z",
+        );
+        expect(parseWindow("next wednesday", thursday)!.from.toISOString()).toBe(
+            "2026-11-25T06:00:00.000Z",
+        );
+        // And a day still ahead in this week does skip a week.
+        expect(parseWindow("next friday", thursday)!.from.toISOString()).toBe(
+            "2026-11-27T06:00:00.000Z",
+        );
+        expect(parseWindow("next thursday", thursday)!.from.toISOString()).toBe(
+            "2026-11-26T06:00:00.000Z",
+        );
+    });
+
+    it("finds a name whose apostrophe the student left out", () => {
+        // Two words plus punctuation inside one of them: the depunctuated
+        // retry was gated to a single word, so "mens basketball" missed a game
+        // that was on that evening.
+        const game = makeEvent({ title: "University of Texas Men's Basketball vs Southern" });
+        expect(filterEvents([game], { query: "mens basketball" })).toHaveLength(1);
+        expect(filterEvents([game], { query: "men's basketball" })).toHaveLength(1);
+        const tennis = makeEvent({ title: "Women's Tennis vs Baylor" });
+        expect(filterEvents([tennis], { query: "womens tennis" })).toHaveLength(1);
+    });
+
+    it("does not match a query on the department alone", () => {
+        // "art history" matched College of Liberal ARTS events whose
+        // description happened to contain "history".
+        const liberalArts = buildEvent({
+            id: 2,
+            title: "Tea and Tawla",
+            start: "2026-11-19T09:00:00-06:00",
+            description: "A history of the game",
+            url: "https://calendar.utexas.edu/x",
+            department: "College of Liberal Arts",
+            source: "calendar.utexas.edu",
+        });
+        expect(filterEvents([liberalArts], { query: "art history" })).toHaveLength(0);
+        // The phrase form still reaches the department, which is what the
+        // `query` parameter promises.
+        expect(filterEvents([liberalArts], { query: "liberal arts" })).toHaveLength(1);
+    });
+
+    it("prints a place once", async () => {
+        const { content } = await events({ when: "this week", limit: 40 });
+        for (const line of content[0]!.text.split("\n")) {
+            // "WCP 2.112 2.112" and "Benson ... Benson ..." came from a
+            // dedupe that only dropped an exact string match.
+            const m = /^ {2}(\S.*)$/.exec(line);
+            if (!m) continue;
+            const parts = m[1]!.split(", ").map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, ""));
+            for (let i = 0; i < parts.length; i++) {
+                for (let j = 0; j < parts.length; j++) {
+                    if (i !== j && parts[i] && parts[j] && parts[i] === parts[j]) {
+                        throw new Error(`repeated place in: ${m[1]}`);
+                    }
+                }
+            }
+        }
+    });
+
+    it("resolves a building by UT's own accented spelling", async () => {
+        // The events tool prints "Perry-Castañeda Library (PCL)" on its rows,
+        // and pasting that back in resolved to nothing -- not even a
+        // suggestion, because the accent became a word break.
+        expect((await location({ location: "Perry-Castañeda Library" })).data.building?.code).toBe(
+            "PCL",
+        );
+        expect((await location({ location: "perry castaneda library" })).data.building?.code).toBe(
+            "PCL",
+        );
+        expect(
+            (await location({ location: "George I. Sánchez Building" })).data.building?.code,
+        ).toBe("SZB");
+    });
+
+    it("says when a category filter cannot reach a departmental calendar", async () => {
+        // Those feeds publish no category or audience, so the filter silently
+        // excluded all of them: "academic events this week" answered 4 on a
+        // week with 14 CS talks.
+        const { data } = await events({ when: "this week", categories: ["Academics"], limit: 40 });
+        expect(data.notes.join(" ")).toMatch(/publishes no category or audience/);
+    });
+
+    it("counts the venue note against every filter the answer used", async () => {
+        // The probe ignored freeFood and the radius, so it promised rows the
+        // suggested follow-up call returned none of.
+        const { data } = await events({
+            when: "this week",
+            venue: "inperson",
+            freeFood: true,
+            limit: 40,
+        });
+        const note = data.notes.find((n) => n.includes("do not say whether they are online"));
+        if (note) {
+            const follow = await events({
+                when: "this week",
+                venue: "unknown",
+                freeFood: true,
+                limit: 40,
+            });
+            expect(follow.data.events.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("reads the phrasings a calendar actually uses for food", () => {
+        for (const text of [
+            "we will have pizza at noon",
+            "There will be snacks",
+            "come enjoy food, drinks and games",
+            "Celebrate with a pancake buffet and coffee",
+            "stop by and grab snacks to help nourish your mind",
+        ]) {
+            const row = makeEvent({ searchText: `study break\n${text.toLowerCase()}` });
+            expect(mentionsFreeFood(row)).toBe(true);
+        }
+        // And still not a bare mealtime.
+        expect(mentionsFreeFood(makeEvent({ searchText: "meet after lunch" }))).toBe(false);
+        expect(mentionsFreeFood(makeEvent({ searchText: "lunchtime seminar" }))).toBe(false);
     });
 });

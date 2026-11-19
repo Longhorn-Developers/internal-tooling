@@ -575,19 +575,32 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     if (!pattern) return haystack.includes(needle);
     if (pattern.test(haystack)) return true;
 
-    // Then as ALL of the words, in any order and anywhere in the text. Joining
-    // them with "no alphanumerics between" meant a two-word query was a strict
-    // phrase, so `query: "football arkansas"` answered "Nothing on UT's
-    // calendar" on a day UT played Arkansas -- the title reads "Football vs
-    // Arkansas" and the "vs" defeated it. The phrase form is still tried
-    // first, so an exact phrase still ranks as a match.
+    // Then as ALL of the words, in any order. Joining them with "no
+    // alphanumerics between" meant a two-word query was a strict phrase, so
+    // `query: "football arkansas"` answered "Nothing on UT's calendar" on a day
+    // UT played Arkansas -- the title reads "Football vs Arkansas" and the "vs"
+    // defeated it. The phrase form is tried first, so an exact phrase still
+    // matches.
+    //
+    // Against the title and body only, not the whole search text: with the
+    // department in scope, "art history" matched three College of Liberal ARTS
+    // events whose description happened to contain "history", and "computer
+    // lab" matched three Computer Science "Lab meeting" rows.
     const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
-    if (words.length > 1) {
-        const each = words.map((word) => queryPattern(word, loose));
-        if (each.every((p) => p && p.test(haystack))) return true;
-    }
-    // Second look with punctuation removed, so "premed" finds "Pre-Med" too.
-    return /^[a-z0-9]+$/.test(needle) ? pattern.test(haystack.replace(/[^a-z0-9\s]/g, "")) : false;
+    const narrow = fold(event.searchText.split("\n").slice(0, 2).join("\n"));
+    const allWords = (text: string) =>
+        words.length > 1 &&
+        words.map((word) => queryPattern(word, loose)).every((p) => p && p.test(text));
+    if (allWords(narrow)) return true;
+
+    // Then the same two passes with the TEXT's punctuation removed, so
+    // "premed" finds "Pre-Med" and "mens basketball" finds "Men's Basketball".
+    // This retry used to be gated to a single word, which is why a two-word
+    // query still lost to an apostrophe -- the same defeat as the adjacency
+    // bug, one character further in.
+    const strip = (text: string) => text.replace(/[^a-z0-9\s]/g, "");
+    if (pattern.test(strip(haystack))) return true;
+    return allWords(strip(narrow));
 }
 
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
@@ -661,6 +674,12 @@ const FOOD_PHRASES = [
     /\b(provid\w*|serv\w*)\b(?:[\s,:-]+\w+){0,3}[\s,:-]+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|bagels|donuts?|tacos?|boba)\b/i,
     /\b(lunch|breakfast|dinner|refreshments?|snacks?)\s+(is|are)\s+included\b/i,
     /\bcomplimentary\s+(food|lunch|breakfast|dinner|refreshments?|snacks?|coffee)\b/i,
+    // "we will have pizza", "there will be snacks", "come enjoy food and
+    // drinks", "grab snacks", "a pancake buffet". These are the commonest
+    // phrasings on UT's calendar and none of the patterns above accepts them,
+    // so finals week -- the week a student most wants this -- answered nothing.
+    /\b(we(?:'ll|\s+will)?\s+have|there\s+(?:will\s+be|are|is)|enjoy|grab|serving)\b(?:[\s,:-]+\w+){0,3}[\s,:-]+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|bagels|donuts?|tacos?|boba|drinks)\b/i,
+    /\b(pancake|pizza|taco|coffee|breakfast|dessert|ice\s+cream)\s+(buffet|bar|social|study\s+break)\b/i,
 ];
 
 export function mentionsFreeFood(event: CampusEvent): boolean {
@@ -766,7 +785,11 @@ export function collapseSeries(events: CampusEvent[]): Collapsed[] {
         // Only when there IS a later one. Setting it unconditionally left
         // `occurrences: 1` beside a non-null `lastStart`, which is the
         // fingerprint of a dropped showing.
-        seen.lastStart = seen.starts.length > 1 ? seen.starts[seen.starts.length - 1]! : null;
+        // Gated on DAYS, matching what the field documents. Keying it on
+        // distinct times shipped `occurrences: 1` beside a non-null
+        // `lastStart`, which the schema says cannot happen; a same-day second
+        // showing is `alsoAt`'s job.
+        seen.lastStart = seen.days.size > 1 ? seen.starts[seen.starts.length - 1]! : null;
     }
     return [...byId.values()];
 }

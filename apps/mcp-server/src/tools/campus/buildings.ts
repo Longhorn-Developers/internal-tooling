@@ -123,12 +123,20 @@ export const ALL_BUILDINGS: readonly UtBuilding[] = [...BY_CODE.values()].sort((
 
 /** Uppercase, punctuation to spaces, whitespace collapsed. */
 function normalize(value: string): string {
-    return value
-        .toUpperCase()
-        .replace(/[&.'’]/g, "")
-        .replace(/[^A-Z0-9]+/g, " ")
-        .trim()
-        .replace(/\s+/g, " ");
+    return (
+        value
+            // Accents folded first. Otherwise a combining mark becomes a word
+            // BREAK: "PERRY-CASTANEDA" arrived as "PERRY CASTA EDA", which matched
+            // no token and produced not even a suggestion -- for a name the events
+            // tool prints on its own rows.
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toUpperCase()
+            .replace(/[&.'’]/g, "")
+            .replace(/[^A-Z0-9]+/g, " ")
+            .trim()
+            .replace(/\s+/g, " ")
+    );
 }
 
 /** Name without a trailing BLDG/BUILDING, which listings drop. */

@@ -202,10 +202,13 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const weekday = WEEKDAYS.indexOf(value.replace(/^(next|this|coming)\s+/, ""));
     if (weekday >= 0) {
         const ahead = (weekday - today.dayIndex + 7) % 7;
-        // "next friday" means the one after this coming Friday, which is what
-        // most people mean by it; asked on a Wednesday it used to return the
-        // same day as "friday".
-        const offset = /^next\s/.test(value) ? ahead + 7 : ahead;
+        // "next friday" means the one after this coming Friday. A flat +7
+        // overshot whenever the named day is EARLIER in the week than today:
+        // `ahead` has already crossed into next week, so asked on a Thursday
+        // "next monday" landed on the 30th instead of the 23rd. Only add a
+        // week when the target is still inside this Monday-to-Sunday week.
+        const sameWeek = today.dayIndex + ahead <= 6;
+        const offset = /^next\s/.test(value) && sameWeek ? ahead + 7 : ahead;
         return span(offset, offset + 1, dated(offset));
     }
 
@@ -662,7 +665,6 @@ export function registerCampusTools(server: McpServer) {
 
                 const notes: string[] = [];
                 if (sourceNote) notes.push(sourceNote);
-                if (looseNote) notes.push(looseNote);
 
                 // A department that matches nothing is the tool's most
                 // misleading empty answer: asked for "Computer Science" it said
@@ -705,12 +707,43 @@ export function registerCampusTools(server: McpServer) {
                     // virtual CS events that 5 rows were held back, and
                     // following the advice returned none of them: all five were
                     // McCombs rows the department filter excluded anyway.
-                    const unknown = collapseSeries(
-                        filterEvents(calendar.events, { ...filters, venue: "unknown" }),
-                    ).length;
+                    let probe = filterEvents(calendar.events, { ...filters, venue: "unknown" });
+                    if (input.freeFood) probe = probe.filter(mentionsFreeFood);
+                    let probeSeries = collapseSeries(probe);
+                    if (anchor) {
+                        probeSeries = probeSeries.filter(
+                            ({ event }) =>
+                                event.latitude !== null &&
+                                event.longitude !== null &&
+                                metresBetween(anchor, {
+                                    latitude: event.latitude,
+                                    longitude: event.longitude,
+                                }) <= radius,
+                        );
+                    }
+                    const unknown = probeSeries.length;
                     if (unknown > 0) {
                         notes.push(
                             `${unknown} event(s) matching your other filters do not say whether they are online, so this venue filter excludes them. Pass venue "unknown" to see those.`,
+                        );
+                    }
+                }
+
+                if (input.categories?.length || input.audiences?.length) {
+                    const unlabelled = collapseSeries(
+                        filterEvents(calendar.events, {
+                            from: filters.from,
+                            to: filters.to,
+                        }),
+                    ).filter(
+                        ({ event }) =>
+                            event.source !== "calendar.utexas.edu" &&
+                            !event.categories.length &&
+                            !event.audiences.length,
+                    ).length;
+                    if (unlabelled > 0) {
+                        notes.push(
+                            `${unlabelled} event(s) in this window come from a departmental calendar that publishes no category or audience, so this filter cannot reach them. Use department or query for those.`,
                         );
                     }
                 }
@@ -742,6 +775,11 @@ export function registerCampusTools(server: McpServer) {
                         );
                     }
                 }
+
+                // Pushed here, after every filter. The note says "these
+                // matched", and freeFood or the radius could empty the answer
+                // after it had been decided, leaving it describing nothing.
+                if (looseNote && series.length > 0) notes.push(looseNote);
 
                 const limit = input.limit ?? DEFAULT_ROWS;
                 const shownSeries = series.slice(0, limit);
@@ -850,8 +888,29 @@ export function registerCampusTools(server: McpServer) {
                                   // "JJ Pickle Campus ROC BLDG. 196".
                                   `  ${
                                       [row.locationName, row.room]
-                                          .filter((part, i, all) => part && all.indexOf(part) === i)
-                                          .join(" ") || "location not given"
+                                          // Drops a part that merely RESTATES
+                                          // the other: an exact-match filter
+                                          // left "WCP 2.112 2.112" and 59 rows
+                                          // of "Benson Latin American
+                                          // Collection Nettie Lee Benson
+                                          // Latin American Collection, ...".
+                                          .filter((part, i, all) => {
+                                              if (!part) return false;
+                                              const squash = (v: string) =>
+                                                  v.toLowerCase().replace(/[^a-z0-9]/g, "");
+                                              const self = squash(part);
+                                              return !all.some((other, j) => {
+                                                  if (j === i || !other) return false;
+                                                  const them = squash(other);
+                                                  // Keep the longer of a pair
+                                                  // where one contains the other.
+                                                  return (
+                                                      them.includes(self) &&
+                                                      (them.length > self.length || j < i)
+                                                  );
+                                              });
+                                          })
+                                          .join(", ") || "location not given"
                                   }` +
                                       (row.buildingCode ? ` [${row.buildingCode}]` : "") +
                                       (row.walkMinutes !== null

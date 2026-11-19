@@ -6,7 +6,7 @@ import { metresBetween, resolveBuilding, type Precision } from "./buildings.ts";
 import { calendarUrl, eventUrl } from "./urls.ts";
 
 /** Bump on any shape or derived-content change: the CF cache outlives a deploy. */
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2; // 1 stored searchText without the scope break
 
 /** Windows round up to one of these, so common phrasings share a cache entry. */
 const DAY_BUCKETS = [2, 8, 16, 31, 61];
@@ -32,6 +32,9 @@ export const EVENT_CATEGORIES = [
     "Research",
     "Science & Technology",
     "Sports & Recreation",
+    // Published by the feed and missing here, so the tool printed "Study
+    // Break" on a row and then rejected it as an unknown category.
+    "Study Break",
     "Sustainability",
     "World & Culture",
 ] as const;
@@ -68,6 +71,19 @@ export function austinInstant(
     // One correction pass, for a DST changeover day.
     return new Date(guess + austinOffsetMinutes(first) * 60_000);
 }
+
+/**
+ * Separates what a loose query may match from what only an exact phrase may.
+ *
+ * Deriving the scope by counting lines was wrong: `description_text` carries
+ * its own newlines, so "the first two lines" was usually still inside the first
+ * paragraph, and the location sat outside it on 85% of rows. `query:
+ * "basketball moody center"` therefore answered nothing on a night UT played at
+ * the Moody Center. Everything before the break is fair game for an all-words
+ * match; tags and departments sit after it, because matching those loosely
+ * returned Liberal ARTS events for "art history".
+ */
+export const SCOPE_BREAK = "\n\u0000\n";
 
 /**
  * Sorts by INSTANT, not by string.
@@ -270,15 +286,13 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
         description: describe(plainDescription),
         // Built from the FULL description, not the truncated one.
         searchText: [
-            title,
-            plainDescription.slice(0, SEARCH_TEXT_LIMIT),
-            ...tags,
-            ...departments,
-            locationName ?? "",
-            room ?? "",
+            [title, plainDescription.slice(0, SEARCH_TEXT_LIMIT), locationName ?? "", room ?? ""]
+                .filter(Boolean)
+                .join("\n"),
+            [...tags, ...departments].filter(Boolean).join("\n"),
         ]
             .filter(Boolean)
-            .join("\n")
+            .join(SCOPE_BREAK)
             .toLowerCase(),
         locationName,
         room,
@@ -364,13 +378,13 @@ export function buildEvent(opts: {
         // match it, and only the central calendar was honouring that: a
         // `query: "school of law"` found nothing while `department` found ten.
         searchText: [
-            opts.title,
-            (plain ?? "").slice(0, SEARCH_TEXT_LIMIT),
-            room ?? "",
+            [opts.title, (plain ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
+                .filter(Boolean)
+                .join("\n"),
             opts.department,
         ]
             .filter(Boolean)
-            .join("\n")
+            .join(SCOPE_BREAK)
             .toLowerCase(),
         start: opts.start,
         end: opts.end ?? null,
@@ -558,8 +572,22 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
     if (!words.length) return null;
     const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+    /**
+     * Makes a plural ending optional, so "exhibitions" finds "exhibition".
+     *
+     * A singular query already matched plural text, because the pattern is an
+     * open prefix -- only the plural query was dead, and it answered a
+     * confident nothing. Left alone below four characters, where stripping an
+     * "s" leaves too little to mean anything.
+     */
+    const stem = (word: string): string => {
+        if (word.length > 4 && word.endsWith("es")) return `${escape(word.slice(0, -2))}(?:es)?`;
+        if (word.length > 3 && word.endsWith("s")) return `${escape(word.slice(0, -1))}s?`;
+        return escape(word);
+    };
+
     // Flexible between words: "pre-med" finds "premed", and either apostrophe.
-    const body = words.map(escape).join("[^a-z0-9\\n]*");
+    const body = words.map(stem).join("[^a-z0-9\\n]*");
 
     // An open prefix made "AI" match "aid"; a bare boundary hid "Arts" from "art".
     const tail = !loose && words.length === 1 && needle.length <= 3 ? "(?:e?s)?(?![a-z])" : "";
@@ -568,7 +596,10 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
 
 /** `loose` drops the short-needle restriction, so "bio" reaches "biology". */
 function matchesQuery(event: CampusEvent, query: string, loose = false): boolean {
-    const needle = fold(query.trim().toLowerCase());
+    // Trailing and leading punctuation trimmed, the way `when` already does:
+    // a quoted phrase bypassed the matcher entirely and `query: "?"` matched
+    // any description containing a question mark.
+    const needle = fold(query.trim().toLowerCase()).replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
     if (!needle) return true;
     const haystack = fold(event.searchText);
     const pattern = queryPattern(needle, loose);
@@ -587,7 +618,7 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     // events whose description happened to contain "history", and "computer
     // lab" matched three Computer Science "Lab meeting" rows.
     const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
-    const narrow = fold(event.searchText.split("\n").slice(0, 2).join("\n"));
+    const narrow = fold(event.searchText.split(SCOPE_BREAK)[0] ?? "");
     const allWords = (text: string) =>
         words.length > 1 &&
         words.map((word) => queryPattern(word, loose)).every((p) => p && p.test(text));
@@ -691,8 +722,17 @@ export function mentionsFreeFood(event: CampusEvent): boolean {
 /** Main campus, near the Tower. Only used for an is-it-even-in-Austin test. */
 const CAMPUS_CENTRE = { latitude: 30.2849, longitude: -97.7341 };
 
-/** Generous: 15 km reaches the Pickle Research Campus and still excludes road games. */
-const AUSTIN_RADIUS_M = 15_000;
+/**
+ * Austin, not main campus.
+ *
+ * 15 km reached the Pickle Research Campus but stopped short of UT's own Lady
+ * Bird Johnson Wildflower Center at 17.4 km -- in Austin, and a UT unit -- so
+ * Fortlandia and Luminations were labelled "NOT on campus / away from Austin"
+ * and `onCampusOnly` deleted all 47 of their instances. The city reaches about
+ * 25 km from the Tower. 30 km covers it and still excludes every away venue in
+ * the feed, the nearest being College Station at ~160 km.
+ */
+const AUSTIN_RADIUS_M = 30_000;
 
 /** Out-of-state road games. Both AP abbreviations and full state names appear. */
 const STATE_ABBREVIATIONS =

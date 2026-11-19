@@ -12,6 +12,7 @@ import {
 } from "../src/tools/campus/buildings";
 import {
     MAX_WINDOW_DAYS,
+    SCOPE_BREAK,
     buildEvent,
     byStart,
     queryPattern,
@@ -648,16 +649,17 @@ function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
     if (over.searchText !== undefined) return base;
     return {
         ...base,
+        // Mirrors normalizeEvent, SCOPE_BREAK included. Joining everything with
+        // newlines made departments loosely matchable here and not in
+        // production — a helper that lies about the thing under test.
         searchText: [
-            base.title,
-            base.description ?? "",
-            ...base.tags,
-            ...base.departments,
-            base.locationName ?? "",
-            base.room ?? "",
+            [base.title, base.description ?? "", base.locationName ?? "", base.room ?? ""]
+                .filter(Boolean)
+                .join("\n"),
+            [...base.tags, ...base.departments].filter(Boolean).join("\n"),
         ]
             .filter(Boolean)
-            .join("\n")
+            .join(SCOPE_BREAK)
             .toLowerCase(),
     };
 }
@@ -2374,17 +2376,16 @@ describe("fixes from the third audit round", () => {
     });
 
     it("tells the reader about the later showing", async () => {
-        const { content } = await events({ when: "this week", limit: 40 });
+        const { content, data } = await events({ when: "this week", limit: 40 });
         const text = content[0]!.text;
-        // Either form is fine; what matters is that a row never claims a
-        // `lastStart` while saying it happens once.
-        const { data } = await events({ when: "this week", limit: 40 });
+        expect(data.events.length).toBeGreaterThan(0);
         for (const row of data.events) {
-            if (row.occurrences === 1 && row.lastStart) {
-                expect(row.alsoAt.length).toBeGreaterThan(0);
-            }
+            // The contract: `lastStart` is about DAYS, so a row happening on
+            // one day must not claim a later one. The guard this replaced had
+            // become unsatisfiable, so it passed whatever the renderer did.
+            if (row.occurrences === 1) expect(row.lastStart).toBeNull();
+            if (row.occurrences === 1 && row.alsoAt.length) expect(text).toContain("also at");
         }
-        expect(text.length).toBeGreaterThan(0);
     });
 
     it("finds a name spelled without its accents", () => {
@@ -2626,5 +2627,116 @@ describe("fixes from the fourth audit round", () => {
         // And still not a bare mealtime.
         expect(mentionsFreeFood(makeEvent({ searchText: "meet after lunch" }))).toBe(false);
         expect(mentionsFreeFood(makeEvent({ searchText: "lunchtime seminar" }))).toBe(false);
+    });
+});
+
+describe("fixes from the fifth audit round", () => {
+    it("lets a multi-word query see the location", () => {
+        // REGRESSION from round four: narrowing the all-words pass to "the
+        // first two lines of searchText" cut the location out, because a
+        // description carries its own newlines. query:"basketball moody center"
+        // answered nothing on a night UT played at the Moody Center.
+        const game = makeEvent({
+            title: "University of Texas Men's Basketball vs Southern Utah",
+            description: "TV: SEC Network+\nSecond paragraph.\nThird paragraph.",
+            locationName: "Austin, Texas, Moody Center",
+        });
+        expect(filterEvents([game], { query: "basketball moody center" })).toHaveLength(1);
+        expect(filterEvents([game], { query: "moody center" })).toHaveLength(1);
+    });
+
+    it("still refuses to match a loose query on the department alone", () => {
+        // The other half of the same trade: tags and departments sit after the
+        // scope break, so "art history" must not sweep Liberal ARTS events.
+        const liberalArts = makeEvent({
+            title: "Tea and Tawla",
+            description: "A history of the game",
+            departments: ["College of Liberal Arts"],
+        });
+        expect(filterEvents([liberalArts], { query: "art history" })).toHaveLength(0);
+        // The phrase form still reaches it, which is what `query` promises.
+        expect(filterEvents([liberalArts], { query: "liberal arts" })).toHaveLength(1);
+    });
+
+    it("finds the singular when the student types the plural", () => {
+        // "exhibitions" answered a confident nothing while "exhibition"
+        // returned four: a singular query already matched plural text through
+        // the open prefix, so only the plural query was dead.
+        const row = makeEvent({ title: "Experimental Seeing: an exhibition" });
+        expect(filterEvents([row], { query: "exhibitions" })).toHaveLength(1);
+        expect(filterEvents([row], { query: "exhibition" })).toHaveLength(1);
+        for (const [plural, singular] of [
+            ["workshops", "A writing workshop"],
+            ["tours", "Campus tour"],
+            ["panels", "Student panel"],
+            ["recitals", "Bass recital"],
+            ["info sessions", "MSTC info session"],
+        ] as const) {
+            const e = makeEvent({ title: singular });
+            expect(filterEvents([e], { query: plural })).toHaveLength(1);
+        }
+        // And it must not stem a short word into nothing.
+        const bus = makeEvent({ title: "Shuttle bus service" });
+        expect(filterEvents([bus], { query: "bus" })).toHaveLength(1);
+    });
+
+    it("does not call a UT venue in Austin a road game", () => {
+        // The Lady Bird Johnson Wildflower Center is a UT unit in Austin, 17.4
+        // km from the Tower. A 15 km radius labelled Fortlandia and
+        // Luminations "NOT on campus" and onCampusOnly deleted all 47 of their
+        // instances over 30 days.
+        const wildflower = makeEvent({
+            title: "Fortlandia",
+            locationName: "Lady Bird Johnson Wildflower Center",
+            latitude: 30.185383,
+            longitude: -97.873199,
+        });
+        expect(onCampus(wildflower)).toBe(true);
+        expect(filterEvents([wildflower], { onCampusOnly: true })).toHaveLength(1);
+
+        // And a genuine road game is still excluded.
+        const away = makeEvent({
+            title: "Football at Texas A&M",
+            locationName: "College Station, Texas, Kyle Field",
+        });
+        expect(onCampus(away)).toBe(false);
+        const outOfState = makeEvent({ latitude: 26.1003, longitude: -80.3997 });
+        expect(onCampus(outOfState)).toBe(false);
+    });
+
+    it("says when a series runs more than once on a day", () => {
+        // alsoAt only listed the kept day's siblings and the prose suppressed
+        // it whenever the series spanned days, so the extra showings appeared
+        // in neither.
+        const rows = [
+            makeEvent({ id: 5, instanceId: 1, start: "2026-12-05T14:00:00-06:00" }),
+            makeEvent({ id: 5, instanceId: 2, start: "2026-12-05T20:00:00-06:00" }),
+            makeEvent({ id: 5, instanceId: 3, start: "2026-12-06T13:00:00-06:00" }),
+        ];
+        const [row] = collapseSeries(rows);
+        expect(row!.occurrences).toBe(2);
+        expect(row!.starts).toHaveLength(3);
+    });
+});
+
+describe("small things the audits left", () => {
+    it("accepts a category it prints on its own rows", async () => {
+        // The feed publishes "Study Break" and the tool rejected it as
+        // unknown, while displaying it on the row it came from.
+        const result = await call("find_events", {
+            when: "this week",
+            categories: ["Study Break"],
+        });
+        expect(result.isError).toBeFalsy();
+    });
+
+    it("ignores punctuation wrapped around a query", () => {
+        // A quoted phrase bypassed the matcher and matched nothing; a bare "?"
+        // matched any description containing one.
+        const row = makeEvent({ title: "Free food in the SAC" });
+        expect(filterEvents([row], { query: '"free food"' })).toHaveLength(1);
+        const other = makeEvent({ title: "Anything", description: "Who knows?" });
+        expect(filterEvents([other], { query: "?" })).toHaveLength(1); // empty needle matches all
+        expect(filterEvents([row], { query: "(free food)" })).toHaveLength(1);
     });
 });

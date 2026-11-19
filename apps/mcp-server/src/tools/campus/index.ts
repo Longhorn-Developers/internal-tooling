@@ -707,7 +707,14 @@ export function registerCampusTools(server: McpServer) {
                     // virtual CS events that 5 rows were held back, and
                     // following the advice returned none of them: all five were
                     // McCombs rows the department filter excluded anyway.
-                    let probe = filterEvents(calendar.events, { ...filters, venue: "unknown" });
+                    // `looseQuery` too: when the answer itself came from the
+                    // loose retry, a strict probe found nothing to report and
+                    // the note went silent on rows that do exist.
+                    let probe = filterEvents(calendar.events, {
+                        ...filters,
+                        venue: "unknown",
+                        looseQuery: Boolean(looseNote),
+                    });
                     if (input.freeFood) probe = probe.filter(mentionsFreeFood);
                     let probeSeries = collapseSeries(probe);
                     if (anchor) {
@@ -730,12 +737,11 @@ export function registerCampusTools(server: McpServer) {
                 }
 
                 if (input.categories?.length || input.audiences?.length) {
-                    const unlabelled = collapseSeries(
-                        filterEvents(calendar.events, {
-                            from: filters.from,
-                            to: filters.to,
-                        }),
-                    ).filter(
+                    // Against the user's OTHER filters, not the bare window.
+                    // Counting the window said 33 rows were unreachable on a
+                    // call that had already narrowed itself to 14 of them.
+                    const { categories: _c, audiences: _a, ...others } = filters;
+                    const unlabelled = collapseSeries(filterEvents(calendar.events, others)).filter(
                         ({ event }) =>
                             event.source !== "calendar.utexas.edu" &&
                             !event.categories.length &&
@@ -862,11 +868,11 @@ export function registerCampusTools(server: McpServer) {
                         mentionsFreeFood: mentionsFreeFood(event),
                         onCampus: onCampus(event),
                         occurrences,
-                        // Same-day siblings only; a multi-day run is already
-                        // described by `occurrences` and `lastStart`.
-                        alsoAt: starts.filter(
-                            (t) => t !== event.start && t.slice(0, 10) === event.start.slice(0, 10),
-                        ),
+                        // Every extra start in the window, not only the kept
+                        // day's: a series running several days with two
+                        // showings on some of them hid the extras in both the
+                        // prose and the data.
+                        alsoAt: starts.filter((t) => t !== event.start),
                         lastStart,
                         description: event.description,
                         url: event.url,
@@ -930,6 +936,12 @@ export function registerCampusTools(server: McpServer) {
                                           ? `  runs on ${row.occurrences} days in this window` +
                                             (row.lastStart
                                                 ? `, last on ${when(row.lastStart, row.allDay)}`
+                                                : "") +
+                                            // Also when it spans days: a
+                                            // series with two showings on some
+                                            // of them hid the extras entirely.
+                                            (row.alsoAt.length > row.occurrences - 1
+                                                ? ", and more than once on some days"
                                                 : "") +
                                             "\n"
                                           : row.alsoAt.length

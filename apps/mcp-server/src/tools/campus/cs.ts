@@ -21,7 +21,7 @@ import { buildEvent, hashId, type CampusEvent } from "./extract.ts";
 export const CS_SOURCE = "apps.cs.utexas.edu";
 
 const BASE = "https://apps.cs.utexas.edu/calendar";
-const CACHE_VERSION = 4; // 3 stored a Map, which a cache hit returned as {}
+const CACHE_VERSION = 5; // 4 stored searchText without the scope break // 3 stored a Map, which a cache hit returned as {}
 /** 30 minutes, matching the central calendar. */
 const TTL_SECONDS = 1_800;
 /**

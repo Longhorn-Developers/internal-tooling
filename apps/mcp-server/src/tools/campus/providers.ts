@@ -26,7 +26,7 @@ import {
 } from "./extract.ts";
 import { CS_SOURCE, getCsCalendar } from "./cs.ts";
 
-const CACHE_VERSION = 2; // 1 stored events before venue, cost and series keys
+const CACHE_VERSION = 3; // 2 stored searchText without the scope break // 1 stored events before venue, cost and series keys
 /** Six hours. These are hand-edited department calendars, not live feeds. */
 const TTL_SECONDS = 21_600;
 

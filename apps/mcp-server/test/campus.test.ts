@@ -12,6 +12,7 @@ import {
 } from "../src/tools/campus/buildings";
 import {
     MAX_WINDOW_DAYS,
+    byStart,
     collapseSeries,
     filterEvents,
     getCalendar,
@@ -22,7 +23,14 @@ import {
 } from "../src/tools/campus/extract";
 import { parseWindow, registerCampusTools } from "../src/tools/campus";
 import { CAMPUS_NOW, fixture, stubFetch, type FetchLog } from "./fixtures";
-import { CS_SOURCE, csInstant, getCsCalendar, parseRooms } from "../src/tools/campus/cs";
+import {
+    CS_SOURCE,
+    getCsCalendar,
+    monthsSpanned,
+    parseFeedDescriptions,
+    parseMonth,
+    parseRooms,
+} from "../src/tools/campus/cs";
 import {
     getDepartmentCalendars,
     icsInstant,
@@ -1708,7 +1716,9 @@ describe("a department filter that matches nothing", () => {
         // Computer Science department value at all.
         const { data, content } = await events({
             when: "this week",
-            department: "Computer Science",
+            // Nursing is not one of the departmental calendars read here, and
+            // the central feed carries no such value either.
+            department: "School of Nursing Quilting Society",
             limit: 5,
         });
         expect(data.events).toHaveLength(0);
@@ -1763,12 +1773,80 @@ describe("the CS department calendar", () => {
         expect(social!.departments).toEqual(["Computer Science"]);
     });
 
-    it("reads a Central offset from the feed rather than trusting Date.parse", () => {
-        // Date.parse treats a named zone as a hint it may ignore, so the same
-        // string can land an hour out depending on the runtime.
-        expect(csInstant("Wed, 18 Nov 2026 18:00 CST")).toBe("2026-11-18T18:00:00-06:00");
-        expect(csInstant("Thu, 2 Apr 2026 09:05 CDT")).toBe("2026-04-02T09:05:00-05:00");
-        expect(csInstant("not a date")).toBeNull();
+    it("reads times from the monthly view, which already carries an offset", () => {
+        const rows = parseMonth(fixture("cs-events-month.html"));
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) {
+            expect(row.start).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:]+[+-]\d{2}:\d{2}$/);
+            expect(row.title).toBeTruthy();
+        }
+        // An end time too, which the feed never carried.
+        expect(rows.some((r) => r.end)).toBe(true);
+    });
+
+    it("does not read events from the feed, which ignores the month it is asked for", async () => {
+        // /events/rss/<month> returns a byte-identical rolling 50 items for
+        // 2026-10, 2026-12 and 2027-03 alike. Reading it per month made CS
+        // invisible past its ~16-day horizon and double-counted a window that
+        // spanned two months.
+        resetCache();
+        const log = stubFetch();
+        await getCsCalendar(CS_NOW, 40);
+        const rss = log.filter((e) => e.url.includes("/events/rss"));
+        const months = log.filter((e) => e.url.includes("/events/month/"));
+        // One feed request however many months are in the window.
+        expect(rss).toHaveLength(1);
+        expect(months.length).toBeGreaterThan(1);
+        // And the month is a real path segment, not decoration.
+        expect(new Set(months.map((e) => e.url)).size).toBe(months.length);
+    });
+
+    it("reads each month separately instead of the same items twice", async () => {
+        // The old code fetched /events/rss/<month> per month and got identical
+        // items back, so a two-month window double-counted everything and
+        // collapseSeries called a single meeting a 2-day series.
+        const { events } = await getCsCalendar(CS_NOW, 40);
+        const november = events.filter((e) => e.start.startsWith("2026-11"));
+        const december = events.filter((e) => e.start.startsWith("2026-12"));
+        expect(november.length).toBeGreaterThan(0);
+        expect(december.length).toBeGreaterThan(0);
+
+        // No two rows share an instant AND an id: that is the duplicate shape.
+        const seen = new Set(events.map((e) => `${e.id}@${e.start}`));
+        expect(seen.size).toBe(events.length);
+
+        // A genuinely recurring meeting still collapses to one row that says
+        // how many times it runs, rather than filling the answer.
+        const collapsed = collapseSeries([...events].sort(byStart));
+        expect(collapsed.length).toBeLessThan(events.length);
+    });
+
+    it("keeps every occurrence of a weekly meeting, not just the first", () => {
+        // parseMonth deduped by id at one point, which dropped a weekly
+        // meeting from any window after its first occurrence in the month.
+        const rows = parseMonth(fixture("cs-events-month.html"));
+        const byId = new Map<string, number>();
+        for (const r of rows) byId.set(r.id, (byId.get(r.id) ?? 0) + 1);
+        expect(rows.length).toBeGreaterThanOrEqual(byId.size);
+        // And each occurrence has its own start.
+        const starts = new Set(rows.map((r) => `${r.id}@${r.start}`));
+        expect(starts.size).toBe(rows.length);
+    });
+
+    it("counts the months a window touches in Austin's calendar, not UTC's", () => {
+        // After 6pm Central on the last day of a month, UTC is already into the
+        // next one, so the current month would never be asked for.
+        const lateOnTheLast = new Date("2026-11-30T23:30:00Z"); // 17:30 Austin
+        expect(monthsSpanned(lateOnTheLast, 1)[0]).toBe("2026-11");
+        const spans = monthsSpanned(new Date("2026-11-18T15:00:00Z"), 40);
+        expect(spans).toContain("2026-11");
+        expect(spans).toContain("2026-12");
+    });
+
+    it("joins the feed's descriptions onto the month's events", () => {
+        const descriptions = parseFeedDescriptions(fixture("cs-events-rss.xml"));
+        expect(descriptions.size).toBeGreaterThan(0);
+        for (const text of descriptions.values()) expect(text).not.toMatch(/<[a-z]/i);
     });
 
     it("does not return the organiser's name", async () => {
@@ -1782,8 +1860,13 @@ describe("the CS department calendar", () => {
         // The view renders a room field and a location field and leaves one
         // empty. Preferring whichever MATCHED found 12 of 102 rooms; checking
         // the values finds 101.
-        const rooms = parseRooms(fixture("cs-events-month.html"));
-        expect(rooms.size).toBeGreaterThan(0);
+        const html = fixture("cs-events-month.html");
+        const rooms = parseRooms(html);
+        // A floor, not just "more than zero": reading only `location-1` found
+        // 12 of 102 rooms and still satisfied `> 0`.
+        const blocks = new Set(html.match(/calendar\.(\d+)\.field_date/g) ?? []).size;
+        expect(blocks).toBeGreaterThan(0);
+        expect(rooms.size).toBeGreaterThan(blocks * 0.6);
         for (const room of rooms.values()) expect(room).not.toMatch(/^Room:/i);
     });
 
@@ -1842,6 +1925,20 @@ describe("departmental calendars in three formats", () => {
                 expect(e.departments).toEqual(["School of Law"]);
                 expect(e.start).toMatch(/^\d{4}-\d{2}-\d{2}T/);
             }
+            // The title of this test promised a room and never checked one, so
+            // a broken LOCATION parse passed. A law room resolves to TNH.
+            const located = events.filter((e) => e.room);
+            expect(located.length).toBeGreaterThan(0);
+            expect(located.some((e) => e.buildingCode === "TNH")).toBe(true);
+        });
+
+        it("drops the accessibility trailer every description carries", () => {
+            // Every law description ends with the same boilerplate, so
+            // query:"accommodation" returned 11 events, all law.
+            const blob = parsed()
+                .map((e) => e.description ?? "")
+                .join(" ");
+            expect(blob).not.toMatch(/request an accommodation/i);
         });
 
         it("unfolds a wrapped line before reading it", () => {
@@ -1858,11 +1955,23 @@ describe("departmental calendars in three formats", () => {
 
         it("resolves a Central wall-clock time, not whatever Date.parse decides", () => {
             // The feed writes DTSTART;TZID=US/Central:20261118T083000.
-            const iso = icsInstant("20261118T083000", "US/Central");
-            expect(new Date(iso!).toISOString()).toBe("2026-11-18T14:30:00.000Z");
+            expect(icsInstant("20261118T083000")).toBe("2026-11-18T08:30:00-06:00");
             // A trailing Z is already UTC and must not be shifted again.
-            expect(icsInstant("20261118T143000Z", null)).toBe("2026-11-18T14:30:00.000Z");
-            expect(icsInstant("nonsense", null)).toBeNull();
+            expect(icsInstant("20261118T143000Z")).toBe("2026-11-18T08:30:00-06:00");
+            expect(icsInstant("nonsense")).toBeNull();
+        });
+
+        it("puts an all-day event at midnight in summer too", () => {
+            // A hard-coded -06:00 was right in CST and an hour out in CDT, so
+            // an April all-day event started at 01:00.
+            expect(icsInstant("20261118")).toBe("2026-11-18T00:00:00-06:00");
+            expect(icsInstant("20270415")).toBe("2027-04-15T00:00:00-05:00");
+        });
+
+        it("emits the same offset form as every other source", () => {
+            // Mixing "...Z" and "...-06:00" sorted the merged list six hours
+            // wrong and dropped Law rows at the limit.
+            for (const e of parsed()) expect(e.start).toMatch(/[+-]\d{2}:\d{2}$/);
         });
 
         it("unescapes the commas and semicolons ICS escapes", () => {
@@ -1887,9 +1996,41 @@ describe("departmental calendars in three formats", () => {
 
         it("has no coordinates, because the endpoint serves no location", () => {
             const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            // Guarded: a loop over an empty array asserts nothing.
+            expect(events.length).toBeGreaterThan(0);
             for (const e of events) {
                 expect(e.room).toBeNull();
                 expect(e.latitude).toBeNull();
+            }
+        });
+
+        it("does not claim an event with no location is in person", () => {
+            // is_online is null and online_url empty on every row, so the title
+            // is the only evidence. Asserting "inperson" returned virtual
+            // office hours to a student filtering for in-person events.
+            const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            for (const e of events) {
+                if (/virtual|online/i.test(e.title)) expect(e.venue).toBe("virtual");
+                else if (/in[- ]?person/i.test(e.title)) expect(e.venue).toBe("inperson");
+                else expect(e.venue).toBe("unknown");
+            }
+        });
+
+        it("reads free admission from the cost field", () => {
+            // 82 of 100 rows say "Free" and every one came back false.
+            const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            expect(events.some((e) => e.freeAdmission)).toBe(true);
+        });
+
+        it("groups a recurring series so one meeting is not thirteen rows", () => {
+            // LiveWhale numbers each occurrence, so collapseSeries could not
+            // group them and one weekday series filled a third of an answer.
+            const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
+            const repeated = events.filter((e) => e.title.includes("Talk MSTC"));
+            if (repeated.length > 1) {
+                expect(new Set(repeated.map((e) => e.seriesKey)).size).toBe(1);
+                expect(new Set(repeated.map((e) => e.id)).size).toBe(repeated.length);
+                expect(collapseSeries(repeated)).toHaveLength(1);
             }
         });
 
@@ -1906,24 +2047,29 @@ describe("departmental calendars in three formats", () => {
         it("builds a time from the date and the am/pm clock in post meta", () => {
             const events = parsed();
             expect(events.length).toBeGreaterThan(0);
-            const noon = events.find((e) => e.start.includes("T18:00"));
-            // 12:00 pm Central is 18:00Z in winter.
-            expect(noon ?? events[0]).toBeTruthy();
+            // `noon ?? events[0]` passed even when the am/pm parse was broken.
+            // The fixture's events are all 12:00 pm Central.
+            const noon = events.filter((e) => e.start.includes("T12:00:00-06:00"));
+            expect(noon.length).toBeGreaterThan(0);
             for (const e of events) {
                 expect(e.source).toBe("cockrell.utexas.edu");
-                expect(e.start).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+                expect(e.start).toMatch(/[+-]\d{2}:\d{2}$/);
             }
+        });
+
+        it("reads FREE from the cost field", () => {
+            // Every fixture event is cockrell_event_cost: "FREE".
+            expect(parsed().every((e) => e.freeAdmission)).toBe(true);
         });
 
         it("flattens the markup in the location field before resolving it", () => {
             // The field carries '"HQ" Room, Floor 1<br>North Tower, EER Building'.
             const events = parsed();
-            for (const e of events) {
-                if (e.room) expect(e.room).not.toMatch(/<[a-z]/i);
-            }
+            const located = events.filter((e) => e.room);
+            expect(located.length).toBeGreaterThan(0);
+            for (const e of located) expect(e.room).not.toMatch(/<[a-z]/i);
             // That string names EER, and the resolver should find it.
-            const eer = events.find((e) => e.buildingCode === "EER");
-            expect(eer).toBeTruthy();
+            expect(events.find((e) => e.buildingCode === "EER")).toBeTruthy();
         });
 
         it("returns nothing rather than throwing on an unexpected payload", () => {
@@ -1948,5 +2094,79 @@ describe("departmental calendars in three formats", () => {
         // The others still answered.
         expect(events.length).toBeGreaterThan(0);
         expect(new Set(events.map((e) => e.source)).has("law.utexas.edu")).toBe(false);
+    });
+});
+
+describe("fixes from the five-source audit", () => {
+    it("sorts the merged list by instant, not by string", () => {
+        // Law and Cockrell wrote "...Z" where the others wrote "...-06:00", so
+        // a string compare put an 8am law event between 2pm and 3pm, and made
+        // law and Cockrell the first rows dropped at the limit.
+        const zulu = makeEvent({ id: 1, instanceId: 1, start: "2026-12-02T14:00:00.000Z" });
+        const central = makeEvent({ id: 2, instanceId: 2, start: "2026-12-02T09:00:00-06:00" });
+        const sorted = [central, zulu].sort(byStart);
+        // 14:00Z is 08:00 Central, so it comes first.
+        expect(sorted[0]!.id).toBe(1);
+    });
+
+    it("does not merge two sources that happen to share an id", () => {
+        // collapseSeries keyed on the id alone, so the second event vanished
+        // and the first was relabelled as a 2-day series.
+        const a = makeEvent({ id: 500, instanceId: 500, title: "Central thing" });
+        const b = {
+            ...makeEvent({ id: 500, instanceId: 500, title: "Law thing" }),
+            source: "law.utexas.edu" as const,
+        };
+        expect(collapseSeries([a, b])).toHaveLength(2);
+    });
+
+    it("resolves the shorthand a student would type for a department", async () => {
+        // "computer science".includes("cs") is false, so department:"CS"
+        // answered "Nothing on UT's calendar" with CS events in hand.
+        const cs = makeEvent({ departments: ["Computer Science"] });
+        expect(filterEvents([cs], { department: "CS" })).toHaveLength(1);
+        expect(filterEvents([cs], { department: "cs" })).toHaveLength(1);
+        const law = makeEvent({ departments: ["School of Law"] });
+        expect(filterEvents([law], { department: "law" })).toHaveLength(1);
+        const mccombs = makeEvent({ departments: ["McCombs School of Business"] });
+        expect(filterEvents([mccombs], { department: "business" })).toHaveLength(1);
+        // And an unrelated term still matches nothing.
+        expect(filterEvents([cs], { department: "nursing" })).toHaveLength(0);
+    });
+
+    it("shares one cache entry between windows that round to the same size", async () => {
+        resetCache();
+        const log = stubFetch();
+        await events({ when: "today", limit: 2 });
+        const afterFirst = log.filter((e) => e.url.includes("calendar.utexas.edu")).length;
+        expect(afterFirst).toBeGreaterThan(0);
+        // "tonight" needs the same two days, so it must not refetch.
+        await events({ when: "tonight", limit: 2 });
+        const afterSecond = log.filter((e) => e.url.includes("calendar.utexas.edu")).length;
+        expect(afterSecond).toBe(afterFirst);
+    });
+
+    it("asks upstream for the whole bucket it caches under", async () => {
+        // Keying on the bucket while fetching the exact window would let a
+        // 21-day request fill the 31-day entry with 21 days of data.
+        resetCache();
+        const log = stubFetch();
+        await events({ when: "this week", limit: 2 });
+        const days = log
+            .filter((e) => e.url.includes("calendar.utexas.edu"))
+            .map((e) => Number(new URL(e.url).searchParams.get("days")));
+        expect(new Set(days).size).toBe(1);
+        // 8 is a bucket; a window of 8 days must not ask for 9 or 7.
+        expect(days[0]).toBe(8);
+    });
+
+    it("pages McCombs rather than stopping at the first hundred", async () => {
+        // per_page=100 read 100 of the 150 the payload's own meta declares.
+        resetCache();
+        const log = stubFetch();
+        await getDepartmentCalendars(CAMPUS_NOW, 8);
+        const calls = log.filter((e) => e.url.includes("mccombs.utexas.edu"));
+        expect(calls.length).toBeGreaterThan(0);
+        for (const c of calls) expect(c.url).toContain("page=");
     });
 });

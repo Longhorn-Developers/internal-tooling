@@ -16,6 +16,7 @@ import { getDepartmentCalendars } from "./providers.ts";
 import {
     AUDIENCES,
     austinInstant,
+    byStart,
     EVENT_CATEGORIES,
     MAX_WINDOW_DAYS,
     VENUE_TYPES,
@@ -562,22 +563,26 @@ export function registerCampusTools(server: McpServer) {
                 // one week, 23 of 23 CS events were absent from it. Neither
                 // source failing may take the other's answer down.
                 const days = daysNeeded(window, now);
-                const [central, departments] = await Promise.allSettled([
-                    getCalendar(days),
+                const [central, departments] = await Promise.all([
+                    getCalendar(days).then(
+                        (value) => ({ ok: true as const, value }),
+                        (reason: unknown) => ({ ok: false as const, reason }),
+                    ),
                     getDepartmentCalendars(now, days),
                 ]);
                 // The central calendar is the only one whose failure is fatal:
                 // without it there is no answer worth giving.
-                if (central.status === "rejected") throw central.reason;
-                const extra =
-                    departments.status === "fulfilled"
-                        ? departments.value
-                        : { events: [], failed: ["the departmental calendars"] };
+                if (!central.ok) throw central.reason;
+                // `getDepartmentCalendars` settles every source internally, so
+                // it resolves even when all of them fail; the fallback that
+                // used to sit here was unreachable.
+                const extra = departments;
                 const calendar = {
                     ...central.value,
-                    events: [...central.value.events, ...extra.events].sort(
-                        (a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId,
-                    ),
+                    // byStart compares INSTANTS. Sources write the same moment
+                    // as "...Z" or "...-06:00", and a string compare put Law
+                    // and Cockrell rows six hours out of place.
+                    events: [...central.value.events, ...extra.events].sort(byStart),
                 };
                 const sourceNote = extra.failed.length
                     ? `${extra.failed.join(", ")} did not answer, so some events are missing here.`

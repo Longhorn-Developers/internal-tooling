@@ -15,81 +15,24 @@
 // already the best-covered department in the central calendar.
 
 import { cached, decode, getJson, getText, text } from "../../shared.ts";
-import { resolveBuilding } from "./buildings.ts";
-import { austinInstant, type CampusEvent, type EventSource } from "./extract.ts";
+import {
+    austinInstant,
+    buildEvent,
+    centralIso,
+    hashId,
+    type CampusEvent,
+    type EventSource,
+    type VenueType,
+} from "./extract.ts";
 import { CS_SOURCE, getCsCalendar } from "./cs.ts";
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2; // 1 stored events before venue, cost and series keys
 /** Six hours. These are hand-edited department calendars, not live feeds. */
 const TTL_SECONDS = 21_600;
-const DESCRIPTION_LIMIT = 400;
-const SEARCH_TEXT_LIMIT = 8_000;
 
 export const LAW_SOURCE = "law.utexas.edu";
 export const MCCOMBS_SOURCE = "calendar.mccombs.utexas.edu";
 export const COCKRELL_SOURCE = "cockrell.utexas.edu";
-
-/** The shared parts of an event, so each provider only supplies what it knows. */
-function build(opts: {
-    id: number;
-    title: string;
-    start: string;
-    end?: string | null;
-    allDay?: boolean;
-    description?: string | null;
-    room?: string | null;
-    url: string;
-    department: string;
-    source: EventSource;
-    canceled?: boolean;
-    online?: boolean;
-}): CampusEvent {
-    const room = opts.room?.trim() || null;
-    const resolved = room ? resolveBuilding(room) : null;
-    const plain = opts.description?.trim() || null;
-    return {
-        id: opts.id,
-        instanceId: opts.id,
-        title: opts.title,
-        description:
-            plain && plain.length > DESCRIPTION_LIMIT
-                ? `${plain.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
-                : plain,
-        searchText: [opts.title, (plain ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
-            .filter(Boolean)
-            .join("\n")
-            .toLowerCase(),
-        start: opts.start,
-        end: opts.end ?? null,
-        allDay: opts.allDay ?? false,
-        locationName: room,
-        room,
-        address: null,
-        latitude: resolved?.building.latitude ?? null,
-        longitude: resolved?.building.longitude ?? null,
-        coordinateSource: resolved ? "building" : null,
-        buildingCode: resolved?.building.code ?? null,
-        venue: opts.online ? "virtual" : "inperson",
-        categories: [],
-        audiences: [],
-        departments: [opts.department],
-        tags: [],
-        canceled: opts.canceled ?? false,
-        freeAdmission: false,
-        ticketCost: null,
-        streamUrl: null,
-        url: opts.url,
-        photoUrl: null,
-        source: opts.source,
-    };
-}
-
-/** Stable positive id from a feed's own string id. */
-function hash(value: string): number {
-    let h = 0;
-    for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) | 0;
-    return Math.abs(h) || 1;
-}
 
 // ------------------------------------------------------------------- law, ICS
 
@@ -105,21 +48,22 @@ export function unfoldIcs(body: string): string {
 }
 
 /**
- * "20261118T083000" with TZID=US/Central, or a trailing Z for UTC.
+ * "20261118T083000", or a trailing Z for UTC, to an ISO string with Austin's
+ * offset -- the form `CampusEvent.start` promises.
  *
- * The named zone is resolved through `austinInstant` rather than trusted to
- * `Date.parse`, which may ignore it.
+ * No TZID parameter: every zone this feed names is Central, and accepting one
+ * while ignoring it implied otherwise. A date-only value goes through
+ * `austinInstant` too, so an all-day event in CDT is midnight rather than the
+ * 01:00 a hard-coded -06:00 produced.
  */
-export function icsInstant(value: string, tzid: string | null): string | null {
+export function icsInstant(value: string): string | null {
     const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(value.trim());
     if (!m) return null;
     const [, y, mo, d, h, mi, , z] = m;
-    if (!h) return `${y}-${mo}-${d}T00:00:00-06:00`;
-    if (z) return new Date(`${y}-${mo}-${d}T${h}:${mi}:00Z`).toISOString();
-    // Every TZID this feed uses is Central; anything else is read as Central
-    // too, which is wrong by an hour at worst and never wrong by a day.
-    void tzid;
-    return austinInstant(Number(y), Number(mo), Number(d), Number(h), Number(mi)).toISOString();
+    if (z) return centralIso(new Date(`${y}-${mo}-${d}T${h}:${mi}:00Z`));
+    return centralIso(
+        austinInstant(Number(y), Number(mo), Number(d), Number(h ?? 0), Number(mi ?? 0)),
+    );
 }
 
 export function parseIcs(body: string, source: EventSource, department: string): CampusEvent[] {
@@ -137,20 +81,19 @@ export function parseIcs(body: string, source: EventSource, department: string):
         const summary = field("SUMMARY");
         const uid = field("UID");
         if (!start || !summary?.value.trim() || !uid) continue;
-        const tzid = /TZID=([^;:]+)/.exec(start.params)?.[1] ?? null;
-        const startIso = icsInstant(start.value, tzid);
+        const startIso = icsInstant(start.value);
         if (!startIso) continue;
         const end = field("DTEND");
         const status = field("STATUS")?.value.trim().toUpperCase();
 
         out.push(
-            build({
-                id: hash(uid.value.trim()),
+            buildEvent({
+                id: hashId(uid.value.trim()),
                 title: unescape(summary.value),
                 start: startIso,
-                end: end ? icsInstant(end.value, tzid) : null,
+                end: end ? icsInstant(end.value) : null,
                 allDay: !/T\d{6}/.test(start.value),
-                description: text(unescape(field("DESCRIPTION")?.value ?? "")) || null,
+                description: lawDescription(unescape(field("DESCRIPTION")?.value ?? "")),
                 room: unescape(field("LOCATION")?.value ?? "") || null,
                 url: field("URL")?.value.trim() || `https://${source}`,
                 department,
@@ -160,6 +103,15 @@ export function parseIcs(body: string, source: EventSource, department: string):
         );
     }
     return out;
+}
+
+/**
+ * Every law description ends with the same accessibility trailer, which made
+ * `query: "accommodation"` return 11 law events and nothing else.
+ */
+function lawDescription(raw: string): string | null {
+    const body = text(raw).split(/To request an accommodation|Special Events Office/i)[0] ?? "";
+    return body.trim() || null;
 }
 
 async function lawEvents(): Promise<CampusEvent[]> {
@@ -178,17 +130,33 @@ interface LiveWhaleRow {
     date2_iso?: string;
     is_all_day?: boolean | number;
     is_canceled?: boolean | number;
-    is_online?: boolean | number;
     url?: string;
     summary?: string;
+    /** "Free", a number, or null. */
+    cost?: string | number | null;
 }
 
 /**
- * No location field. `supported_fields` advertises one and no spelling of a
- * field-selection parameter returns it, so these events have a time and a title
- * and no coordinates. Loop gets locations by fetching each event's own page,
+ * No location, and no online flag either: `is_online` is null and `online_url`
+ * empty on every row, so the title is the only evidence of how to attend. An
+ * event that says neither is reported as `unknown` rather than asserted to be
+ * in person, which was wrong in both directions -- the in-person filter
+ * returned "MSF Virtual Office Hours" and the virtual filter returned nothing.
+ *
+ * `supported_fields` advertises a location and no spelling of a field-selection
+ * parameter returns it. Loop gets locations by fetching each event's own page,
  * which is one subrequest per event and too expensive here.
  */
+function venueFromTitle(title: string): VenueType {
+    if (/\b(virtual|online|zoom|webinar)\b/i.test(title)) return "virtual";
+    if (/\bin[- ]?person\b/i.test(title)) return "inperson";
+    return "unknown";
+}
+
+/** "Free" means free; a number means it is not. Absent says nothing either way. */
+function isFree(cost: unknown): boolean {
+    return typeof cost === "string" && /^\s*free\s*$/i.test(cost);
+}
 export function parseLiveWhale(payload: unknown): CampusEvent[] {
     const rows = (payload as { data?: LiveWhaleRow[] })?.data;
     if (!Array.isArray(rows)) return [];
@@ -197,10 +165,11 @@ export function parseLiveWhale(payload: unknown): CampusEvent[] {
         const start = row.date_iso?.trim();
         const title = row.title?.trim();
         if (!start || !title) continue;
+        const clean = decode(title);
         out.push(
-            build({
-                id: Number(row.id) || hash(String(row.id ?? title)),
-                title: decode(title),
+            buildEvent({
+                id: Number(row.id) || hashId(String(row.id ?? title)),
+                title: clean,
                 start,
                 end: row.date2_iso?.trim() || null,
                 allDay: Boolean(row.is_all_day),
@@ -210,19 +179,40 @@ export function parseLiveWhale(payload: unknown): CampusEvent[] {
                 department: "McCombs School of Business",
                 source: MCCOMBS_SOURCE,
                 canceled: Boolean(row.is_canceled),
-                online: Boolean(row.is_online),
+                venue: venueFromTitle(clean),
+                freeAdmission: isFree(row.cost),
+                // LiveWhale gives every occurrence its own id, so without this
+                // one weekday series was 13 separate rows. `gid` is a calendar
+                // group, not a series, so the title and link are the key.
+                seriesKey: `${clean}|${row.url ?? ""}`,
             }),
         );
     }
     return out;
 }
 
+/**
+ * Pages until the feed runs out, up to MAX_PAGES.
+ *
+ * `per_page=100` alone read 100 of the 150 events the payload's own
+ * `meta.total_results` declares, and said nothing about the other 50.
+ */
+const MAX_PAGES = 3;
+
 async function mccombsEvents(): Promise<CampusEvent[]> {
-    return cached(`mccombs:v${CACHE_VERSION}`, TTL_SECONDS, async () =>
-        parseLiveWhale(
-            await getJson(`https://${MCCOMBS_SOURCE}/live/json/events?per_page=100`, TTL_SECONDS),
-        ),
-    );
+    return cached(`mccombs:v${CACHE_VERSION}`, TTL_SECONDS, async () => {
+        const out: CampusEvent[] = [];
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const payload = await getJson<{ meta?: { total_pages?: number } }>(
+                `https://${MCCOMBS_SOURCE}/live/json/events?per_page=100&page=${page}`,
+                TTL_SECONDS,
+            );
+            const rows = parseLiveWhale(payload);
+            out.push(...rows);
+            if (!rows.length || page >= (payload?.meta?.total_pages ?? 1)) break;
+        }
+        return out;
+    });
 }
 
 // ------------------------------------------- cockrell, WordPress REST
@@ -259,21 +249,23 @@ export function parseWordPress(payload: unknown): CampusEvent[] {
             return [hour, Number(m[2])];
         };
         const [y, mo, d] = day.split("-").map(Number) as [number, number, number];
+        const endDay = metaString(meta["cockrell_event_end_date"]);
+        const [ey, emo, ed] = (/^\d{4}-\d{2}-\d{2}$/.test(endDay) ? endDay : day)
+            .split("-")
+            .map(Number) as [number, number, number];
         const startClock = clock(meta["cockrell_event_start_time"]);
         const endClock = clock(meta["cockrell_event_end_time"]);
         out.push(
-            build({
-                id: Number(row.id) || hash(day + title),
+            buildEvent({
+                id: Number(row.id) || hashId(day + title),
                 title,
-                start: austinInstant(
-                    y,
-                    mo,
-                    d,
-                    startClock?.[0] ?? 0,
-                    startClock?.[1] ?? 0,
-                ).toISOString(),
+                start: centralIso(
+                    austinInstant(y, mo, d, startClock?.[0] ?? 0, startClock?.[1] ?? 0),
+                ),
+                // `cockrell_event_end_date` is its own field, so a multi-day
+                // event used to end on its start date and read as one day.
                 end: endClock
-                    ? austinInstant(y, mo, d, endClock[0], endClock[1]).toISOString()
+                    ? centralIso(austinInstant(ey, emo, ed, endClock[0], endClock[1]))
                     : null,
                 allDay: !startClock,
                 description: null,
@@ -284,6 +276,7 @@ export function parseWordPress(payload: unknown): CampusEvent[] {
                 url: row.link?.trim() || `https://${COCKRELL_SOURCE}`,
                 department: "Cockrell School of Engineering",
                 source: COCKRELL_SOURCE,
+                freeAdmission: isFree(metaString(meta["cockrell_event_cost"])),
             }),
         );
     }
@@ -291,14 +284,20 @@ export function parseWordPress(payload: unknown): CampusEvent[] {
 }
 
 async function cockrellEvents(): Promise<CampusEvent[]> {
-    return cached(`cockrell:v${CACHE_VERSION}`, TTL_SECONDS, async () =>
-        parseWordPress(
-            await getJson(
-                `https://${COCKRELL_SOURCE}/wp-json/wp/v2/event?per_page=100`,
+    return cached(`cockrell:v${CACHE_VERSION}`, TTL_SECONDS, async () => {
+        const out: CampusEvent[] = [];
+        // WordPress reports the page count in a header, which `getJson` does
+        // not surface, so a full page is taken as a hint there may be another.
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const rows = await getJson<unknown[]>(
+                `https://${COCKRELL_SOURCE}/wp-json/wp/v2/event?per_page=100&page=${page}`,
                 TTL_SECONDS,
-            ),
-        ),
-    );
+            );
+            out.push(...parseWordPress(rows));
+            if (!Array.isArray(rows) || rows.length < 100) break;
+        }
+        return out;
+    });
 }
 
 // ------------------------------------------------------------------ registry
@@ -343,6 +342,7 @@ export async function getDepartmentCalendars(now: Date, days: number): Promise<D
         if (result.status === "fulfilled") events.push(...result.value);
         else failed.push(sources[i]!.id);
     });
-    events.sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId);
+    // No sort here: index.ts sorts the merged list, which is the only order
+    // a caller sees.
     return { events, failed };
 }

@@ -8,6 +8,9 @@ import { calendarUrl, eventUrl } from "./urls.ts";
 /** Bump on any shape or derived-content change: the CF cache outlives a deploy. */
 const CACHE_VERSION = 1;
 
+/** Windows round up to one of these, so common phrasings share a cache entry. */
+const DAY_BUCKETS = [2, 8, 16, 31, 61];
+
 /** 30 minutes. The calendar is edited by hand; it does not move minute to minute. */
 const TTL_SECONDS = 1_800;
 
@@ -35,7 +38,7 @@ export const EVENT_CATEGORIES = [
 
 export const AUDIENCES = ["Students", "Faculty", "Staff", "Alumni", "Families", "General Public"];
 
-export const VENUE_TYPES = ["inperson", "virtual", "hybrid"] as const;
+export const VENUE_TYPES = ["inperson", "virtual", "hybrid", "unknown"] as const;
 export type VenueType = (typeof VENUE_TYPES)[number];
 
 /** Austin's UTC offset at a given instant, in minutes behind UTC. */
@@ -64,6 +67,30 @@ export function austinInstant(
     const first = new Date(guess + austinOffsetMinutes(new Date(guess)) * 60_000);
     // One correction pass, for a DST changeover day.
     return new Date(guess + austinOffsetMinutes(first) * 60_000);
+}
+
+/**
+ * Sorts by INSTANT, not by string.
+ *
+ * `start` is ISO 8601, and two sources writing the same moment as
+ * "...T14:00:00Z" and "...T08:00:00-06:00" sort six hours apart under a string
+ * compare. That put Law and Cockrell rows in the wrong place in every merged
+ * answer, and made them the first thing dropped when `limit` bit.
+ */
+export const byStart = (a: CampusEvent, b: CampusEvent): number =>
+    Date.parse(a.start) - Date.parse(b.start) || a.instanceId - b.instanceId;
+
+/**
+ * An instant as ISO 8601 with Austin's offset, which is the form
+ * `CampusEvent.start` promises. `toISOString()` gives the Z form instead.
+ */
+export function centralIso(at: Date): string {
+    const offset = austinOffsetMinutes(at);
+    const local = new Date(at.getTime() - offset * 60_000);
+    const sign = offset <= 0 ? "+" : "-";
+    const abs = Math.abs(offset);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${local.toISOString().slice(0, 19)}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
 /** Every calendar find_events reads. One per provider. */
@@ -109,6 +136,12 @@ export interface CampusEvent {
     photoUrl: string | null;
     /** Which calendar this came from. */
     source: EventSource;
+    /**
+     * Groups occurrences of one recurring event, when the source numbers each
+     * occurrence separately. McCombs does: "Let's Talk MSTC" is 13 rows with 13
+     * ids, which filled a third of a default answer with the same meeting.
+     */
+    seriesKey?: string;
 }
 
 interface RawInstance {
@@ -290,6 +323,80 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
     return out;
 }
 
+/**
+ * The shared parts of an event, so each provider only supplies what it knows.
+ *
+ * Lives here rather than in a provider because three of them need it and the
+ * CS one had its own copy of the same twenty literal fields.
+ */
+export function buildEvent(opts: {
+    id: number;
+    instanceId?: number;
+    title: string;
+    start: string;
+    end?: string | null;
+    allDay?: boolean;
+    description?: string | null;
+    room?: string | null;
+    url: string;
+    department: string;
+    source: EventSource;
+    canceled?: boolean;
+    venue?: VenueType;
+    freeAdmission?: boolean;
+    seriesKey?: string;
+}): CampusEvent {
+    const room = opts.room?.trim() || null;
+    const resolved = room ? resolveBuilding(room) : null;
+    const plain = opts.description?.trim() || null;
+    return {
+        id: opts.id,
+        // Defaults to the event id. A source that publishes one row per
+        // occurrence passes its own, so two occurrences of a weekly meeting
+        // stay distinct rows under the same `id`.
+        instanceId: opts.instanceId ?? opts.id,
+        title: opts.title,
+        description:
+            plain && plain.length > DESCRIPTION_LIMIT
+                ? `${plain.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
+                : plain,
+        searchText: [opts.title, (plain ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
+            .filter(Boolean)
+            .join("\n")
+            .toLowerCase(),
+        start: opts.start,
+        end: opts.end ?? null,
+        allDay: opts.allDay ?? false,
+        locationName: room,
+        room,
+        address: null,
+        latitude: resolved?.building.latitude ?? null,
+        longitude: resolved?.building.longitude ?? null,
+        coordinateSource: resolved ? "building" : null,
+        buildingCode: resolved?.building.code ?? null,
+        venue: opts.venue ?? "inperson",
+        categories: [],
+        audiences: [],
+        departments: [opts.department],
+        tags: [],
+        canceled: opts.canceled ?? false,
+        freeAdmission: opts.freeAdmission ?? false,
+        ticketCost: null,
+        streamUrl: null,
+        url: opts.url,
+        photoUrl: null,
+        source: opts.source,
+        seriesKey: opts.seriesKey,
+    };
+}
+
+/** Stable positive id from a feed's own string id. */
+export function hashId(value: string): number {
+    let h = 0;
+    for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) | 0;
+    return Math.abs(h) || 1;
+}
+
 export interface CalendarResult {
     events: CampusEvent[];
     /** What Localist says exists, which can exceed what MAX_PAGES fetched. */
@@ -300,13 +407,22 @@ export interface CalendarResult {
 
 /** Cached whole, not per page: a partial set would answer a later call with a prefix. */
 export async function getCalendar(days: number, groupId?: number): Promise<CalendarResult> {
-    const key = `calendar:v${CACHE_VERSION}:${days}:${groupId ?? "all"}`;
+    // Bucketed, not exact: "today" (2), "this week" (8) and every ISO date
+    // produced its own `days` and so its own cold fetch, and a cold 60-day
+    // window took 9-16 seconds. Rounding up means the common phrasings share an
+    // entry, at the cost of fetching a few days more than asked for.
+    //
+    // The FETCH uses the bucket too. Keying on the bucket while fetching `days`
+    // would let a 21-day request populate the 31-day entry with 21 days of
+    // data, and the next 31-day caller would silently get the short answer.
+    const bucket = DAY_BUCKETS.find((b) => b >= days) ?? days;
+    const key = `calendar:v${CACHE_VERSION}:${bucket}:${groupId ?? "all"}`;
     return cached(key, TTL_SECONDS, async () => {
         // Non-optional: `readPage` has proved it is an array, and a `?? []` at
         // every use is where an empty page would hide.
         type FetchedPage = { events: RawEvent[]; page?: RawPage["page"] };
         const readPage = async (page: number): Promise<FetchedPage> => {
-            const body = await getText(calendarUrl({ days, page, groupId }), TTL_SECONDS);
+            const body = await getText(calendarUrl({ days: bucket, page, groupId }), TTL_SECONDS);
             let parsed: RawPage;
             try {
                 parsed = JSON.parse(body) as RawPage;
@@ -344,7 +460,7 @@ export async function getCalendar(days: number, groupId?: number): Promise<Calen
             }
         }
 
-        events.sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId);
+        events.sort(byStart);
         return {
             events,
             totalItems,
@@ -369,6 +485,31 @@ export interface EventFilters {
     includeCanceled?: boolean;
     /** Drop events known to be away from Austin. Unknown is kept, not dropped. */
     onCampusOnly?: boolean;
+}
+
+/**
+ * How a student writes a department, mapped to how a calendar publishes it.
+ *
+ * The filter is a substring match, and "computer science".includes("cs") is
+ * false, so `department: "CS"` answered "Nothing on UT's calendar" with seven CS
+ * events in hand. These are the four sources with their own calendar.
+ */
+const DEPARTMENT_ALIASES: Record<string, string> = {
+    cs: "computer science",
+    utcs: "computer science",
+    compsci: "computer science",
+    law: "school of law",
+    "texas law": "school of law",
+    business: "mccombs",
+    mba: "mccombs",
+    engineering: "cockrell",
+    engr: "cockrell",
+};
+
+/** Resolves an alias, else trims and lowercases. */
+function departmentTerm(raw: string | undefined): string {
+    const value = raw?.trim().toLowerCase() ?? "";
+    return DEPARTMENT_ALIASES[value] ?? value;
 }
 
 /** Trim as well as lowercase: `" Academics"` passed validation and matched nothing. */
@@ -406,7 +547,7 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
     const wantCategories = lower(filters.categories ?? []);
     const wantAudiences = lower(filters.audiences ?? []);
-    const department = filters.department?.trim().toLowerCase();
+    const department = departmentTerm(filters.department);
 
     return events.filter((event) => {
         // First: showing a cancelled event as if it were on is the worst answer.
@@ -523,11 +664,17 @@ export interface Collapsed {
 }
 
 export function collapseSeries(events: CampusEvent[]): Collapsed[] {
-    const byId = new Map<number, Collapsed>();
+    // Keyed by SOURCE and id: five calendars number their events
+    // independently, and two sharing an id would otherwise merge into one row
+    // with the other's start as `lastStart`.
+    const byId = new Map<string, Collapsed>();
     for (const event of events) {
-        const seen = byId.get(event.id);
+        // `seriesKey` lets a source that numbers every occurrence separately
+        // say so; the default is the event's own id.
+        const key = `${event.source}:${event.seriesKey ?? event.id}`;
+        const seen = byId.get(key);
         if (!seen) {
-            byId.set(event.id, { event, occurrences: 1, lastStart: null });
+            byId.set(key, { event, occurrences: 1, lastStart: null });
             continue;
         }
         seen.occurrences++;

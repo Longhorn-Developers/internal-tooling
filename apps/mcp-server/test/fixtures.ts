@@ -38,7 +38,11 @@ const ROUTES: [string, string][] = [
     // The CS department's own calendar, captured 2026-11-18 and trimmed to six
     // events. Two routes because the feed carries the event and the monthly
     // view carries the room, joined on the event id.
-    ["calendar/events/rss/", "cs-events-rss.xml"],
+    ["calendar/events/rss", "cs-events-rss.xml"],
+    // Two months, so a test can prove the month path segment is honoured. The
+    // feed is NOT per month: /events/rss/<month> returns the same rolling items
+    // whatever month is asked for, which is why events come from the view.
+    ["calendar/events/month/2026-12", "cs-events-month-12.html"],
     ["calendar/events/month/", "cs-events-month.html"],
     ["pp=100&page=1", "localist-page1.json"],
     ["pp=100&page=2", "localist-page2.json"],

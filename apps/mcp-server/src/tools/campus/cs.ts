@@ -2,93 +2,72 @@
 // does not carry. Cross-checked one week: 23 of 23 CS events were absent from
 // Localist, including Texas ACM's and Longhorn Developers' own events.
 //
-// Two requests per month. The RSS feed is the source of truth -- stable, cheap,
-// and it carries the id, title, start and description. The monthly HTML is
-// best-effort enrichment for the room, which the feed omits and which is most of
-// what makes an answer useful ("GDC 1.304" resolves to coordinates). A layout
-// change upstream therefore costs the room, not the events.
+// The MONTHLY VIEW is the source of truth, not the RSS feed. `/events/rss/
+// <month>` ignores the month entirely: 2026-10, 2026-12 and 2027-03 all return
+// a byte-identical rolling 50 items ending about sixteen days out. Reading it
+// per month answered "nothing" for CS past that horizon and, when a window
+// spanned two months, concatenated the same 50 items twice so `collapseSeries`
+// reported one meeting as running on 2 days.
+//
+// The monthly HTML does respect the month and carries everything needed: the
+// event id, title, an ISO start and end with a Central offset, and the room.
+// The feed is still read once, for the descriptions the HTML omits, which is
+// what `freeFood` and a free-text `query` search.
 
 import { cached, decode, getText, text } from "../../shared.ts";
-import { resolveBuilding } from "./buildings.ts";
-import type { CampusEvent } from "./extract.ts";
+import { austinNow } from "../dining/extract.ts";
+import { buildEvent, hashId, type CampusEvent } from "./extract.ts";
 
 export const CS_SOURCE = "apps.cs.utexas.edu";
 
 const BASE = "https://apps.cs.utexas.edu/calendar";
-const CACHE_VERSION = 2; // 1 cached events before the room join worked
+const CACHE_VERSION = 3; // 2 read events from the month-blind RSS feed
 /** 30 minutes, matching the central calendar. */
 const TTL_SECONDS = 1_800;
 /** A 60-day window touches at most three months. */
 const MAX_MONTHS = 3;
-const DESCRIPTION_LIMIT = 400;
-const SEARCH_TEXT_LIMIT = 8_000;
 
-const MONTHS: Record<string, number> = {
-    jan: 1,
-    feb: 2,
-    mar: 3,
-    apr: 4,
-    may: 5,
-    jun: 6,
-    jul: 7,
-    aug: 8,
-    sep: 9,
-    oct: 10,
-    nov: 11,
-    dec: 12,
-};
-
-/** The YYYY-MM keys a window touches, in order. */
+/** The YYYY-MM keys a window touches, in Austin's months rather than UTC's. */
 export function monthsSpanned(now: Date, days: number): string[] {
+    // Austin-local: after 6pm Central on the last day of a month UTC is already
+    // into the next one, and the current month would never be asked for.
+    const from = austinNow(now);
+    const end = austinNow(new Date(now.getTime() + days * 86_400_000));
     const out: string[] = [];
-    const end = new Date(now.getTime() + days * 86_400_000);
-    const cursor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    while (out.length < MAX_MONTHS) {
-        const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, "0")}`;
-        out.push(key);
-        if (
-            cursor.getUTCFullYear() > end.getUTCFullYear() ||
-            (cursor.getUTCFullYear() === end.getUTCFullYear() &&
-                cursor.getUTCMonth() >= end.getUTCMonth())
-        ) {
-            break;
+    let year = from.year;
+    let month = from.month;
+    for (let i = 0; i < MAX_MONTHS; i++) {
+        out.push(`${year}-${String(month).padStart(2, "0")}`);
+        if (year > end.year || (year === end.year && month >= end.month)) break;
+        month += 1;
+        if (month > 12) {
+            month = 1;
+            year += 1;
         }
-        cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
     return out;
 }
 
-/**
- * "Wed, 18 Nov 2026 18:00 CST" to an ISO string with a Central offset.
- *
- * Not `Date.parse`: it treats a named zone as a hint and is allowed to ignore
- * it, so the same string can land an hour out depending on the runtime. The
- * feed only ever writes CST or CDT.
- */
-export function csInstant(pubDate: string): string | null {
-    const m = /^\w{3},\s*(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(CST|CDT)$/i.exec(
-        pubDate.trim(),
-    );
-    if (!m) return null;
-    const month = MONTHS[m[2]!.toLowerCase()];
-    if (!month) return null;
-    const offset = m[6]!.toUpperCase() === "CST" ? "-06:00" : "-05:00";
-    const pad = (v: string) => v.padStart(2, "0");
-    return `${m[3]}-${String(month).padStart(2, "0")}-${pad(m[1]!)}T${pad(m[4]!)}:${m[5]}:00${offset}`;
+/** One block per event occurrence in the monthly view, as `[, id, body]`. */
+function blocksOf(html: string): RegExpMatchArray[] {
+    return [
+        ...html.matchAll(
+            /calendar\.(\d+)\.field_date(.*?)(?=<div class="calendar\.\d+\.field_date|$)/gs,
+        ),
+    ];
 }
 
-/** Event id to room, from the monthly view. Empty if the markup moved. */
+/**
+ * Event id to room.
+ *
+ * Both the room and the location field are rendered and one is empty, so this
+ * takes the first non-empty VALUE. Preferring whichever one matched found 12 of
+ * 102 rooms; this finds 101.
+ */
 export function parseRooms(html: string): Map<string, string> {
     const out = new Map<string, string>();
-    const blocks = html.matchAll(
-        /calendar\.(\d+)\.field_date(.*?)(?=<div class="calendar\.\d+\.field_date|$)/gs,
-    );
-    for (const [, id, body] of blocks) {
+    for (const [, id, body] of blocksOf(html)) {
         if (!id || out.has(id)) continue;
-        // Both fields, first non-empty. Taking whichever one MATCHED found 12
-        // of 102 rooms: the view renders both, and the one it leaves empty is
-        // usually `location-1`, so a match-based fallback never fired. Checking
-        // the values instead finds 101 of 102.
         for (const field of ["room-1", "location-1"] as const) {
             const m = new RegExp(
                 `views-field-field-${field}.*?<div class="field-content">(.*?)</div>`,
@@ -106,101 +85,78 @@ export function parseRooms(html: string): Map<string, string> {
     return out;
 }
 
-interface RawItem {
+export interface CsRow {
     id: string;
     title: string;
     start: string;
-    description: string;
-    url: string;
+    end: string | null;
+    room: string | null;
 }
 
-/** `dc:creator` is deliberately not read: it names a student. */
-export function parseFeed(xml: string): RawItem[] {
-    const out: RawItem[] = [];
-    for (const [, block] of xml.matchAll(/<item>(.*?)<\/item>/gs)) {
-        const pick = (tag: string) => {
-            const m = new RegExp(`<${tag}[^>]*>(.*?)</${tag}>`, "s").exec(block ?? "");
-            return m ? decode(m[1]!.trim()) : "";
-        };
-        const title = text(pick("title"));
-        const start = csInstant(pick("pubDate"));
-        const id = pick("guid");
-        if (!title || !start || !id) continue;
+/**
+ * Events from the monthly view. `content="<ISO>"` already carries a Central
+ * offset, so nothing here has to guess a timezone.
+ */
+export function parseMonth(html: string): CsRow[] {
+    const rooms = parseRooms(html);
+    const out: CsRow[] = [];
+    // One row per OCCURRENCE, which is how Localist publishes too. Deduping by
+    // id here kept only a weekly meeting's first occurrence, so a window later
+    // in the month lost it entirely; `collapseSeries` does the grouping.
+    for (const [, id, body] of blocksOf(html)) {
+        if (!id) continue;
+        const title = text(
+            /colorbox-load">(.*?)<\/a>/s.exec(body ?? "")?.[1] ??
+                /views-field-title.*?<a[^>]*>(.*?)<\/a>/s.exec(body ?? "")?.[1] ??
+                "",
+        ).trim();
+        const times = [
+            ...(body ?? "").matchAll(/content="(\d{4}-\d{2}-\d{2}T[\d:]+[+-]\d{2}:\d{2})"/g),
+        ].map((m) => m[1]!);
+        if (!title || !times.length) continue;
         out.push({
             id,
-            title,
-            start,
-            description: text(pick("description")),
-            url: pick("link") || `${BASE}/events/${id}`,
+            title: decode(title),
+            start: times[0]!,
+            end: times[1] ?? null,
+            room: rooms.get(id) ?? null,
         });
     }
     return out;
 }
 
-function toEvent(raw: RawItem, room: string | undefined): CampusEvent {
-    const resolved = room ? resolveBuilding(room) : null;
-    const description = raw.description || null;
-    return {
-        // The feed's ids are numeric strings; a non-numeric one would collapse
-        // every such event onto id 0, so it keeps its own hash instead.
-        id: Number(raw.id) || hash(raw.id),
-        instanceId: Number(raw.id) || hash(raw.id),
-        title: raw.title,
-        description:
-            description && description.length > DESCRIPTION_LIMIT
-                ? `${description.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
-                : description,
-        searchText: [raw.title, (description ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
-            .filter(Boolean)
-            .join("\n")
-            .toLowerCase(),
-        start: raw.start,
-        // The feed publishes no end time. `filterEvents` assumes an hour for a
-        // timed event without one, which is the same assumption Localist rows
-        // without an end get.
-        end: null,
-        allDay: false,
-        locationName: room ?? null,
-        room: room ?? null,
-        address: null,
-        latitude: resolved?.building.latitude ?? null,
-        longitude: resolved?.building.longitude ?? null,
-        coordinateSource: resolved ? "building" : null,
-        buildingCode: resolved?.building.code ?? null,
-        venue: "inperson",
-        categories: [],
-        audiences: [],
-        departments: ["Computer Science"],
-        tags: [],
-        canceled: false,
-        freeAdmission: false,
-        ticketCost: null,
-        streamUrl: null,
-        url: raw.url,
-        photoUrl: null,
-        source: CS_SOURCE,
-    };
-}
-
-/** Stable positive id for a non-numeric guid. */
-function hash(value: string): number {
-    let h = 0;
-    for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) | 0;
-    return Math.abs(h) || 1;
-}
-
 /**
- * One month of CS events. The room lookup is allowed to fail on its own.
+ * Descriptions, keyed by event id.
+ *
+ * `dc:creator` is deliberately not read: it names the student who booked the
+ * room, which is the same call as HornsLink's officer record.
  */
-async function csMonth(month: string): Promise<CampusEvent[]> {
-    return cached(`cs:v${CACHE_VERSION}:${month}`, TTL_SECONDS, async () => {
-        const xml = await getText(`${BASE}/events/rss/${month}`, TTL_SECONDS);
-        const items = parseFeed(xml);
-        if (!items.length) return [];
-        const rooms = await getText(`${BASE}/events/month/${month}`, TTL_SECONDS)
-            .then(parseRooms)
-            .catch(() => new Map<string, string>());
-        return items.map((item) => toEvent(item, rooms.get(item.id)));
+export function parseFeedDescriptions(xml: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const [, block] of xml.matchAll(/<item>(.*?)<\/item>/gs)) {
+        const pick = (tag: string) => {
+            const m = new RegExp(`<${tag}[^>]*>(.*?)</${tag}>`, "s").exec(block ?? "");
+            return m ? decode(m[1]!.trim()) : "";
+        };
+        const id = pick("guid");
+        const description = text(pick("description")).trim();
+        if (id && description) out.set(id, description);
+    }
+    return out;
+}
+
+function toEvent(row: CsRow, description: string | undefined): CampusEvent {
+    return buildEvent({
+        id: Number(row.id) || hashId(row.id),
+        instanceId: hashId(`${row.id}:${row.start}`),
+        title: row.title,
+        start: row.start,
+        end: row.end,
+        description: description ?? null,
+        room: row.room,
+        url: `${BASE}/events/${row.id}`,
+        department: "Computer Science",
+        source: CS_SOURCE,
     });
 }
 
@@ -210,16 +166,35 @@ export interface CsResult {
     failed: string[];
 }
 
-/** Every CS event in the window, with whichever months answered. */
+/**
+ * Every CS event in the window, with whichever months answered.
+ *
+ * Descriptions are one request for all months, because the feed is one rolling
+ * list however it is asked for. Its failure is tolerated: an event without a
+ * description is still an event.
+ */
 export async function getCsCalendar(now: Date, days: number): Promise<CsResult> {
     const months = monthsSpanned(now, days);
-    const settled = await Promise.allSettled(months.map(csMonth));
+    const descriptions = await cached(`cs:v${CACHE_VERSION}:descriptions`, TTL_SECONDS, async () =>
+        parseFeedDescriptions(await getText(`${BASE}/events/rss`, TTL_SECONDS)),
+    ).catch(() => new Map<string, string>());
+
+    const settled = await Promise.allSettled(
+        months.map((month) =>
+            cached(`cs:v${CACHE_VERSION}:${month}`, TTL_SECONDS, async () =>
+                parseMonth(await getText(`${BASE}/events/month/${month}`, TTL_SECONDS)),
+            ),
+        ),
+    );
+
     const events: CampusEvent[] = [];
     const failed: string[] = [];
     settled.forEach((result, i) => {
-        if (result.status === "fulfilled") events.push(...result.value);
-        else failed.push(months[i]!);
+        if (result.status === "fulfilled") {
+            for (const row of result.value) events.push(toEvent(row, descriptions.get(row.id)));
+        } else {
+            failed.push(months[i]!);
+        }
     });
-    events.sort((a, b) => a.start.localeCompare(b.start) || a.instanceId - b.instanceId);
     return { events, failed };
 }

@@ -360,7 +360,15 @@ export function buildEvent(opts: {
             plain && plain.length > DESCRIPTION_LIMIT
                 ? `${plain.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
                 : plain,
-        searchText: [opts.title, (plain ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
+        // The department is in here because the `query` parameter promises to
+        // match it, and only the central calendar was honouring that: a
+        // `query: "school of law"` found nothing while `department` found ten.
+        searchText: [
+            opts.title,
+            (plain ?? "").slice(0, SEARCH_TEXT_LIMIT),
+            room ?? "",
+            opts.department,
+        ]
             .filter(Boolean)
             .join("\n")
             .toLowerCase(),
@@ -534,7 +542,16 @@ function departmentTerm(raw: string | undefined): string {
 const lower = (list: string[]) => list.map((value) => value.trim().toLowerCase());
 
 /** Anchored at a word start, over the full search text. */
-function queryPattern(needle: string, loose: boolean): RegExp | null {
+/**
+ * Diacritics folded, so the ASCII spelling of a name works.
+ *
+ * `query: "anzaldua"` found nothing while the exhibition is published as
+ * "Gloria Anzaldua's Borderlands" with an accent -- and UT's own URL slug for
+ * it is ASCII. Same for "So Percussion", marketed without the macron.
+ */
+const fold = (value: string): string => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+export function queryPattern(needle: string, loose = false): RegExp | null {
     // `\b` needs a word character, so a punctuation-led needle falls back.
     if (!/^[a-z0-9]/.test(needle)) return null;
     const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
@@ -551,21 +568,35 @@ function queryPattern(needle: string, loose: boolean): RegExp | null {
 
 /** `loose` drops the short-needle restriction, so "bio" reaches "biology". */
 function matchesQuery(event: CampusEvent, query: string, loose = false): boolean {
-    const needle = query.trim().toLowerCase();
+    const needle = fold(query.trim().toLowerCase());
     if (!needle) return true;
+    const haystack = fold(event.searchText);
     const pattern = queryPattern(needle, loose);
-    if (!pattern) return event.searchText.includes(needle);
-    if (pattern.test(event.searchText)) return true;
+    if (!pattern) return haystack.includes(needle);
+    if (pattern.test(haystack)) return true;
+
+    // Then as ALL of the words, in any order and anywhere in the text. Joining
+    // them with "no alphanumerics between" meant a two-word query was a strict
+    // phrase, so `query: "football arkansas"` answered "Nothing on UT's
+    // calendar" on a day UT played Arkansas -- the title reads "Football vs
+    // Arkansas" and the "vs" defeated it. The phrase form is still tried
+    // first, so an exact phrase still ranks as a match.
+    const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
+    if (words.length > 1) {
+        const each = words.map((word) => queryPattern(word, loose));
+        if (each.every((p) => p && p.test(haystack))) return true;
+    }
     // Second look with punctuation removed, so "premed" finds "Pre-Med" too.
-    return /^[a-z0-9]+$/.test(needle)
-        ? pattern.test(event.searchText.replace(/[^a-z0-9\s]/g, ""))
-        : false;
+    return /^[a-z0-9]+$/.test(needle) ? pattern.test(haystack.replace(/[^a-z0-9\s]/g, "")) : false;
 }
 
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
     const wantCategories = lower(filters.categories ?? []);
     const wantAudiences = lower(filters.audiences ?? []);
     const department = departmentTerm(filters.department);
+    // Kept only when it differs, so the common case does no extra work.
+    const literal = filters.department?.trim().toLowerCase() ?? "";
+    const departmentLiteral = literal && literal !== department ? literal : "";
 
     return events.filter((event) => {
         // First: showing a cancelled event as if it were on is the worst answer.
@@ -600,7 +631,17 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
             return false;
         }
         if (filters.venue && event.venue !== filters.venue) return false;
-        if (department && !event.departments.some((d) => d.toLowerCase().includes(department))) {
+        // The alias target OR the literal word. "engineering" resolves to
+        // "cockrell", which denied the Oden Institute for Computational Engineering
+        // while printing its name in the same sentence.
+        if (
+            department &&
+            !event.departments.some(
+                (d) =>
+                    d.toLowerCase().includes(department) ||
+                    (departmentLiteral && d.toLowerCase().includes(departmentLiteral)),
+            )
+        ) {
             return false;
         }
         if (filters.freeAdmission && !event.freeAdmission) return false;
@@ -613,7 +654,11 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
 /** Localist has no free-food field; its `free` flag means free ADMISSION. */
 const FOOD_PHRASES = [
     /\bfree\s+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|coffee|donuts?|tacos?|boba)\b/i,
-    /\b(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|coffee|donuts?|tacos?|boba)\s+(will\s+be\s+)?(provided|served)\b/i,
+    // Up to three words between the noun and the verb, so "food and drinks
+    // will be provided" and "pastries, coffee and tea are served" count.
+    /\b(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|coffee|donuts?|tacos?|boba)\b(?:[\s,]+\w+){0,3}[\s,]+(will\s+be\s+|are\s+|is\s+)?(provided|served)\b/i,
+    // And the verb-first form: "we will be providing food", "we provide bagels".
+    /\b(provid\w*|serv\w*)\b(?:[\s,:-]+\w+){0,3}[\s,:-]+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|bagels|donuts?|tacos?|boba)\b/i,
     /\b(lunch|breakfast|dinner|refreshments?|snacks?)\s+(is|are)\s+included\b/i,
     /\bcomplimentary\s+(food|lunch|breakfast|dinner|refreshments?|snacks?|coffee)\b/i,
 ];
@@ -677,10 +722,19 @@ export interface Collapsed {
     event: CampusEvent;
     /** Days in the window this event appears on, including the one kept. */
     occurrences: number;
-    /** Start of the last occurrence in the window, or null if there is one. */
+    /** Start of the last occurrence in the window, or null if there is only one. */
     lastStart: string | null;
     /** The Austin dates seen, so `occurrences` counts days and not rows. */
     days: Set<string>;
+    /**
+     * Every distinct start in the window, sorted.
+     *
+     * Needed because days alone lose a second SHOWING on one day: "Buena Vista
+     * Social Club" plays Bass Concert Hall at 2pm and 8pm, and collapsing to a
+     * day reported only the matinee. Exact-instant duplicates -- the same
+     * meeting published twice -- still fold into one entry here.
+     */
+    starts: string[];
 }
 
 export function collapseSeries(events: CampusEvent[]): Collapsed[] {
@@ -699,6 +753,7 @@ export function collapseSeries(events: CampusEvent[]): Collapsed[] {
                 occurrences: 1,
                 lastStart: null,
                 days: new Set([event.start.slice(0, 10)]),
+                starts: [event.start],
             });
             continue;
         }
@@ -707,8 +762,11 @@ export function collapseSeries(events: CampusEvent[]): Collapsed[] {
         // for two duplicate rows at the same instant.
         seen.days.add(event.start.slice(0, 10));
         seen.occurrences = seen.days.size;
-        // The list is sorted, so the newest one seen is the latest so far.
-        seen.lastStart = event.start;
+        if (!seen.starts.includes(event.start)) seen.starts.push(event.start);
+        // Only when there IS a later one. Setting it unconditionally left
+        // `occurrences: 1` beside a non-null `lastStart`, which is the
+        // fingerprint of a dropped showing.
+        seen.lastStart = seen.starts.length > 1 ? seen.starts[seen.starts.length - 1]! : null;
     }
     return [...byId.values()];
 }

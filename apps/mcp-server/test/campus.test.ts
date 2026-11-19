@@ -12,7 +12,9 @@ import {
 } from "../src/tools/campus/buildings";
 import {
     MAX_WINDOW_DAYS,
+    buildEvent,
     byStart,
+    queryPattern,
     collapseSeries,
     filterEvents,
     getCalendar,
@@ -74,6 +76,9 @@ type EventsStructured = {
         onCampus: boolean | null;
         occurrences: number;
         lastStart: string | null;
+        alsoAt: string[];
+        room: string | null;
+        locationName: string | null;
         allDay: boolean;
         end: string | null;
         departments: string[];
@@ -398,12 +403,43 @@ describe("parseWindow", () => {
         expect(tomorrow.to.getTime() - tomorrow.from.getTime()).toBe(86_400_000);
     });
 
-    it("reads a weekday as the next one, and today when it is today", () => {
-        // CAMPUS_NOW is a Monday.
-        expect(parseWindow("monday", CAMPUS_NOW)?.label).toBe("monday");
+    it("names the date it picked for a weekday", () => {
+        // A bare "friday" never told the reader WHICH Friday; only
+        // structuredContent.window revealed it.
+        expect(parseWindow("monday", CAMPUS_NOW)?.label).toBe("Monday, Nov 9");
+        expect(parseWindow("friday", CAMPUS_NOW)?.label).toBe("Friday, Nov 13");
+    });
+
+    it("opens a same-day window at now, not at midnight", () => {
+        // CAMPUS_NOW is a Monday 09:00 Austin. Asked late in the day,
+        // "wednesday" on a Wednesday returned 56 events of which 31 were over.
         const monday = parseWindow("monday", CAMPUS_NOW)!;
+        expect(monday.from.toISOString()).toBe(CAMPUS_NOW.toISOString());
+        // And by its own date, too.
+        expect(parseWindow("2026-11-09", CAMPUS_NOW)!.from.toISOString()).toBe(
+            CAMPUS_NOW.toISOString(),
+        );
+        // A future day still starts at midnight.
+        expect(parseWindow("2026-11-10", CAMPUS_NOW)!.from.toISOString()).toBe(
+            "2026-11-10T06:00:00.000Z",
+        );
+    });
+
+    it("reads next <weekday> as the one after this coming one", () => {
+        // Asked on a Monday, "next friday" used to mean the same day as
+        // "friday", which is not what most people mean.
+        const friday = parseWindow("friday", CAMPUS_NOW)!;
+        const nextFriday = parseWindow("next friday", CAMPUS_NOW)!;
+        expect(nextFriday.from.getTime() - friday.from.getTime()).toBe(7 * 86_400_000);
         const nextMonday = parseWindow("next monday", CAMPUS_NOW)!;
-        expect(nextMonday.from.getTime() - monday.from.getTime()).toBe(7 * 86_400_000);
+        expect(nextMonday.from.toISOString()).toBe("2026-11-16T06:00:00.000Z");
+    });
+
+    it("tolerates the punctuation a person types", () => {
+        // "tonight?" and "Tonight!" were rejected outright.
+        for (const phrase of ["tonight?", "Tonight!", "today.", "this week ?"]) {
+            expect(parseWindow(phrase, CAMPUS_NOW)).not.toBeNull();
+        }
     });
 
     it("reads this weekend as the coming Saturday and Sunday", () => {
@@ -1604,11 +1640,23 @@ describe("short queries, punctuation, and which name wins", () => {
             expect(filterEvents([curly], { query: "mao's cultural war" })).toHaveLength(1);
         });
 
-        it("does not let a phrase straddle two fields", () => {
-            // searchText joins fields with newlines for exactly this reason,
-            // and the flexible separator must not cross one.
+        it("does not let a PHRASE straddle two fields", () => {
+            // searchText joins fields with newlines so the adjacency form
+            // cannot run across a field boundary.
             const row = makeEvent({ title: "Robotics", departments: ["Showcase"] });
-            expect(filterEvents([row], { query: "robotics showcase" })).toHaveLength(0);
+            const phrase = queryPattern("robotics showcase");
+            expect(phrase!.test(row.searchText)).toBe(false);
+        });
+
+        it("matches all the words wherever they are, which is the point", () => {
+            // A two-word query used to mean strict adjacency, so
+            // query:"football arkansas" answered nothing on a day UT played
+            // Arkansas -- the title reads "Football vs Arkansas".
+            const game = makeEvent({ title: "University of Texas Football vs Arkansas" });
+            expect(filterEvents([game], { query: "football arkansas" })).toHaveLength(1);
+            expect(filterEvents([game], { query: "arkansas football" })).toHaveLength(1);
+            // And a word that is absent still excludes it.
+            expect(filterEvents([game], { query: "football nebraska" })).toHaveLength(0);
         });
 
         it("still handles a query that is also a regex", () => {
@@ -2296,5 +2344,154 @@ describe("department shorthand a student would actually type", () => {
         // The published name still matches as a plain substring, which is the
         // pre-existing behaviour; the alias table must not widen it further.
         expect(filterEvents([outlaw], { department: "law school" })).toHaveLength(0);
+    });
+});
+
+describe("fixes from the third audit round", () => {
+    it("keeps a second showing on the same day", () => {
+        // REGRESSION from round two: counting distinct days dropped the 8pm
+        // performance of a matinee and left `occurrences: 1` beside a non-null
+        // `lastStart`, which was the only trace that anything was lost.
+        const matinee = makeEvent({ id: 7, instanceId: 1, start: "2026-12-05T14:00:00-06:00" });
+        const evening = makeEvent({ id: 7, instanceId: 2, start: "2026-12-05T20:00:00-06:00" });
+        const [row] = collapseSeries([matinee, evening]);
+        expect(row!.occurrences).toBe(1);
+        expect(row!.starts).toHaveLength(2);
+        expect(row!.lastStart).toBe("2026-12-05T20:00:00-06:00");
+    });
+
+    it("still folds a duplicate published at the same instant", () => {
+        const a = makeEvent({ id: 8, instanceId: 1, start: "2026-11-19T09:00:00-06:00" });
+        const b = makeEvent({ id: 8, instanceId: 2, start: "2026-11-19T09:00:00-06:00" });
+        const [row] = collapseSeries([a, b]);
+        expect(row!.starts).toHaveLength(1);
+        // No later start, so no claim of one.
+        expect(row!.lastStart).toBeNull();
+    });
+
+    it("tells the reader about the later showing", async () => {
+        const { content } = await events({ when: "this week", limit: 40 });
+        const text = content[0]!.text;
+        // Either form is fine; what matters is that a row never claims a
+        // `lastStart` while saying it happens once.
+        const { data } = await events({ when: "this week", limit: 40 });
+        for (const row of data.events) {
+            if (row.occurrences === 1 && row.lastStart) {
+                expect(row.alsoAt.length).toBeGreaterThan(0);
+            }
+        }
+        expect(text.length).toBeGreaterThan(0);
+    });
+
+    it("finds a name spelled without its accents", () => {
+        // UT publishes "Gloria Anzaldúa's Borderlands" and its own URL slug is
+        // ASCII, so the ASCII spelling has to work.
+        const row = makeEvent({ title: "Gloria Anzaldúa's Borderlands Exhibition" });
+        expect(filterEvents([row], { query: "anzaldua" })).toHaveLength(1);
+        expect(filterEvents([row], { query: "anzaldúa" })).toHaveLength(1);
+        const percussion = makeEvent({ title: "Sō Percussion with Caroline Shaw" });
+        expect(filterEvents([percussion], { query: "so percussion" })).toHaveLength(1);
+    });
+
+    it("searches the department on the departmental calendars too", () => {
+        // The `query` parameter promises to match the department, and only the
+        // central calendar honoured it: query:"school of law" found nothing
+        // while department:"law" found ten.
+        const law = buildEvent({
+            id: 1,
+            title: "A talk",
+            start: "2026-11-19T09:00:00-06:00",
+            url: "https://law.utexas.edu/x",
+            department: "School of Law",
+            source: "law.utexas.edu",
+        });
+        expect(filterEvents([law], { query: "school of law" })).toHaveLength(1);
+    });
+
+    it("does not deny a department it names in the same breath", () => {
+        // "engineering" resolves to Cockrell, which denied the Oden Institute
+        // for Computational Engineering while printing its name in the note.
+        const oden = makeEvent({
+            departments: ["The Oden Institute for Computational Engineering & Sciences"],
+        });
+        expect(filterEvents([oden], { department: "engineering" })).toHaveLength(1);
+        // And the alias still works for the school it points at.
+        const cockrell = makeEvent({ departments: ["Cockrell School of Engineering"] });
+        expect(filterEvents([cockrell], { department: "engineering" })).toHaveLength(1);
+    });
+
+    it("reads the ways a feed says food is coming", () => {
+        const cases = [
+            "Lunch will be provided.",
+            "Food and drinks will be provided",
+            "We will be providing ample food for any dietary restrictions",
+            "we provide: Bagels, coffee, tea",
+            "Light refreshments served",
+        ];
+        for (const description of cases) {
+            const row = makeEvent({
+                title: "Seminar",
+                searchText: `seminar\n${description.toLowerCase()}`,
+            });
+            expect(mentionsFreeFood(row)).toBe(true);
+        }
+        // And still not every mention of a mealtime.
+        const lunchtime = makeEvent({ searchText: "come by after lunch" });
+        expect(mentionsFreeFood(lunchtime)).toBe(false);
+    });
+
+    it("prints the venue on its own line", async () => {
+        const { content } = await events({ when: "this week", limit: 40 });
+        // The venue segment had no newline, so it glued onto the next one.
+        expect(content[0]!.text).not.toMatch(/(online|hybrid|is online) {2}\S/);
+    });
+
+    it("names the building as well as the room", async () => {
+        const { data, content } = await events({ when: "this week", limit: 40 });
+        const text = content[0]!.text;
+        const both = data.events.find((e) => e.room && e.locationName && e.room !== e.locationName);
+        if (both) {
+            // A bare "2.106" told the reader nothing; the name was discarded.
+            expect(text).toContain(both.locationName!);
+        }
+    });
+});
+
+describe("note counts respect the other filters", () => {
+    it("only offers venue unknown when that would return something", async () => {
+        // The count was window-wide, so asking for virtual CS events was told
+        // 5 rows were held back; following the advice returned none, because
+        // all five were McCombs rows the department filter excluded anyway.
+        const { data } = await events({
+            when: "this week",
+            department: "Computer Science",
+            venue: "virtual",
+            limit: 10,
+        });
+        const suggestion = data.notes.find((n) => n.includes("do not say whether they are online"));
+        if (suggestion) {
+            const follow = await events({
+                when: "this week",
+                department: "Computer Science",
+                venue: "unknown",
+                limit: 10,
+            });
+            expect(follow.data.events.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("scopes the radius note to the rows it actually dropped", async () => {
+        const { data } = await events({
+            when: "this week",
+            near: "PCL",
+            withinMetres: 150,
+            query: "art",
+            limit: 10,
+        });
+        const note = data.notes.find((n) => n.includes("excluded by the"));
+        if (note) {
+            // It must not claim the whole window; the query narrowed it first.
+            expect(note).toMatch(/matching your other filters/);
+        }
     });
 });

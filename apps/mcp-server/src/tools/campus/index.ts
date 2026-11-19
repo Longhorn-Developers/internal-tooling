@@ -120,6 +120,14 @@ const EVENTS_OUTPUT = z.object({
             occurrences: z.number(),
             /** Start of its last occurrence in the window, when it runs more than once. */
             lastStart: z.string().nullable(),
+            /**
+             * Other start times on the SAME day, when there are any.
+             *
+             * A second showing used to be dropped: "Buena Vista Social Club"
+             * plays Bass Concert Hall at 2pm and 8pm and only the matinee was
+             * reported.
+             */
+            alsoAt: z.array(z.string()),
             description: z.string().nullable(),
             url: z.string(),
         }),
@@ -139,13 +147,37 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const today = austinNow(now);
     const dayStart = (offset: number) =>
         austinInstant(today.year, today.month, today.day + offset, 0);
+    /**
+     * A window of whole days.
+     *
+     * A span that starts TODAY opens at `now`, which is what "today" already
+     * did: asked at 22:11 for "wednesday", the midnight start returned 56
+     * events of which 31 had already finished, with nothing saying so.
+     */
     const span = (fromOffset: number, toOffset: number, label: string): Window => ({
-        from: dayStart(fromOffset),
+        from: fromOffset === 0 ? now : dayStart(fromOffset),
         to: dayStart(toOffset),
         label,
     });
 
-    const value = (phrase ?? "today").trim().toLowerCase();
+    /** "Friday, Nov 20", so the answer names the day it chose. */
+    const dated = (offset: number): string => {
+        const at = dayStart(offset);
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/Chicago",
+            weekday: "long",
+            month: "short",
+            day: "numeric",
+        }).format(at);
+    };
+
+    // Trailing punctuation is how a person types and how relayed text
+    // arrives: "tonight?" and "Tonight!" were rejected outright.
+    const value = (phrase ?? "today")
+        .trim()
+        .toLowerCase()
+        .replace(/[?!.,;:]+$/, "")
+        .trim();
     if (!value || value === "today") {
         // From now, not midnight: this morning's lecture is over.
         return { from: now, to: dayStart(1), label: "today" };
@@ -170,19 +202,25 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const weekday = WEEKDAYS.indexOf(value.replace(/^(next|this|coming)\s+/, ""));
     if (weekday >= 0) {
         const ahead = (weekday - today.dayIndex + 7) % 7;
-        // "Monday" said on a Monday means today unless "next" is explicit.
-        const offset = ahead === 0 && /^next\s/.test(value) ? 7 : ahead;
-        return span(offset, offset + 1, WEEKDAYS[weekday] ?? value);
+        // "next friday" means the one after this coming Friday, which is what
+        // most people mean by it; asked on a Wednesday it used to return the
+        // same day as "friday".
+        const offset = /^next\s/.test(value) ? ahead + 7 : ahead;
+        return span(offset, offset + 1, dated(offset));
     }
 
     const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     if (iso) {
         const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
-        const from = austinInstant(year, month, day, 0);
+        const midnight = austinInstant(year, month, day, 0);
         // Reject a date that rolled: "2026-02-30" would otherwise answer about 2 March without saying so.
-        const check = austinNow(from);
+        const check = austinNow(midnight);
         if (check.year !== year || check.month !== month || check.day !== day) return null;
-        return { from, to: austinInstant(year, month, day + 1, 0), label: value };
+        const to = austinInstant(year, month, day + 1, 0);
+        // Today by its date is still today: open at `now` rather than replaying
+        // the morning.
+        const from = midnight < now && now < to ? now : midnight;
+        return { from, to, label: value };
     }
     return null;
 }
@@ -662,10 +700,17 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
                 if (input.venue && input.venue !== "unknown") {
-                    const unknown = inWindowAll.filter((event) => event.venue === "unknown").length;
+                    // Counted against the user's OTHER filters, not the whole
+                    // window. A window-wide count told someone asking for
+                    // virtual CS events that 5 rows were held back, and
+                    // following the advice returned none of them: all five were
+                    // McCombs rows the department filter excluded anyway.
+                    const unknown = collapseSeries(
+                        filterEvents(calendar.events, { ...filters, venue: "unknown" }),
+                    ).length;
                     if (unknown > 0) {
                         notes.push(
-                            `${unknown} event(s) in this window do not say whether they are online, so a venue filter excludes them. McCombs publishes no venue field; pass venue "unknown" to see them.`,
+                            `${unknown} event(s) matching your other filters do not say whether they are online, so this venue filter excludes them. Pass venue "unknown" to see those.`,
                         );
                     }
                 }
@@ -691,7 +736,7 @@ export function registerCampusTools(server: McpServer) {
                     const dropped = before - series.length;
                     if (dropped > 0) {
                         notes.push(
-                            `${dropped} event(s) in this window were excluded by the ` +
+                            `${dropped} event(s) matching your other filters were excluded by the ` +
                                 `${radius} m radius around ${anchor.code}, including any with ` +
                                 "no coordinates at all.",
                         );
@@ -749,7 +794,7 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
 
-                const out = shownSeries.map(({ event, occurrences, lastStart }) => {
+                const out = shownSeries.map(({ event, occurrences, lastStart, starts }) => {
                     const metres =
                         anchor && event.latitude !== null && event.longitude !== null
                             ? metresBetween(anchor, {
@@ -779,6 +824,11 @@ export function registerCampusTools(server: McpServer) {
                         mentionsFreeFood: mentionsFreeFood(event),
                         onCampus: onCampus(event),
                         occurrences,
+                        // Same-day siblings only; a multi-day run is already
+                        // described by `occurrences` and `lastStart`.
+                        alsoAt: starts.filter(
+                            (t) => t !== event.start && t.slice(0, 10) === event.start.slice(0, 10),
+                        ),
                         lastStart,
                         description: event.description,
                         url: event.url,
@@ -794,17 +844,28 @@ export function registerCampusTools(server: McpServer) {
                           ...out.map((row) =>
                               [
                                   `${row.when} — ${row.title}`,
-                                  `  ${row.room ?? row.locationName ?? "location not given"}` +
+                                  // Both parts when they differ. Printing only
+                                  // the room gave lines like "2.106", and for a
+                                  // Pickle-campus event "2.102" while discarding
+                                  // "JJ Pickle Campus ROC BLDG. 196".
+                                  `  ${
+                                      [row.locationName, row.room]
+                                          .filter((part, i, all) => part && all.indexOf(part) === i)
+                                          .join(" ") || "location not given"
+                                  }` +
                                       (row.buildingCode ? ` [${row.buildingCode}]` : "") +
                                       (row.walkMinutes !== null
                                           ? ` · ~${row.walkMinutes} min walk`
                                           : ""),
+                                  // Each segment supplies its own newline. The
+                                  // venue line had none, so it glued onto
+                                  // whatever followed it.
                                   (row.venue === "virtual"
-                                      ? "  online"
+                                      ? "  online\n"
                                       : row.venue === "hybrid"
-                                        ? "  hybrid"
+                                        ? "  hybrid\n"
                                         : row.venue === "unknown"
-                                          ? "  no venue given; this calendar does not say whether it is online"
+                                          ? "  no venue given; this calendar does not say whether it is online\n"
                                           : "") +
                                       (row.occurrences > 1
                                           ? `  runs on ${row.occurrences} days in this window` +
@@ -812,7 +873,13 @@ export function registerCampusTools(server: McpServer) {
                                                 ? `, last on ${when(row.lastStart, row.allDay)}`
                                                 : "") +
                                             "\n"
-                                          : "") +
+                                          : row.alsoAt.length
+                                            ? // One day, more than one showing: the
+                                              // later time was invisible before.
+                                              `  also at ${row.alsoAt
+                                                  .map((t) => when(t, row.allDay))
+                                                  .join(", ")}\n`
+                                            : "") +
                                       `  ${row.categories.join(", ") || "uncategorised"}` +
                                       (row.freeAdmission ? " · free admission" : "") +
                                       (row.mentionsFreeFood ? " · says food provided" : "") +

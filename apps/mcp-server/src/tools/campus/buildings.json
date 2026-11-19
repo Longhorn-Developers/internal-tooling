@@ -1,0 +1,1642 @@
+{
+    "meta": {
+        "source": "UT Austin official Building Information / embedded UT ArcGIS markers",
+        "generatedAt": "2026-08-30T06:17:37.749Z",
+        "buildingCount": 204,
+        "note": "Trimmed copy of Longhorn-Loop server/src/data/ut-buildings.json. officialUrl dropped: it is derivable from the code. precision: marker = exact marker on UT building page, centroid = UT ArcGIS footprint centre, geocoded = address geocoded, least precise."
+    },
+    "buildings": {
+        "ACS": {
+            "code": "ACS",
+            "name": "AUTRY C. STEPHENS ENGR DISC BLDG",
+            "address": "304 E 24TH, AUSTIN, TX 78712",
+            "latitude": 30.287508,
+            "longitude": -97.734662,
+            "precision": "marker"
+        },
+        "ADH": {
+            "code": "ADH",
+            "name": "ALMETRIS DUREN RESIDENCE HALL",
+            "address": "2624 WHITIS AVE, AUSTIN, TX 78705",
+            "latitude": 30.291533,
+            "longitude": -97.740336,
+            "precision": "marker"
+        },
+        "AF1": {
+            "code": "AF1",
+            "name": "ATHLETIC FIELDS PAVILION (REHAB)",
+            "address": "2513 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.28660503,
+            "longitude": -97.72593934,
+            "precision": "marker"
+        },
+        "AF2": {
+            "code": "AF2",
+            "name": "ATHLETIC FIELDS PAVILION (EASTSIDE)",
+            "address": "2334 N IH 35, AUSTIN, TX 78712",
+            "latitude": 30.284791,
+            "longitude": -97.72653727,
+            "precision": "marker"
+        },
+        "AFP": {
+            "code": "AFP",
+            "name": "ATHLETIC FIELDS PAVILION",
+            "address": "2336 N IH 35, AUSTIN, TX 78712",
+            "latitude": 30.285306,
+            "longitude": -97.726276,
+            "precision": "marker"
+        },
+        "AHG": {
+            "code": "AHG",
+            "name": "ANNA HISS GYMNASIUM",
+            "address": "2501 WICHITA ST, AUSTIN, TX 78712",
+            "latitude": 30.288259,
+            "longitude": -97.737733,
+            "precision": "marker"
+        },
+        "ANB": {
+            "code": "ANB",
+            "name": "ARNO NOWOTNY BUILDING",
+            "address": "709 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.27825093,
+            "longitude": -97.73102206,
+            "precision": "marker"
+        },
+        "AND": {
+            "code": "AND",
+            "name": "ANDREWS RESIDENCE HALL",
+            "address": "2401 WHITIS AVE, AUSTIN, TX 78705",
+            "latitude": 30.288222,
+            "longitude": -97.739788,
+            "precision": "marker"
+        },
+        "ART": {
+            "code": "ART",
+            "name": "ART BUILDING AND MUSEUM",
+            "address": "2301 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.286165,
+            "longitude": -97.733061,
+            "precision": "marker"
+        },
+        "ASE": {
+            "code": "ASE",
+            "name": "AEROSPACE ENGINEERING BUILDING",
+            "address": "2617 WICHITA ST, AUSTIN, TX 78712",
+            "latitude": 30.2910845,
+            "longitude": -97.7375139,
+            "precision": "marker"
+        },
+        "ATT": {
+            "code": "ATT",
+            "name": "AT&T EXECUTIVE EDUC & CONF CENTER",
+            "address": "1900 UNIVERSITY AVE, AUSTIN, TX 78705",
+            "latitude": 30.282014,
+            "longitude": -97.740637,
+            "precision": "marker"
+        },
+        "BAT": {
+            "code": "BAT",
+            "name": "BATTS HALL",
+            "address": "158 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.28481,
+            "longitude": -97.738915,
+            "precision": "marker"
+        },
+        "BBR": {
+            "code": "BBR",
+            "name": "BASKETBALL & ROWING TRAINING FAC",
+            "address": "1965 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.280443,
+            "longitude": -97.731776,
+            "precision": "marker"
+        },
+        "BEL": {
+            "code": "BEL",
+            "name": "L. THEO BELLMONT HALL",
+            "address": "2109 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.28371943,
+            "longitude": -97.73368227,
+            "precision": "marker"
+        },
+        "BEN": {
+            "code": "BEN",
+            "name": "BENEDICT HALL",
+            "address": "150 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.283972,
+            "longitude": -97.739001,
+            "precision": "marker"
+        },
+        "BHD": {
+            "code": "BHD",
+            "name": "BRACKENRIDGE RESIDENCE HALL",
+            "address": "207 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.283123,
+            "longitude": -97.735967,
+            "precision": "marker"
+        },
+        "BIO": {
+            "code": "BIO",
+            "name": "BIOLOGICAL LABORATORIES",
+            "address": "205 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287224,
+            "longitude": -97.739759,
+            "precision": "marker"
+        },
+        "BLD": {
+            "code": "BLD",
+            "name": "BLANTON RESIDENCE HALL",
+            "address": "2500 UNIVERSITY AVE, AUSTIN, TX 78705",
+            "latitude": 30.288646,
+            "longitude": -97.73938,
+            "precision": "marker"
+        },
+        "BMA": {
+            "code": "BMA",
+            "name": "JACK S. BLANTON MUSEUM OF ART",
+            "address": "108 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.280982,
+            "longitude": -97.737452,
+            "precision": "marker"
+        },
+        "BME": {
+            "code": "BME",
+            "name": "BIOMEDICAL ENGINEERING BUILDING",
+            "address": "107 W DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.289246,
+            "longitude": -97.738522,
+            "precision": "marker"
+        },
+        "BMK": {
+            "code": "BMK",
+            "name": "BLANTON MUSEUM ELLSWORTH KELLY",
+            "address": "100 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.28168683,
+            "longitude": -97.73781018,
+            "precision": "marker"
+        },
+        "BMS": {
+            "code": "BMS",
+            "name": "BLANTON MUSEUM SMITH BUILDING",
+            "address": "104 W MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.281108,
+            "longitude": -97.738222,
+            "precision": "marker"
+        },
+        "BOT": {
+            "code": "BOT",
+            "name": "BIOLOGICAL GREENHOUSE",
+            "address": "205A W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.286946,
+            "longitude": -97.740046,
+            "precision": "marker"
+        },
+        "BRB": {
+            "code": "BRB",
+            "name": "BERNARD AND AUDRE RAPOPORT BUILDING",
+            "address": "2225 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28523074,
+            "longitude": -97.73671608,
+            "precision": "marker"
+        },
+        "BRG": {
+            "code": "BRG",
+            "name": "BRAZOS GARAGE",
+            "address": "210 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.2809117,
+            "longitude": -97.7361753,
+            "precision": "marker"
+        },
+        "BSB": {
+            "code": "BSB",
+            "name": "BASKETBALL SUPPORT BLDG (REC SPORT)",
+            "address": "301 JESTER CIR, AUSTIN, TX 78705",
+            "latitude": 30.281431,
+            "longitude": -97.735449,
+            "precision": "marker"
+        },
+        "BTL": {
+            "code": "BTL",
+            "name": "BATTLE HALL",
+            "address": "302 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.285417,
+            "longitude": -97.740314,
+            "precision": "marker"
+        },
+        "BUR": {
+            "code": "BUR",
+            "name": "BURDINE HALL",
+            "address": "2505 UNIVERSITY AVE, AUSTIN, TX 78712",
+            "latitude": 30.288871,
+            "longitude": -97.738339,
+            "precision": "marker"
+        },
+        "BWY": {
+            "code": "BWY",
+            "name": "2616 WICHITA (BRIDGEWAY)",
+            "address": "2616 WICHITA ST, AUSTIN, TX 78712",
+            "latitude": 30.29080626,
+            "longitude": -97.73821954,
+            "precision": "marker"
+        },
+        "CAL": {
+            "code": "CAL",
+            "name": "CALHOUN HALL",
+            "address": "204 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.284494,
+            "longitude": -97.740176,
+            "precision": "marker"
+        },
+        "CBA": {
+            "code": "CBA",
+            "name": "COLLEGE OF BUSINESS ADMINISTRATION",
+            "address": "2110 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.284231,
+            "longitude": -97.737859,
+            "precision": "marker"
+        },
+        "CCG": {
+            "code": "CCG",
+            "name": "CONFERENCE CENTER GARAGE",
+            "address": "205 W 20TH ST, AUSTIN, TX 78705",
+            "latitude": 30.281953,
+            "longitude": -97.740372,
+            "precision": "marker"
+        },
+        "CCJ": {
+            "code": "CCJ",
+            "name": "CONNALLY CENTER FOR JUSTICE",
+            "address": "2500 TRINITY ST, AUSTIN, TX 78705",
+            "latitude": 30.28811935,
+            "longitude": -97.73043805,
+            "precision": "marker"
+        },
+        "CDA": {
+            "code": "CDA",
+            "name": "COMAL CHILD DEVELOPMENT CTR ANNEX",
+            "address": "2209 COMAL ST, AUSTIN, TX 78722",
+            "latitude": 30.282977,
+            "longitude": -97.72565,
+            "precision": "marker"
+        },
+        "CDL": {
+            "code": "CDL",
+            "name": "COLLECTIONS DEPOSIT LIBRARY",
+            "address": "1810 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.278769,
+            "longitude": -97.733034,
+            "precision": "marker"
+        },
+        "CLK": {
+            "code": "CLK",
+            "name": "CAVEN CLARK FIELD SUPPORT BUILDING",
+            "address": "307 E 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.28168313,
+            "longitude": -97.7348936,
+            "precision": "marker"
+        },
+        "CMA": {
+            "code": "CMA",
+            "name": "JESSE H. JONES COMM. CTR. (BLDG. A)",
+            "address": "2504 A WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.289424,
+            "longitude": -97.74071,
+            "precision": "marker"
+        },
+        "CMB": {
+            "code": "CMB",
+            "name": "JESSE H. JONES COMM. CTR. (BLDG. B)",
+            "address": "2504 B WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.289215,
+            "longitude": -97.74115,
+            "precision": "marker"
+        },
+        "CML": {
+            "code": "CML",
+            "name": "COMAL ST. CHILD DEVELOPMENT CENTER",
+            "address": "2205 COMAL ST, AUSTIN, TX 78722",
+            "latitude": 30.282951,
+            "longitude": -97.725246,
+            "precision": "marker"
+        },
+        "CPC": {
+            "code": "CPC",
+            "name": "CPC FIELD STAFF OFFICE",
+            "address": "1500 E MARTIN LUTHER KING, AUSTIN, TX 78722",
+            "latitude": 30.279359,
+            "longitude": -97.724985,
+            "precision": "marker"
+        },
+        "CPE": {
+            "code": "CPE",
+            "name": "CHEMICAL AND PETROLEUM ENGINEERING",
+            "address": "200 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.29025858,
+            "longitude": -97.73613343,
+            "precision": "marker"
+        },
+        "CRD": {
+            "code": "CRD",
+            "name": "CAROTHERS RESIDENCE HALL",
+            "address": "2501 WHITIS AVE, AUSTIN, TX 78705",
+            "latitude": 30.28869,
+            "longitude": -97.740052,
+            "precision": "marker"
+        },
+        "CRH": {
+            "code": "CRH",
+            "name": "CREEKSIDE RESIDENCE HALL",
+            "address": "2501 SAN JACINTO BLVD, AUSTIN, TX 78705",
+            "latitude": 30.28852987,
+            "longitude": -97.73337824,
+            "precision": "marker"
+        },
+        "D21": {
+            "code": "D21",
+            "name": "DOBIE TWENTY21",
+            "address": "2021 GUADALUPE ST, AUSTIN, TX 78705",
+            "latitude": 30.28337,
+            "longitude": -97.741274,
+            "precision": "marker"
+        },
+        "DEV": {
+            "code": "DEV",
+            "name": "DEVELOPMENT OFFICE BUILDING",
+            "address": "2901 N IH 35 SVRD NB, AUSTIN, TX 78722",
+            "latitude": 30.28735,
+            "longitude": -97.72357,
+            "precision": "marker"
+        },
+        "DFA": {
+            "code": "DFA",
+            "name": "E. WILLIAM DOTY FINE ARTS BUILDING",
+            "address": "2301 TRINITY ST, AUSTIN, TX 78712",
+            "latitude": 30.285858,
+            "longitude": -97.731794,
+            "precision": "marker"
+        },
+        "DFF": {
+            "code": "DFF",
+            "name": "UFCU DISCH-FALK FIELD",
+            "address": "1300 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78722",
+            "latitude": 30.27920686,
+            "longitude": -97.72676518,
+            "precision": "marker"
+        },
+        "DMC": {
+            "code": "DMC",
+            "name": "G. B. DEALEY CENTER FOR NEW MEDIA",
+            "address": "300 W DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.29022276,
+            "longitude": -97.74082411,
+            "precision": "marker"
+        },
+        "DPI": {
+            "code": "DPI",
+            "name": "DELL PEDIATRIC RESEARCH INSTITUTE",
+            "address": "1400 BARBARA JORDAN BLVD, AUSTIN, TX 78723",
+            "latitude": 30.3048,
+            "longitude": -97.704,
+            "precision": "marker"
+        },
+        "E11": {
+            "code": "E11",
+            "name": "EQUIPMENT STOREHOUSE # 11",
+            "address": "2405 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.287238,
+            "longitude": -97.72914,
+            "precision": "marker"
+        },
+        "E13": {
+            "code": "E13",
+            "name": "EQUIPMENT STOREHOUSE # 13",
+            "address": "1925 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.28087942,
+            "longitude": -97.73296134,
+            "precision": "marker"
+        },
+        "E15": {
+            "code": "E15",
+            "name": "EQUIPMENT STOREHOUSE # 15",
+            "address": "1925 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.2808593,
+            "longitude": -97.73246223,
+            "precision": "marker"
+        },
+        "E23": {
+            "code": "E23",
+            "name": "EQUIPMENT STOREHOUSE # 23",
+            "address": "305 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.2861798,
+            "longitude": -97.7350218,
+            "precision": "marker"
+        },
+        "E24": {
+            "code": "E24",
+            "name": "EQUIPMENT STOREHOUSE # 24",
+            "address": "2412 TRINITY ST, AUSTIN, TX 78712",
+            "latitude": 30.28810397,
+            "longitude": -97.73228321,
+            "precision": "marker"
+        },
+        "E25": {
+            "code": "E25",
+            "name": "EQUIPMENT STOREHOUSE # 25",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78722",
+            "latitude": 30.285013,
+            "longitude": -97.723641,
+            "precision": "marker"
+        },
+        "E26": {
+            "code": "E26",
+            "name": "EQUIPMENT STOREHOUSE #26",
+            "address": "2920 SAN JACINTO BLVD, AUSTIN, TX 78705",
+            "latitude": 30.29258,
+            "longitude": -97.736288,
+            "precision": "marker"
+        },
+        "E27": {
+            "code": "E27",
+            "name": "EQUIPMENT STOREHOUSE #27",
+            "address": "100 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.2876361,
+            "longitude": -97.7380202,
+            "precision": "geocoded"
+        },
+        "ECG": {
+            "code": "ECG",
+            "name": "EAST CAMPUS GARAGE",
+            "address": "1200 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78722",
+            "latitude": 30.27949,
+            "longitude": -97.728055,
+            "precision": "marker"
+        },
+        "ECJ": {
+            "code": "ECJ",
+            "name": "ERNEST COCKRELL JR. HALL",
+            "address": "301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.288999,
+            "longitude": -97.735554,
+            "precision": "marker"
+        },
+        "EER": {
+            "code": "EER",
+            "name": "ENGR EDUCATION AND RESEARCH CENTER",
+            "address": "2501 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.288258,
+            "longitude": -97.735345,
+            "precision": "marker"
+        },
+        "EPS": {
+            "code": "EPS",
+            "name": "E.P. SCHOCH BUILDING",
+            "address": "2275 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.285773,
+            "longitude": -97.736661,
+            "precision": "marker"
+        },
+        "ETC": {
+            "code": "ETC",
+            "name": "ENGINEERING TEACHING CENTER II",
+            "address": "204 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.28993516,
+            "longitude": -97.73537732,
+            "precision": "marker"
+        },
+        "FAC": {
+            "code": "FAC",
+            "name": "PETER T. FLAWN ACADEMIC CENTER",
+            "address": "2304 WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.2862994,
+            "longitude": -97.74037063,
+            "precision": "marker"
+        },
+        "FC1": {
+            "code": "FC1",
+            "name": "FACILITIES COMPLEX BLDG. 1",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.284557,
+            "longitude": -97.72256,
+            "precision": "marker"
+        },
+        "FC2": {
+            "code": "FC2",
+            "name": "FACILITIES COMPLEX BLDG. 2",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.283916,
+            "longitude": -97.723113,
+            "precision": "marker"
+        },
+        "FC3": {
+            "code": "FC3",
+            "name": "FACILITIES COMPLEX BLDG. 3",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.284708,
+            "longitude": -97.723749,
+            "precision": "marker"
+        },
+        "FC4": {
+            "code": "FC4",
+            "name": "FACILITIES COMPLEX BLDG. 4",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.284299,
+            "longitude": -97.723557,
+            "precision": "marker"
+        },
+        "FC5": {
+            "code": "FC5",
+            "name": "FACILITIES COMPLEX BLDG. 5",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.283638,
+            "longitude": -97.724593,
+            "precision": "marker"
+        },
+        "FC6": {
+            "code": "FC6",
+            "name": "FACILITIES COMPLEX BLDG. 6",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.283451,
+            "longitude": -97.725744,
+            "precision": "marker"
+        },
+        "FC7": {
+            "code": "FC7",
+            "name": "FACILITIES COMPLEX BLDG. 7",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.283335,
+            "longitude": -97.726419,
+            "precision": "marker"
+        },
+        "FC8": {
+            "code": "FC8",
+            "name": "FACILITIES COMPLEX BLDG. 8",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.285408,
+            "longitude": -97.724107,
+            "precision": "marker"
+        },
+        "FC9": {
+            "code": "FC9",
+            "name": "CUSTODIAL SERVICES TRAINING FAC",
+            "address": "1301 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.28382868,
+            "longitude": -97.7239717,
+            "precision": "marker"
+        },
+        "FDG": {
+            "code": "FDG",
+            "name": "J. FRANK DOBIE GARAGE",
+            "address": "702 E DEAN KEETON ST, AUSTIN, TX 78705",
+            "latitude": 30.289584,
+            "longitude": -97.732376,
+            "precision": "marker"
+        },
+        "FDH": {
+            "code": "FDH",
+            "name": "J. FRANK DOBIE HOUSE",
+            "address": "702 E DEAN KEETON ST, AUSTIN, TX 78705",
+            "latitude": 30.28942203,
+            "longitude": -97.73253086,
+            "precision": "marker"
+        },
+        "FNT": {
+            "code": "FNT",
+            "name": "LARRY R. FAULKNER NANO SCI AND TECH",
+            "address": "102 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287837,
+            "longitude": -97.738018,
+            "precision": "marker"
+        },
+        "FTC": {
+            "code": "FTC",
+            "name": "FOOTBALL TRAINING COMPLEX",
+            "address": "1960 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.2805504,
+            "longitude": -97.7312641,
+            "precision": "geocoded"
+        },
+        "FTG": {
+            "code": "FTG",
+            "name": "FOOTBALL TRAINING COMPLEX GARAGE",
+            "address": "1971 SAN JACINTO, UNIT GAR, AUSTIN, TX 78712",
+            "latitude": 30.2805507,
+            "longitude": -97.733723,
+            "precision": "geocoded"
+        },
+        "G17": {
+            "code": "G17",
+            "name": "TRAFFIC KIOSK - 214 1/2 W 24TH ST",
+            "address": "214 1/2 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287576,
+            "longitude": -97.740331,
+            "precision": "marker"
+        },
+        "GAR": {
+            "code": "GAR",
+            "name": "GARRISON HALL",
+            "address": "128 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.285139,
+            "longitude": -97.738492,
+            "precision": "marker"
+        },
+        "GDC": {
+            "code": "GDC",
+            "name": "GATES DELL COMPLEX",
+            "address": "2317 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28627118,
+            "longitude": -97.73650518,
+            "precision": "marker"
+        },
+        "GEA": {
+            "code": "GEA",
+            "name": "MARY E. GEARING HALL",
+            "address": "200 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287731,
+            "longitude": -97.739212,
+            "precision": "marker"
+        },
+        "GEB": {
+            "code": "GEB",
+            "name": "DOROTHY L. GEBAUER BUILDING",
+            "address": "116 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.286346,
+            "longitude": -97.738621,
+            "precision": "marker"
+        },
+        "GHA": {
+            "code": "GHA",
+            "name": "GRADUATE HOUSING, UNIT A",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.2815,
+            "longitude": -97.7249,
+            "precision": "marker"
+        },
+        "GHB": {
+            "code": "GHB",
+            "name": "GRADUATE HOUSING, UNIT B",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.2819,
+            "longitude": -97.7244,
+            "precision": "marker"
+        },
+        "GHC": {
+            "code": "GHC",
+            "name": "GRADUATE HOUSING, UNIT C",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.2822,
+            "longitude": -97.724,
+            "precision": "marker"
+        },
+        "GHD": {
+            "code": "GHD",
+            "name": "GRADUATE HOUSING, UNIT D",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.282,
+            "longitude": -97.724,
+            "precision": "marker"
+        },
+        "GHE": {
+            "code": "GHE",
+            "name": "GRADUATE HOUSING, UNIT E",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.2818,
+            "longitude": -97.7239,
+            "precision": "marker"
+        },
+        "GHF": {
+            "code": "GHF",
+            "name": "GRADUATE HOUSING, UNIT F",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.281553,
+            "longitude": -97.723944,
+            "precision": "marker"
+        },
+        "GLT": {
+            "code": "GLT",
+            "name": "GARY L THOMAS ENERGY ENGR BLDG",
+            "address": "210 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287497,
+            "longitude": -97.735897,
+            "precision": "marker"
+        },
+        "GOL": {
+            "code": "GOL",
+            "name": "GOLDSMITH HALL",
+            "address": "310 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.285303,
+            "longitude": -97.741156,
+            "precision": "marker"
+        },
+        "GRC": {
+            "code": "GRC",
+            "name": "GREGORY AQUATIC POOL CONTROL BLDG.",
+            "address": "2101 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.283818,
+            "longitude": -97.735906,
+            "precision": "marker"
+        },
+        "GRE": {
+            "code": "GRE",
+            "name": "GREGORY GYMNASIUM",
+            "address": "2101 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.283998,
+            "longitude": -97.736399,
+            "precision": "marker"
+        },
+        "GRF": {
+            "code": "GRF",
+            "name": "GREGORY AQUATIC FOOD SERVICE BLDG.",
+            "address": "2101 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.284159,
+            "longitude": -97.735627,
+            "precision": "marker"
+        },
+        "GRP": {
+            "code": "GRP",
+            "name": "GREGORY AQUATIC POOL EQUIP. BLDG.",
+            "address": "2101 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.284436,
+            "longitude": -97.735881,
+            "precision": "marker"
+        },
+        "GRS": {
+            "code": "GRS",
+            "name": "GREGORY AQUATIC POOL STORAGE BLDG.",
+            "address": "2101 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28365,
+            "longitude": -97.736028,
+            "precision": "marker"
+        },
+        "GSB": {
+            "code": "GSB",
+            "name": "GRADUATE SCHOOL OF BUSINESS BLDG.",
+            "address": "100 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.284182,
+            "longitude": -97.738335,
+            "precision": "marker"
+        },
+        "GSM": {
+            "code": "GSM",
+            "name": "GRADUATE HOUSING, MAINTENANCE BLDG",
+            "address": "TBD, AUSTIN, TX 78722",
+            "latitude": 30.282668,
+            "longitude": -97.724055,
+            "precision": "marker"
+        },
+        "GUG": {
+            "code": "GUG",
+            "name": "GUADALUPE GARAGE",
+            "address": "417 W 17TH ST, AUSTIN, TX 78701",
+            "latitude": 30.279535,
+            "longitude": -97.743231,
+            "precision": "marker"
+        },
+        "GWB": {
+            "code": "GWB",
+            "name": "GORDON-WHITE BUILDING",
+            "address": "210 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.28781861,
+            "longitude": -97.73990747,
+            "precision": "marker"
+        },
+        "HCG": {
+            "code": "HCG",
+            "name": "HEALTH CENTER GARAGE",
+            "address": "1601 TRINITY ST BLDG A, AUSTIN, TX 78712",
+            "latitude": 30.276301,
+            "longitude": -97.735502,
+            "precision": "marker"
+        },
+        "HDB": {
+            "code": "HDB",
+            "name": "HEALTH DISCOVERY BUILDING",
+            "address": "1601 TRINITY ST BLDG B, AUSTIN, TX 78712",
+            "latitude": 30.2781,
+            "longitude": -97.7347,
+            "precision": "marker"
+        },
+        "HLB": {
+            "code": "HLB",
+            "name": "HEALTH LEARNING BUILDING",
+            "address": "1501 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.2755006,
+            "longitude": -97.73328408,
+            "precision": "marker"
+        },
+        "HMA": {
+            "code": "HMA",
+            "name": "HOGG MEMORIAL AUDITORIUM",
+            "address": "2300 WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.286886,
+            "longitude": -97.740618,
+            "precision": "marker"
+        },
+        "HRC": {
+            "code": "HRC",
+            "name": "HARRY RANSOM CENTER",
+            "address": "300 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.284344,
+            "longitude": -97.741221,
+            "precision": "marker"
+        },
+        "HRH": {
+            "code": "HRH",
+            "name": "RAINEY HALL",
+            "address": "200 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.28416985,
+            "longitude": -97.74023488,
+            "precision": "marker"
+        },
+        "HS4": {
+            "code": "HS4",
+            "name": "HSS SUPPORT BLDG NO. 4",
+            "address": "None, None, None None",
+            "latitude": 30.288388,
+            "longitude": -97.732557,
+            "precision": "marker"
+        },
+        "HSM": {
+            "code": "HSM",
+            "name": "WILLIAM RANDOLPH HEARST BLDG",
+            "address": "2504 C WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.288922,
+            "longitude": -97.740762,
+            "precision": "marker"
+        },
+        "HTB": {
+            "code": "HTB",
+            "name": "HEALTH TRANSFORMATION BUILDING",
+            "address": "1601 TRINITY ST BLDG A, AUSTIN, TX 78712",
+            "latitude": 30.2772,
+            "longitude": -97.7351,
+            "precision": "marker"
+        },
+        "IC2": {
+            "code": "IC2",
+            "name": "2815 SAN GABRIEL (IC2 INSTITUTE)",
+            "address": "2815 SAN GABRIEL ST, AUSTIN, TX 78705",
+            "latitude": 30.294793,
+            "longitude": -97.746722,
+            "precision": "marker"
+        },
+        "ICB": {
+            "code": "ICB",
+            "name": "INTRAMURAL CONTROL BLDG.",
+            "address": "501 W 51ST ST, AUSTIN, TX 78751",
+            "latitude": 30.31481574,
+            "longitude": -97.72778308,
+            "precision": "marker"
+        },
+        "IMA": {
+            "code": "IMA",
+            "name": "INTRAMURAL MAINT BLDG A",
+            "address": "4705 GUADALUPE ST, AUSTIN, TX 78751",
+            "latitude": 30.31391843,
+            "longitude": -97.73066322,
+            "precision": "marker"
+        },
+        "IMB": {
+            "code": "IMB",
+            "name": "INTRAMURAL MAINT BLDG B",
+            "address": "4701 GUADALUPE ST, AUSTIN, TX 78751",
+            "latitude": 30.31366309,
+            "longitude": -97.73083375,
+            "precision": "marker"
+        },
+        "IPF": {
+            "code": "IPF",
+            "name": "INDOOR PRACTICE FACILITY",
+            "address": "2501 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.286269,
+            "longitude": -97.7265564,
+            "precision": "marker"
+        },
+        "JCD": {
+            "code": "JCD",
+            "name": "JESTER RESIDENCE HALL",
+            "address": "201 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.281762,
+            "longitude": -97.736628,
+            "precision": "marker"
+        },
+        "JES": {
+            "code": "JES",
+            "name": "BEAUFORD H. JESTER CENTER",
+            "address": "201 E 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.28287892,
+            "longitude": -97.73681243,
+            "precision": "marker"
+        },
+        "JGB": {
+            "code": "JGB",
+            "name": "JACKSON GEOLOGICAL SCIENCES BLDG.",
+            "address": "2305 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.2859018,
+            "longitude": -97.7357148,
+            "precision": "marker"
+        },
+        "JHH": {
+            "code": "JHH",
+            "name": "JOHN W. HARGIS HALL",
+            "address": "1823 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.27837563,
+            "longitude": -97.7320249,
+            "precision": "marker"
+        },
+        "JON": {
+            "code": "JON",
+            "name": "JESSE H. JONES HALL",
+            "address": "721 E DEAN KEETON ST, AUSTIN, TX 78705",
+            "latitude": 30.28862252,
+            "longitude": -97.7316514,
+            "precision": "marker"
+        },
+        "KEY": {
+            "code": "KEY",
+            "name": "UNIVERSITY KEY BUILDING",
+            "address": "2613 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.2906417,
+            "longitude": -97.7364284,
+            "precision": "marker"
+        },
+        "KIN": {
+            "code": "KIN",
+            "name": "KINSOLVING RESIDENCE HALL",
+            "address": "2605 WHITIS AVE, AUSTIN, TX 78705",
+            "latitude": 30.290386,
+            "longitude": -97.739637,
+            "precision": "marker"
+        },
+        "LAC": {
+            "code": "LAC",
+            "name": "LAKE AUSTIN CENTRE",
+            "address": "3001 LAKE AUSTIN BLVD, AUSTIN, TX 78703",
+            "latitude": 30.28507494,
+            "longitude": -97.7787621,
+            "precision": "marker"
+        },
+        "LBJ": {
+            "code": "LBJ",
+            "name": "LYNDON B JOHNSON LIBRARY",
+            "address": "2313 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.285809,
+            "longitude": -97.729182,
+            "precision": "marker"
+        },
+        "LCH": {
+            "code": "LCH",
+            "name": "LITTLEFIELD CARRIAGE HOUSE",
+            "address": "2410 WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.28856,
+            "longitude": -97.740856,
+            "precision": "marker"
+        },
+        "LDH": {
+            "code": "LDH",
+            "name": "LONGHORN DINING FACILITY",
+            "address": "205 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.28261438,
+            "longitude": -97.73591694,
+            "precision": "marker"
+        },
+        "LFH": {
+            "code": "LFH",
+            "name": "LITTLEFIELD HOME",
+            "address": "302 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.28810989,
+            "longitude": -97.74077442,
+            "precision": "marker"
+        },
+        "LNA": {
+            "code": "LNA",
+            "name": "LEONA ST. CHILD DEVELOPMENT CENTER",
+            "address": "2216 LEONA ST, AUSTIN, TX 78722",
+            "latitude": 30.283032,
+            "longitude": -97.7244937,
+            "precision": "marker"
+        },
+        "LS1": {
+            "code": "LS1",
+            "name": "LANDSCAPE SERVICES STORAGE BLDG.",
+            "address": "2613 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.29060311,
+            "longitude": -97.73628215,
+            "precision": "marker"
+        },
+        "LTD": {
+            "code": "LTD",
+            "name": "LITTLEFIELD RESIDENCE HALL",
+            "address": "2503 WHITIS AVE, AUSTIN, TX 78705",
+            "latitude": 30.28931492,
+            "longitude": -97.73970884,
+            "precision": "marker"
+        },
+        "LTH": {
+            "code": "LTH",
+            "name": "LABORATORY THEATER BLDG.",
+            "address": "303 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.28595905,
+            "longitude": -97.7352152,
+            "precision": "marker"
+        },
+        "MAG": {
+            "code": "MAG",
+            "name": "MANOR GARAGE",
+            "address": "2017 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.282775,
+            "longitude": -97.73093,
+            "precision": "marker"
+        },
+        "MAI": {
+            "code": "MAI",
+            "name": "MAIN BUILDING",
+            "address": "110 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.28601688,
+            "longitude": -97.7393865,
+            "precision": "marker"
+        },
+        "MBB": {
+            "code": "MBB",
+            "name": "MOFFETT MOLECULAR BIOLOGY BLDG.",
+            "address": "2500 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28848436,
+            "longitude": -97.73726278,
+            "precision": "marker"
+        },
+        "MCA": {
+            "code": "MCA",
+            "name": "MOODY CENTER",
+            "address": "2001 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.28099168698319,
+            "longitude": -97.73063067075975,
+            "precision": "centroid"
+        },
+        "MEZ": {
+            "code": "MEZ",
+            "name": "MEZES HALL",
+            "address": "154 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.28438634,
+            "longitude": -97.73888314,
+            "precision": "marker"
+        },
+        "MFH": {
+            "code": "MFH",
+            "name": "RICHARD MITHOFF TRK/SCR FIELDHOUSE",
+            "address": "2011 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.28199462,
+            "longitude": -97.73112496,
+            "precision": "marker"
+        },
+        "MHD": {
+            "code": "MHD",
+            "name": "MOORE-HILL RESIDENCE HALL",
+            "address": "214 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.28362708,
+            "longitude": -97.735344,
+            "precision": "marker"
+        },
+        "MMS": {
+            "code": "MMS",
+            "name": "MIKE A.MYERS TRACK & SOCCER STADIUM",
+            "address": "707 CLYDE LITTLEFIELD DR, AUSTIN, TX 78712",
+            "latitude": 30.281712,
+            "longitude": -97.729563,
+            "precision": "marker"
+        },
+        "MNC": {
+            "code": "MNC",
+            "name": "MONCRIEF-NEUHAUS ATHLETIC CENTER",
+            "address": "2015 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.282347,
+            "longitude": -97.732724,
+            "precision": "marker"
+        },
+        "MRH": {
+            "code": "MRH",
+            "name": "MUSIC BUILDING & RECITAL HALL",
+            "address": "2406 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.2873,
+            "longitude": -97.730977,
+            "precision": "marker"
+        },
+        "MSB": {
+            "code": "MSB",
+            "name": "2207 COMAL (MAIL SERVICE BUILDING)",
+            "address": "2207 COMAL ST, AUSTIN, TX 78722",
+            "latitude": 30.282744,
+            "longitude": -97.725686,
+            "precision": "marker"
+        },
+        "N24": {
+            "code": "N24",
+            "name": "2400 NUECES",
+            "address": "2400 NUECES ST, AUSTIN, TX 78705",
+            "latitude": 30.288395,
+            "longitude": -97.743512,
+            "precision": "marker"
+        },
+        "NEZ": {
+            "code": "NEZ",
+            "name": "NORTH END ZONE BUILDING",
+            "address": "405 DELOSS DODDS WAY, AUSTIN, TX 78712",
+            "latitude": 30.2846,
+            "longitude": -97.7325,
+            "precision": "marker"
+        },
+        "NHB": {
+            "code": "NHB",
+            "name": "NORMAN HACKERMAN BUILDING",
+            "address": "100 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.28763887,
+            "longitude": -97.73802078,
+            "precision": "marker"
+        },
+        "NMS": {
+            "code": "NMS",
+            "name": "NEURAL AND MOLECULAR SCIENCE BLDG.",
+            "address": "2506 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28921329,
+            "longitude": -97.73760146,
+            "precision": "marker"
+        },
+        "NUG": {
+            "code": "NUG",
+            "name": "NUECES GARAGE",
+            "address": "2400 NUECES ST, AUSTIN, TX 78705",
+            "latitude": 30.288722,
+            "longitude": -97.743395,
+            "precision": "marker"
+        },
+        "NUR": {
+            "code": "NUR",
+            "name": "NURSING SCHOOL",
+            "address": "1710 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.2776692,
+            "longitude": -97.7333708,
+            "precision": "marker"
+        },
+        "PAC": {
+            "code": "PAC",
+            "name": "PERFORMING ARTS CENTER",
+            "address": "510 DELOSS DODDS WAY, AUSTIN, TX 78712",
+            "latitude": 30.2863,
+            "longitude": -97.731238,
+            "precision": "marker"
+        },
+        "PAI": {
+            "code": "PAI",
+            "name": "T.S. PAINTER HALL",
+            "address": "103 W 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.287159,
+            "longitude": -97.738924,
+            "precision": "marker"
+        },
+        "PAR": {
+            "code": "PAR",
+            "name": "PARLIN HALL",
+            "address": "208 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.284911,
+            "longitude": -97.740106,
+            "precision": "marker"
+        },
+        "PAT": {
+            "code": "PAT",
+            "name": "J.T. PATTERSON LABS.BLDG.",
+            "address": "2415 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28799215,
+            "longitude": -97.73642741,
+            "precision": "marker"
+        },
+        "PCL": {
+            "code": "PCL",
+            "name": "PERRY-CASTANEDA LIBRARY",
+            "address": "101 E 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.282773,
+            "longitude": -97.738194,
+            "precision": "marker"
+        },
+        "PHD": {
+            "code": "PHD",
+            "name": "PRATHER RESIDENCE HALL",
+            "address": "305 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.282395,
+            "longitude": -97.735093,
+            "precision": "marker"
+        },
+        "PHR": {
+            "code": "PHR",
+            "name": "PHARMACY BUILDING",
+            "address": "2409 UNIVERSITY AVE, AUSTIN, TX 78712",
+            "latitude": 30.28802,
+            "longitude": -97.738574,
+            "precision": "marker"
+        },
+        "PMA": {
+            "code": "PMA",
+            "name": "PHYSICS, MATH, & ASTRONOMY BUILDING",
+            "address": "2515 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.288845,
+            "longitude": -97.736094,
+            "precision": "marker"
+        },
+        "POB": {
+            "code": "POB",
+            "name": "PETER O&#x27;DONNELL JR. BUILDING",
+            "address": "201 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.286839,
+            "longitude": -97.736556,
+            "precision": "marker"
+        },
+        "PRH": {
+            "code": "PRH",
+            "name": "DOBIE PAISANO RANCH HOUSE",
+            "address": "11353 RAWHIDE TRL, AUSTIN, TX 78736",
+            "latitude": 30.27715354,
+            "longitude": -97.94439565,
+            "precision": "marker"
+        },
+        "RHD": {
+            "code": "RHD",
+            "name": "ROBERTS RESIDENCE HALL",
+            "address": "303 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.28305002,
+            "longitude": -97.73512552,
+            "precision": "marker"
+        },
+        "RHG": {
+            "code": "RHG",
+            "name": "ROWLING HALL GARAGE",
+            "address": "300 W MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.282285,
+            "longitude": -97.741505,
+            "precision": "marker"
+        },
+        "RLP": {
+            "code": "RLP",
+            "name": "PATTON HALL",
+            "address": "305 E 23RD ST, AUSTIN, TX 78712",
+            "latitude": 30.2849382,
+            "longitude": -97.73537145,
+            "precision": "marker"
+        },
+        "RRH": {
+            "code": "RRH",
+            "name": "ROBERT B. ROWLING HALL",
+            "address": "300 W MARTIN LUTHER KING BLVD, AUSTIN, TX 78712",
+            "latitude": 30.282212,
+            "longitude": -97.741461,
+            "precision": "marker"
+        },
+        "RSC": {
+            "code": "RSC",
+            "name": "RECREATIONAL SPORTS CENTER",
+            "address": "2001 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.2814739,
+            "longitude": -97.7323561,
+            "precision": "marker"
+        },
+        "SAG": {
+            "code": "SAG",
+            "name": "SAN ANTONIO GARAGE",
+            "address": "2420 SAN ANTONIO ST, AUSTIN, TX 78705",
+            "latitude": 30.28868891,
+            "longitude": -97.74265832,
+            "precision": "marker"
+        },
+        "SBS": {
+            "code": "SBS",
+            "name": "RED AND CHARLINE MCCOMBS FIELD",
+            "address": "2001 COMAL ST, AUSTIN, TX 78722",
+            "latitude": 30.28045128,
+            "longitude": -97.72506538,
+            "precision": "marker"
+        },
+        "SEA": {
+            "code": "SEA",
+            "name": "SARAH M. & CHARLES E. SEAY BUILDING",
+            "address": "108 E DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.2898231,
+            "longitude": -97.7371279,
+            "precision": "marker"
+        },
+        "SEZ": {
+            "code": "SEZ",
+            "name": "SOUTH END ZONE",
+            "address": "2021 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.282735,
+            "longitude": -97.732633,
+            "precision": "marker"
+        },
+        "SJG": {
+            "code": "SJG",
+            "name": "SAN JACINTO GARAGE",
+            "address": "2401 SAN JACINTO BLVD, AUSTIN, TX 78705",
+            "latitude": 30.287731,
+            "longitude": -97.732869,
+            "precision": "marker"
+        },
+        "SJH": {
+            "code": "SJH",
+            "name": "SAN JACINTO RESIDENCE HALL",
+            "address": "309 E 21ST ST, AUSTIN, TX 78705",
+            "latitude": 30.28234722,
+            "longitude": -97.73440543,
+            "precision": "marker"
+        },
+        "SMC": {
+            "code": "SMC",
+            "name": "DELL SETON MEDICAL CENTER AT UT",
+            "address": "1500 RED RIVER ST, AUSTIN, TX 78701",
+            "latitude": 30.2763,
+            "longitude": -97.733981,
+            "precision": "marker"
+        },
+        "SRH": {
+            "code": "SRH",
+            "name": "SID RICHARDSON HALL",
+            "address": "2300 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.28499,
+            "longitude": -97.728866,
+            "precision": "marker"
+        },
+        "SSB": {
+            "code": "SSB",
+            "name": "STUDENT SERVICES BUILDING",
+            "address": "100 W DEAN KEETON ST, AUSTIN, TX 78712",
+            "latitude": 30.2899559,
+            "longitude": -97.7383285,
+            "precision": "marker"
+        },
+        "SSC": {
+            "code": "SSC",
+            "name": "SILVER SPURS CENTER",
+            "address": "1971 SAN JACINTO, AUSTIN, TX 78712",
+            "latitude": 30.2802407,
+            "longitude": -97.7345756,
+            "precision": "geocoded"
+        },
+        "STD": {
+            "code": "STD",
+            "name": "DARRELL K ROYAL TX MEMORIAL STADIUM",
+            "address": "2139 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.2838661,
+            "longitude": -97.7314304,
+            "precision": "marker"
+        },
+        "SUT": {
+            "code": "SUT",
+            "name": "SUTTON HALL",
+            "address": "305 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.28497,
+            "longitude": -97.740816,
+            "precision": "marker"
+        },
+        "SW7": {
+            "code": "SW7",
+            "name": "2617 SPEEDWAY (OFC.BLDG.)",
+            "address": "2617 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.290808,
+            "longitude": -97.7362921,
+            "precision": "marker"
+        },
+        "SWG": {
+            "code": "SWG",
+            "name": "SPEEDWAY GARAGE",
+            "address": "2630 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.29112355,
+            "longitude": -97.73706076,
+            "precision": "marker"
+        },
+        "SZB": {
+            "code": "SZB",
+            "name": "GEORGE I. SANCHEZ BUILDING",
+            "address": "1912 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.281685,
+            "longitude": -97.738765,
+            "precision": "marker"
+        },
+        "TCC": {
+            "code": "TCC",
+            "name": "JOE C THOMPSON CONFERENCE CENTER",
+            "address": "2405 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.286997,
+            "longitude": -97.729041,
+            "precision": "marker"
+        },
+        "TCP": {
+            "code": "TCP",
+            "name": "TEXAS COWBOYS PAVILION",
+            "address": "2210 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.285,
+            "longitude": -97.733993,
+            "precision": "marker"
+        },
+        "TLB": {
+            "code": "TLB",
+            "name": "TEXAS LONGHORNS BOATHOUSE",
+            "address": "300 HEARN ST, AUSTIN, TX 78746",
+            "latitude": 30.27764823,
+            "longitude": -97.77461596,
+            "precision": "marker"
+        },
+        "TMM": {
+            "code": "TMM",
+            "name": "TX SCIENCE & NATURAL HISTORY MUSEUM",
+            "address": "2400 TRINITY ST, AUSTIN, TX 78705",
+            "latitude": 30.28698698,
+            "longitude": -97.73236361,
+            "precision": "marker"
+        },
+        "TNH": {
+            "code": "TNH",
+            "name": "TOWNES HALL",
+            "address": "727 E DEAN KEETON ST, AUSTIN, TX 78705",
+            "latitude": 30.2885991,
+            "longitude": -97.73100554,
+            "precision": "marker"
+        },
+        "TRG": {
+            "code": "TRG",
+            "name": "TRINITY GARAGE",
+            "address": "1815 TRINITY ST, AUSTIN, TX 78712",
+            "latitude": 30.27908051,
+            "longitude": -97.73391809,
+            "precision": "marker"
+        },
+        "TSB": {
+            "code": "TSB",
+            "name": "TENNIS SUPPORT BUILDING",
+            "address": "301 W 51ST ST, AUSTIN, TX 78751",
+            "latitude": 30.3152061011,
+            "longitude": -97.7266614668,
+            "precision": "marker"
+        },
+        "TSC": {
+            "code": "TSC",
+            "name": "LEE & JOE JAMAIL TEXAS SWIMMING CTR",
+            "address": "1920 ROBERT DEDMAN DR, AUSTIN, TX 78712",
+            "latitude": 30.27988361,
+            "longitude": -97.73351459,
+            "precision": "marker"
+        },
+        "TSG": {
+            "code": "TSG",
+            "name": "27TH STREET GARAGE",
+            "address": "109 W 27TH ST, AUSTIN, TX 78712",
+            "latitude": 30.29118332,
+            "longitude": -97.73855255,
+            "precision": "marker"
+        },
+        "TSP": {
+            "code": "TSP",
+            "name": "TEXAS SWIMMING CENTER PUMP HOUSE",
+            "address": "1900 RED RIVER ST, AUSTIN, TX 78712",
+            "latitude": 30.28,
+            "longitude": -97.734,
+            "precision": "marker"
+        },
+        "TTC": {
+            "code": "TTC",
+            "name": "TEXAS TENNIS CENTER",
+            "address": "2100 COMAL ST, AUSTIN, TX 78722",
+            "latitude": 30.28128091,
+            "longitude": -97.72656135,
+            "precision": "marker"
+        },
+        "UA9": {
+            "code": "UA9",
+            "name": "2609 UNIVERSITY AVENUE",
+            "address": "2609 UNIVERSITY AVE, AUSTIN, TX 78712",
+            "latitude": 30.290304,
+            "longitude": -97.7385897,
+            "precision": "marker"
+        },
+        "UIL": {
+            "code": "UIL",
+            "name": "UNIV. INTERSCHOLASTIC LEAGUE BLDG.",
+            "address": "1701 MANOR RD, AUSTIN, TX 78722",
+            "latitude": 30.283338,
+            "longitude": -97.723696,
+            "precision": "marker"
+        },
+        "UNB": {
+            "code": "UNB",
+            "name": "UNION BUILDING",
+            "address": "2308 WHITIS AVE, AUSTIN, TX 78712",
+            "latitude": 30.28666,
+            "longitude": -97.74122,
+            "precision": "marker"
+        },
+        "UTA": {
+            "code": "UTA",
+            "name": "UT ADMINISTRATION BUILDING",
+            "address": "1616 GUADALUPE ST, AUSTIN, TX 78701",
+            "latitude": 30.27932,
+            "longitude": -97.74284,
+            "precision": "marker"
+        },
+        "UTC": {
+            "code": "UTC",
+            "name": "UNIVERSITY TEACHING CENTER",
+            "address": "105 W 21ST ST, AUSTIN, TX 78712",
+            "latitude": 30.283033,
+            "longitude": -97.738841,
+            "precision": "marker"
+        },
+        "UTX": {
+            "code": "UTX",
+            "name": "ETTER-HARBIN ALUMNI CENTER",
+            "address": "2110 SAN JACINTO BLVD, AUSTIN, TX 78712",
+            "latitude": 30.2843175,
+            "longitude": -97.73442635,
+            "precision": "marker"
+        },
+        "WAG": {
+            "code": "WAG",
+            "name": "WAGGENER HALL",
+            "address": "2210 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.2851116,
+            "longitude": -97.73759902,
+            "precision": "marker"
+        },
+        "WAT": {
+            "code": "WAT",
+            "name": "ARTHUR P. WATSON HOUSE",
+            "address": "500 E 18TH ST, AUSTIN, TX 78701",
+            "latitude": 30.278398,
+            "longitude": -97.733593,
+            "precision": "marker"
+        },
+        "WCH": {
+            "code": "WCH",
+            "name": "WILL C. HOGG BLDG.",
+            "address": "120 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.286087,
+            "longitude": -97.738394,
+            "precision": "marker"
+        },
+        "WCP": {
+            "code": "WCP",
+            "name": "WILLIAM C. POWERS, JR. SAC",
+            "address": "2201 SPEEDWAY, AUSTIN, TX 78712",
+            "latitude": 30.28488256,
+            "longitude": -97.7362781,
+            "precision": "marker"
+        },
+        "WEL": {
+            "code": "WEL",
+            "name": "ROBERT A. WELCH HALL",
+            "address": "105 E 24TH ST, AUSTIN, TX 78712",
+            "latitude": 30.286471,
+            "longitude": -97.737709,
+            "precision": "marker"
+        },
+        "WGB": {
+            "code": "WGB",
+            "name": "WHITAKER GATEWAY BUILDING",
+            "address": "4901 GUADALUPE ST, AUSTIN, TX 78751",
+            "latitude": 30.31534799,
+            "longitude": -97.72923405,
+            "precision": "marker"
+        },
+        "WIN": {
+            "code": "WIN",
+            "name": "F.L. WINSHIP DRAMA BLDG.",
+            "address": "300 E 23RD ST, AUSTIN, TX 78712",
+            "latitude": 30.28589309,
+            "longitude": -97.73446115,
+            "precision": "marker"
+        },
+        "WMB": {
+            "code": "WMB",
+            "name": "WEST MALL OFFICE BLDG.",
+            "address": "306 INNER CAMPUS DR, AUSTIN, TX 78712",
+            "latitude": 30.28542,
+            "longitude": -97.740576,
+            "precision": "marker"
+        },
+        "WWH": {
+            "code": "WWH",
+            "name": "WALTER WEBB HALL",
+            "address": "405 W 25TH ST, AUSTIN, TX 78705",
+            "latitude": 30.289324,
+            "longitude": -97.741847,
+            "precision": "marker"
+        },
+        "Z02": {
+            "code": "Z02",
+            "name": "2007 GUADALUPE",
+            "address": "2007 GUADALUPE ST, AUSTIN, TX 78712",
+            "latitude": 30.283046,
+            "longitude": -97.741682,
+            "precision": "marker"
+        },
+        "Z18": {
+            "code": "Z18",
+            "name": "1504 E MLK JR BLVD",
+            "address": "1504 E MARTIN LUTHER KING BLVD, AUSTIN, TX 78702",
+            "latitude": 30.279387,
+            "longitude": -97.724687,
+            "precision": "marker"
+        }
+    }
+}

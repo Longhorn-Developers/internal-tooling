@@ -1,7 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
+import { registerCampusTools } from "./tools/campus";
 import { registerCourseOverview } from "./tools/course-overview";
 import { registerDiningTools } from "./tools/dining";
+import { registerOrgTools } from "./tools/orgs";
 import { registerRateMyProfessor } from "./tools/rate-my-professor";
 
 function createServer() {
@@ -9,8 +11,10 @@ function createServer() {
         name: "Longhorn Developers",
         version: "1.0.0",
     });
+    registerCampusTools(server);
     registerCourseOverview(server);
     registerDiningTools(server);
+    registerOrgTools(server);
     registerRateMyProfessor(server);
     return server;
 }

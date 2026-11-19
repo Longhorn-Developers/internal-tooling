@@ -290,3 +290,30 @@ export async function getText(url: string, ttlSeconds = 600): Promise<string> {
     if (looksLikeLogin(body)) throw new UpstreamError(`${url} now requires a UT EID login`);
     return body;
 }
+
+/**
+ * `getText` plus a guarded parse.
+ *
+ * A bare `JSON.parse` on an upstream body puts "Unexpected token '<', \"<!DOCTYPE
+ * \"... is not valid JSON" in front of a student the first time the service
+ * answers with an error page, a maintenance notice or an SSO redirect, because
+ * tool handlers forward `error.message` verbatim. The host name is in the
+ * message so the answer says which service is having trouble.
+ */
+export async function getJson<T>(url: string, ttlSeconds = 600): Promise<T> {
+    const body = await getText(url, ttlSeconds);
+    try {
+        return JSON.parse(body) as T;
+    } catch {
+        const host = (() => {
+            try {
+                return new URL(url).host;
+            } catch {
+                return "the upstream service";
+            }
+        })();
+        throw new UpstreamError(
+            `${host} returned something that is not JSON. It may be down or asking for a login.`,
+        );
+    }
+}

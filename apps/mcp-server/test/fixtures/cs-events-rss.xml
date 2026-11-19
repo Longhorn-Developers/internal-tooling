@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?><rss version="2.0" xml:base="https://apps.cs.utexas.edu/calendar/events/month/2026-11" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:foaf="http://xmlns.com/foaf/0.1/" xmlns:og="http://ogp.me/ns#" xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" xmlns:sioc="http://rdfs.org/sioc/ns#" xmlns:sioct="http://rdfs.org/sioc/types#" xmlns:skos="http://www.w3.org/2004/02/skos/core#" xmlns:xsd="http://www.w3.org/2001/XMLSchema#">
+  <channel>
+    <title>Events</title>
+    <link>https://apps.cs.utexas.edu/calendar/events/month/2026-11</link>
+    <description></description>
+    <language>en</language>
+     <atom:link href="https://apps.cs.utexas.edu/calendar/events/rss/2026-11" rel="self" type="application/rss+xml" />
+      <item>
+    <title>LARG Meeting</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/332509</link>
+    <description>&lt;p&gt;LARG Meeting held by Dr. Peter Stone&lt;/p&gt;
+</description>
+     <pubDate>Wed, 18 Nov 2026 13:00 CST</pubDate>
+ <dc:creator>Megan Booth</dc:creator>
+ <guid isPermaLink="false">332509</guid>
+  </item>
+<item>
+    <title>Shuozhe&amp;#039;s Proposal</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/334908</link>
+    <description>&lt;p&gt;Shuozhe&#039;s Proposal at 11/18/2026 from 3:00PM to 6:00PM&lt;/p&gt;
+</description>
+     <pubDate>Wed, 18 Nov 2026 15:00 CST</pubDate>
+ <dc:creator>Shuozhe Li</dc:creator>
+ <guid isPermaLink="false">334908</guid>
+  </item>
+<item>
+    <title>Texas ACM x Longhorn Developers Social</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/334882</link>
+    <description>&lt;p&gt;Texas ACM and Longhorn Developers (LHD) are hosting a joint social to bring members of both organizations together! The goal is to help students meet others in the UT tech community outside their usual circles and build connections through a series of fun games and activities. Food will be provided for those who RSVP&#039;ed. We can&#039;t wait to see you there!&lt;/p&gt;
+</description>
+     <pubDate>Wed, 18 Nov 2026 18:00 CST</pubDate>
+ <dc:creator>Nikki Kothapalli</dc:creator>
+ <guid isPermaLink="false">334882</guid>
+  </item>
+<item>
+    <title>LLM Reasoning Reading Group</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/334198</link>
+    <description>&lt;p&gt;Directed Reading Program (DiRP) group on LLM Reasoning: LLMs may just be stochastic parrots using next-token prediction, but they are somehow able to perform shockingly well in a variety of tasks and demonstrate complex reasoning. In this group we will read some landmark papers that have brought us from mere text auto-complete bots to powerful AI agents. We may potentially explore reasoning epistemically and advancements of AI reasoning beyond just text.&lt;/p&gt;
+</description>
+     <pubDate>Wed, 18 Nov 2026 19:00 CST</pubDate>
+ <dc:creator>Eve Feng</dc:creator>
+ <guid isPermaLink="false">334198</guid>
+  </item>
+<item>
+    <title>Phil.AI DiRP</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/333848</link>
+    <description>&lt;p&gt;DiRP Group #10: &lt;a href=&quot;https://sites.google.com/view/utdirp/groups&quot;&gt;https://sites.google.com/view/utdirp/groups&lt;/a&gt;&lt;/p&gt;
+</description>
+     <pubDate>Thu, 19 Nov 2026 09:00 CST</pubDate>
+ <dc:creator>Nathan Tsoi</dc:creator>
+ <guid isPermaLink="false">333848</guid>
+  </item>
+<item>
+    <title>SCEA Group Meeting</title>
+    <link>https://apps.cs.utexas.edu/calendar/rooms/332566</link>
+    <description>&lt;p&gt;Rossbach&#039;s group meeting for Fall 2026&lt;/p&gt;
+</description>
+     <pubDate>Thu, 19 Nov 2026 10:00 CST</pubDate>
+ <dc:creator>Christopher Rossbach</dc:creator>
+ <guid isPermaLink="false">332566</guid>
+  </item>
+  </channel>
+</rss>

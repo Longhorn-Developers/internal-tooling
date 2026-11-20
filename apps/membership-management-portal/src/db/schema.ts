@@ -15,7 +15,7 @@ export type Status = (typeof statusNames)[number]
 // Discord channel names (the slug) can't be longer than this
 export const MAX_SLUG_LENGTH = 100
 
-export const verticalNames = ['product', 'tech', 'design'] as const
+export const verticalNames = ['product', 'technical', 'design'] as const
 export type Vertical = (typeof verticalNames)[number]
 
 export const execRoles = [

@@ -19,7 +19,7 @@ export type TeamMember = {
     verticals: VerticalAssignment[]
 }
 
-export type TechAssignment = { user: User; teamId: string; isLead: boolean }
+export type TechnicalAssignment = { user: User; teamId: string; isLead: boolean }
 
 /** Everything the database holds; a UI derives rosters and per-user team lists by joining these. */
 export type MembershipState = { users: User[]; teams: Team[]; assignments: TeamUser[] }
@@ -168,13 +168,13 @@ export class MembershipDatabase {
         return [...members.values()]
     }
 
-    /** Every tech assignment of an active user, across all teams. */
-    async listTechAssignments(): Promise<TechAssignment[]> {
+    /** Every technical assignment of an active user, across all teams. */
+    async listTechnicalAssignments(): Promise<TechnicalAssignment[]> {
         return this.db
             .select({ user: users, teamId: teamUsers.teamId, isLead: teamUsers.isLead })
             .from(teamUsers)
             .innerJoin(users, eq(teamUsers.userId, users.id))
-            .where(and(eq(teamUsers.vertical, 'tech'), eq(users.status, 'active')))
+            .where(and(eq(teamUsers.vertical, 'technical'), eq(users.status, 'active')))
             .all()
     }
 

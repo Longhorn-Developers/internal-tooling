@@ -1,4 +1,4 @@
-const VERTICALS = ['product', 'tech', 'design']
+const VERTICALS = ['product', 'technical', 'design']
 const EXEC_ROLES = [
     'President',
     'Product Director',

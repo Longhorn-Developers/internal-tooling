@@ -28,12 +28,17 @@ Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Gi
 ## Database
 
 The D1 database has three tables: `users`, `teams`, and `team_users`. Users can
-belong to multiple teams, with one or more verticals (`product`, `tech`,
+belong to multiple teams, with one or more verticals (`product`, `technical`,
 `design`) per team. Each assignment has an `isLead` flag, so a vertical can have
 co-leads, but a user is either a lead or not within one team and vertical. Users
 have a `status` (`applicant`, `active`, `inactive`, `alum`; defaults to
 `active`), an optional `execRole`, and optional `dateJoined` / `dateLeft` fields
 (`YYYY-MM-DD`). Status and vertical values are enforced with CHECK constraints.
+
+Migration `0003_technical_vertical.sql` converts existing `tech` assignments to `technical`
+and replaces the CHECK constraint without changing memberships or lead flags.
+Coordinate this migration with deployment: RPC callers must send `technical`, not `tech`;
+old workers must not reconcile against the migrated database. Discord role labels stay unchanged.
 
 Teams store a unique, non-null `teamSlug`, generated on insertion and independent of
 their display names. GitHub IDs (nullable) and Discord IDs are unique; email uniqueness
@@ -68,7 +73,7 @@ import { MembershipDatabase } from './db/access';
 
 const db = new MembershipDatabase(this.env.membership_db);
 const user = await db.getUser(userId);
-await db.assignVertical(userId, teamId, 'tech', true); // as lead
+await db.assignVertical(userId, teamId, 'technical', true); // as lead
 ```
 
 Available helpers include `createUser`, `updateUser`, `getUser`,
@@ -155,16 +160,16 @@ mutations transactional or retries ambiguous writes automatically.
   the GitHub name if necessary to preserve that identity.
 - GitHub is the source of truth for repositories: a team's repositories are the ones its GitHub
   team has access to. Add or remove them in the GitHub team's settings.
-- The team has Write on its repositories. Every active `tech` member, lead or not, is a plain
+- The team has Write on its repositories. Every active `technical` member, lead or not, is a plain
   member of it. Each team also has a child GitHub team, `<teamSlug>-leads` ("<name> Leads"),
-  holding exactly the team's tech leads, with Admin on the same repositories. Team slugs ending
+  holding exactly the team's technical leads, with Admin on the same repositories. Team slugs ending
   in `-leads` are rejected so the two never collide. Other verticals get no GitHub access.
   When the parent drops a repository, sync reports a non-blocking, fixable `remove_subteam_repo`
   for any access its leads subteam retains. Applying it removes only that subteam's grant;
   other teams' access stays intact.
 - Repositories have team access only: any direct collaborator is reported as
   `remove_repo_collaborator`. (The leads subteam's parent link is set on creation, not audited.)
-- Every active tech lead of any team is also on the org-wide leads group, which has the
+- Every active technical lead of any team is also on the org-wide leads group, which has the
   `all_repo_maintain` org role ("All-repository maintain": Maintain on every repository,
   including archived repositories and forks).
 - Every active exec is on the exec team, which has the `all_repo_admin` org role ("All-repository admin"), and
@@ -177,9 +182,9 @@ mutations transactional or retries ambiguous writes automatically.
   service reports `GITHUB_FORBIDDEN`.
 - `GITHUB_EXEC_TEAM` and `GITHUB_LEADS_TEAM` are team *names*: slugified to find the team, used
   as-is to create it.
-- Org membership follows active tech assignments: active users with a tech assignment (and active execs) are in the
-  org, nobody else. Joining a tech team invites them; leaving their last tech assignment, losing
-  exec with no tech assignment, or being deactivated removes them (owners too). `onboardUser`
+- Org membership follows active technical assignments: active users with a technical assignment (and active execs) are in the
+  org, nobody else. Joining a technical team invites them; leaving their last technical assignment, losing
+  exec with no technical assignment, or being deactivated removes them (owners too). `onboardUser`
   only checks the account exists.
 - Only org invitations are ever sent, never repository invitations. New users get one
   `POST /orgs/{org}/invitations` with their org role and all existing teams D1 assigns them
@@ -213,7 +218,7 @@ need, so adding a fellow never reports `create_subteam`. Every other kind is non
 
 All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup (team and
 subteam), memberships, every direct grant on its attached repositories, and account/invitation
-issues affecting its active tech members. It excludes other teams' memberships, reserved-group
+issues affecting its active technical members. It excludes other teams' memberships, reserved-group
 setup and org-wide corrections.
 `syncUser` includes the user's desired and extra memberships, org role, direct
 grants, related team setup and required group setup. `syncService("github")` audits every D1
@@ -228,7 +233,7 @@ GitHub account existence is checked only for active users. Inactive users' remai
 still reported for removal; an unwanted owner is removed rather than also being offered a demotion.
 
 When a user accepts their
-org invitation the webhook runs `addUserToTeam` for each of their tech teams and `makeExec` if
+org invitation the webhook runs `addUserToTeam` for each of their technical teams and `makeExec` if
 they're an exec. That also covers teams, roles or an exec role changed while they were pending
 (an invitation's own role can't change). A blocking change fails that action, to be fixed later,
 and a user who shouldn't be in the org is only reported (`remove_org_member`).

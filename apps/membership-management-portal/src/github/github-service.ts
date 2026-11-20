@@ -89,7 +89,7 @@ export class GitHubService extends Service {
         vertical: Vertical,
         isLead: boolean,
     ): Promise<ServiceResult> {
-        if (vertical !== 'tech') return this.done([])
+        if (vertical !== 'technical') return this.done([])
         if (!user.githubId) return this.blocked([this.noGithub(user)])!
 
         const { slug, leads, needed: setup } = await this.checkTeamSetup(team)
@@ -291,12 +291,12 @@ export class GitHubService extends Service {
                 .map((user) => [user.githubId!, user.id]),
         )
         const leadLogins = await this.leads()
-        const techs: Dictionary = new Map(
+        const technicalMembers: Dictionary = new Map(
             assignments
                 .filter(({ user }) => user.githubId)
                 .map(({ user }) => [user.githubId!, user.id]),
         )
-        const wanted = new Map([...techs, ...execs])
+        const wanted = new Map([...technicalMembers, ...execs])
         await this.gh.ensureAccounts(
             users.flatMap((user) => (user.githubId ? [user.githubId] : [])),
         )
@@ -388,7 +388,7 @@ export class GitHubService extends Service {
                 this.stray(
                     'remove_org_member',
                     login,
-                    `${login} is in the org (or invited) without a tech assignment`,
+                    `${login} is in the org (or invited) without a technical assignment`,
                     known,
                 ),
             )
@@ -487,7 +487,7 @@ export class GitHubService extends Service {
                 this.change(
                     'remove_org_member',
                     login,
-                    `${login} is in the org without a tech assignment`,
+                    `${login} is in the org without a technical assignment`,
                     { userId: user?.id },
                 ),
             ])
@@ -513,7 +513,7 @@ export class GitHubService extends Service {
 
         for (const { teamId, isLead } of await this.assignments({ userId: user.id })) {
             const team = teams.get(teamId)
-            if (team) add(await this.addUserToTeam(user, team, 'tech', isLead))
+            if (team) add(await this.addUserToTeam(user, team, 'technical', isLead))
         }
         if (user.execRole) add(await this.makeExec(user, user.execRole))
         return { changes: [...changes.values()], failed }
@@ -929,7 +929,7 @@ export class GitHubService extends Service {
     }
 
     private assignments(ids: Ids = {}) {
-        return this.once('assignments', () => this.db.listTechAssignments()).then((rows) =>
+        return this.once('assignments', () => this.db.listTechnicalAssignments()).then((rows) =>
             rows.filter(
                 (a) =>
                     (!ids.userId || a.user.id === ids.userId) &&

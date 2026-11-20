@@ -1,27 +1,34 @@
 {
-    "version": "7",
-    "dialect": "sqlite",
-    "entries": [
-        {
-            "idx": 0,
-            "version": "6",
-            "when": 1792518800342,
-            "tag": "0000_initial_membership",
-            "breakpoints": true
-        },
-        {
-            "idx": 1,
-            "version": "6",
-            "when": 1794361552126,
-            "tag": "0001_exec_roles_github_slugs_unique_identities",
-            "breakpoints": true
-        },
-        {
-            "idx": 2,
-            "version": "6",
-            "when": 1795000000000,
-            "tag": "0002_team_slug",
-            "breakpoints": true
-        }
-    ]
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792518800342,
+      "tag": "0000_initial_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794361552126,
+      "tag": "0001_exec_roles_github_slugs_unique_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795000000000,
+      "tag": "0002_team_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795126173694,
+      "tag": "0003_technical_vertical",
+      "breakpoints": true
+    }
+  ]
 }

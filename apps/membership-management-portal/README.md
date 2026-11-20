@@ -28,14 +28,19 @@ Currently, we plan to manage accounts for Linear, Figma, Discord, Notion, and Gi
 ## Database
 
 The D1 database has three tables: `users`, `teams`, and `team_users`. Users can
-belong to multiple teams, with one or more verticals (`product`, `tech`,
+belong to multiple teams, with one or more verticals (`product`, `technical`,
 `design`) per team. Each assignment has an `isLead` flag, so a vertical can have
 co-leads, but a user is either a lead or not within one team and vertical. Users
 have a `status` (`applicant`, `active`, `inactive`, `alum`; defaults to
 `active`), an optional `execRole`, and optional `dateJoined` / `dateLeft` fields
 (`YYYY-MM-DD`). Status and vertical values are enforced with CHECK constraints.
 
-Teams store a unique, non-null `githubSlug`, generated on insertion and independent of
+Migration `0003_technical_vertical.sql` converts existing `tech` assignments to `technical`
+and replaces the CHECK constraint without changing memberships or lead flags.
+Coordinate this migration with deployment: RPC callers must send `technical`, not `tech`;
+old workers must not reconcile against the migrated database. Discord role labels stay unchanged.
+
+Teams store a unique, non-null `teamSlug`, generated on insertion and independent of
 their display names. GitHub IDs (nullable) and Discord IDs are unique; email uniqueness
 uses `lower(email)`. Names are not unique. User creation and editing trim identities and
 lowercase email and GitHub IDs; an empty GitHub ID becomes null. Team creation rejects
@@ -68,7 +73,7 @@ import { MembershipDatabase } from './db/access';
 
 const db = new MembershipDatabase(this.env.membership_db);
 const user = await db.getUser(userId);
-await db.assignVertical(userId, teamId, 'tech', true); // as lead
+await db.assignVertical(userId, teamId, 'technical', true); // as lead
 ```
 
 Available helpers include `createUser`, `updateUser`, `getUser`,
@@ -93,12 +98,12 @@ The Worker
 | `removeUserFromTeam(userId, teamId)` | removes every vertical on the team and its access |
 | `deactivateUser(userId)` | atomically marks the user inactive and removes D1 assignments, then removes external access |
 | `updateUser(userId, { name?, email?, githubId?, discordId? })` | edits the user; a changed or removed `githubId` moves their GitHub access (the old account is removed from the org, the new one set up) |
-| `makeExec(userId, execRole)` / `removeExec(userId)` | sets the exec role and exec access |
+| `makeExec(userId, execRole)` / `removeExec(userId)` | sets the exec role and exec access (services also get the previous role, if any); `removeExec` fully removes exec |
 | `createTeam(name)` / `deleteTeam(teamId)` | creates or deletes the team everywhere |
 | `syncTeam(teamId)` | reports how the team differs from D1 in every service; changes nothing |
 | `syncUser(userId)` | reports how one user differs from D1 in every service; changes nothing |
 | `syncService(service)` / `syncAll()` | comprehensively audits all modeled state in one or every service; changes nothing |
-| `autoFix(changes)` | attempts up to 10 valid changes per service; also returns `failedChanges: FailedChange[]`, `rejected: NeededChange[]` (manual or unsupported; never attempted), and the deferred changes as `changes` |
+| `autoFix(changes)` | attempts up to 50 fixable changes per call (the rest are returned as deferred); also returns `failedChanges: FailedChange[]`, `rejected: NeededChange[]` (manual or unsupported; never attempted), and the deferred changes as `changes` |
 
 Every RPC returns `RPCResult`: `{ changes?: NeededChange[], failedServices: { [service]: Error? } }`
 (`src/service.ts`). A service that didn't complete is a key in `failedServices`; its value is the
@@ -112,21 +117,20 @@ Before an action changes anything, each service checks the entities it needs:
   `blocking` change. The service then changes nothing and is listed in `failedServices`.
 - An entity that exists but isn't set up right (e.g. missing a repository role) comes back as an
   non-blocking change, and the action still runs and counts as completed.
-- Memberships are never checked by actions; the syncs report them. Syncs and `autoFix` don't
-  gate anything: a sync's `changes` are drift, almost all `fixable`.
+- Syncs report drift without writing. Actions and selected fixes check required setup before writing.
 
 Pass `changes` to `autoFix`, which makes the `fixable` ones; the others need a person (e.g. a
-wrong `github_id`) and come back in `rejected`, never attempted. Only `failedChanges` mark a
-service as failed (`failedServices`); deferred and rejected changes are just returned. Only some kinds are `blocking` (below); let the user choose which of the rest
+wrong `github_id`) and come back in `rejected`, never attempted. Errors and blocking preflight
+problems mark a service as failed (`failedServices`); deferred/rejected selections alone do not.
+Only some kinds are `blocking` (below); let the user choose which of the rest
 to pass. A change with no `userId` is for an account that isn't in D1.
 Unknown kinds and service names are also rejected, not silently discarded or treated as stale.
-Every selected fix is validated once, up front, against fresh D1 reads and the per-RPC GitHub
-snapshot, before anything is written. A correction no longer justified (or selected twice) is
-returned as a `StaleNeededChangeError` in `failedChanges`, including already-completed removals.
-Stale and duplicate selections do not consume the ten valid-fix slots.
+Every selected fix is validated up front against fresh D1 and service snapshots before writing.
+Stale or duplicate selections are returned in `failedChanges`, including already-completed removals
+(`StaleNeededChangeError` for GitHub).
 A selection that an earlier fix in the same call happens to satisfy (an invitation covering a
 team membership) is not a failure. Resubmit the changes `autoFix` returns (they
-were deferred); a request-budget guard can defer work before ten changes finish. Completed
+were deferred); a request-budget guard can defer work before all 50 finish. Completed
 writes are not rolled back if a later write fails.
 
 Failed API calls throw a `ServiceError` (fields `service`, `code`, `retryable`; GitHub's adds
@@ -143,22 +147,29 @@ Writes skip unchanged state and update the snapshot only after remote success. T
 grants are batched with GraphQL, falling back to REST for rejected mutations. Partial successes
 update only their own entries. Other writes use REST.
 
-- Every team has a GitHub team identified by its stored `githubSlug` (initially e.g.
+The installed Octokit core does not include the throttling plugin. `github-api.ts` spaces
+writes (including GraphQL POSTs) by a second and stops the RPC on a primary/secondary limit,
+respecting `Retry-After` and reset headers. Deferred fixes can be resubmitted after that delay.
+The 500/550-call guard is a separate runaway-work bound, not an account-wide quota manager.
+Concurrent isolates and other callers still share GitHub's quota; nothing here makes external
+mutations transactional or retries ambiguous writes automatically.
+
+- Every team has a GitHub team identified by its stored `teamSlug` (initially e.g.
   `UT Dining` → `ut-dining`). Changing the D1 display name does not change its identity.
   When recreating a missing team after a display-name change, its stored slug is used as
   the GitHub name if necessary to preserve that identity.
 - GitHub is the source of truth for repositories: a team's repositories are the ones its GitHub
   team has access to. Add or remove them in the GitHub team's settings.
-- The team has Write on its repositories. Every active `tech` member, lead or not, is a plain
-  member of it. Each team also has a child GitHub team, `<githubSlug>-leads` ("<name> Leads"),
-  holding exactly the team's tech leads, with Admin on the same repositories. Team slugs ending
+- The team has Write on its repositories. Every active `technical` member, lead or not, is a plain
+  member of it. Each team also has a child GitHub team, `<teamSlug>-leads` ("<name> Leads"),
+  holding exactly the team's technical leads, with Admin on the same repositories. Team slugs ending
   in `-leads` are rejected so the two never collide. Other verticals get no GitHub access.
   When the parent drops a repository, sync reports a non-blocking, fixable `remove_subteam_repo`
   for any access its leads subteam retains. Applying it removes only that subteam's grant;
   other teams' access stays intact.
 - Repositories have team access only: any direct collaborator is reported as
   `remove_repo_collaborator`. (The leads subteam's parent link is set on creation, not audited.)
-- Every active tech lead of any team is also on the org-wide leads group, which has the
+- Every active technical lead of any team is also on the org-wide leads group, which has the
   `all_repo_maintain` org role ("All-repository maintain": Maintain on every repository,
   including archived repositories and forks).
 - Every active exec is on the exec team, which has the `all_repo_admin` org role ("All-repository admin"), and
@@ -171,9 +182,9 @@ update only their own entries. Other writes use REST.
   service reports `GITHUB_FORBIDDEN`.
 - `GITHUB_EXEC_TEAM` and `GITHUB_LEADS_TEAM` are team *names*: slugified to find the team, used
   as-is to create it.
-- Org membership follows active tech assignments: active users with a tech assignment (and active execs) are in the
-  org, nobody else. Joining a tech team invites them; leaving their last tech assignment, losing
-  exec with no tech assignment, or being deactivated removes them (owners too). `onboardUser`
+- Org membership follows active technical assignments: active users with a technical assignment (and active execs) are in the
+  org, nobody else. Joining a technical team invites them; leaving their last technical assignment, losing
+  exec with no technical assignment, or being deactivated removes them (owners too). `onboardUser`
   only checks the account exists.
 - Only org invitations are ever sent, never repository invitations. New users get one
   `POST /orgs/{org}/invitations` with their org role and all existing teams D1 assigns them
@@ -207,7 +218,7 @@ need, so adding a fellow never reports `create_subteam`. Every other kind is non
 
 All sync scopes use one read-only audit. `syncTeam` includes only the chosen team's setup (team and
 subteam), memberships, every direct grant on its attached repositories, and account/invitation
-issues affecting its active tech members. It excludes other teams' memberships, reserved-group
+issues affecting its active technical members. It excludes other teams' memberships, reserved-group
 setup and org-wide corrections.
 `syncUser` includes the user's desired and extra memberships, org role, direct
 grants, related team setup and required group setup. `syncService("github")` audits every D1
@@ -222,7 +233,7 @@ GitHub account existence is checked only for active users. Inactive users' remai
 still reported for removal; an unwanted owner is removed rather than also being offered a demotion.
 
 When a user accepts their
-org invitation the webhook runs `addUserToTeam` for each of their tech teams and `makeExec` if
+org invitation the webhook runs `addUserToTeam` for each of their technical teams and `makeExec` if
 they're an exec. That also covers teams, roles or an exec role changed while they were pending
 (an invitation's own role can't change). A blocking change fails that action, to be fixed later,
 and a user who shouldn't be in the org is only reported (`remove_org_member`).
@@ -281,3 +292,34 @@ For local testing, put the same values in `.dev.vars` (gitignored) with `GITHUB_
 to override the production org; the key can be quoted across lines or use `\n` escapes.
 
 `GITHUB_ORG`, `GITHUB_EXEC_TEAM` and `GITHUB_LEADS_TEAM` are set in `wrangler.jsonc`.
+
+
+## Discord
+
+`discord-api.ts` wraps `@discordjs/rest` (rate-limit queues and retries). `discord-roles.ts`
+contains pure role policy; `discord-service.ts` handles preflight, actions, audits and selected fixes.
+Everything is stateless REST: the bot token is sent on each request, so there's no login or session
+to cache. Wrangler vars/secrets: `DISCORD_APP_ID`, `DISCORD_GUILD_ID`, `DISCORD_TOKEN`.
+
+- `users.discord_id` is the user's Discord **username**. Members are found with Search Guild Members
+  (an exact username match; no privileged intent needed), so a wrong or changed username shows up as
+  `user_not_in_guild`. Changes about thread membership use Discord user ids as their `target`.
+- Roles are found by name (`Members`, `Leads`, `Technical Leads`, `<Team>`, `<Team> Technical`, exec
+  roles, ...). Exec roles come from `users.exec_role`.
+- Each team has a channel named by its `team_slug` (at most 100 characters) in the **Project Channels**
+  category. It's created with no overwrites, so it uses the category's permissions, plus a private
+  `leads` thread with invitations disabled. Its explicit members are the team's leads and the bot;
+  Discord administrators and users with Manage Threads can also view private threads.
+  A new team member gets a best-effort welcome embed.
+- The onboarding question "What projects do you want to follow?" gets one option per team, pointing at
+  its channel. Other onboarding prompts are never touched.
+- The bot must be installed with `DISCORD_PERMISSIONS_REQUIRED` (`discord-api.ts`) and its role must
+  sit above every role it manages. Every action checks this first and changes nothing if it fails; the
+  `missing_permissions`/`role_above_bot`/`bot_not_in_guild` changes are manual and their reason
+  includes the install link.
+- Enable **Server Members Intent** in the Developer Portal for thread-member enumeration (separate
+  from OAuth permissions), and Community for project onboarding. Preflight also checks channel
+  overwrites, name ambiguities, and provisioning limits.
+- Channels are never deleted for you: `deleteTeam` and `syncService` report `delete_channel` changes
+  whose reason says they're optional, and they happen only if you pass them to `autoFix`.
+  Their targets are channel IDs, not names; approval is rejected if a channel now belongs to a team.

@@ -12,7 +12,10 @@ import {
 export const statusNames = ['applicant', 'active', 'inactive', 'alum'] as const
 export type Status = (typeof statusNames)[number]
 
-export const verticalNames = ['product', 'tech', 'design'] as const
+// Discord channel names (the slug) can't be longer than this
+export const MAX_SLUG_LENGTH = 100
+
+export const verticalNames = ['product', 'technical', 'design'] as const
 export type Vertical = (typeof verticalNames)[number]
 
 export const execRoles = [
@@ -36,13 +39,13 @@ export const teams = sqliteTable(
     {
         id: text('id').primaryKey().notNull(),
         name: text('name').notNull(),
-        githubSlug: text('github_slug').notNull().unique(),
+        teamSlug: text('team_slug').notNull().unique(),
     },
     (table) => [
-        // "-leads" is reserved for each team's GitHub leads subteam, so no slug can collide with one
+        // Names the team's GitHub team and Discord channel. "-leads" is reserved for each team's GitHub leads subteam, so no slug can collide with one
         check(
-            'valid_github_slug',
-            sql`length(${table.githubSlug}) > 0 AND ${table.githubSlug} NOT GLOB '*[^a-z0-9-]*' AND ${table.githubSlug} NOT GLOB '*-leads'`,
+            'valid_team_slug',
+            sql`length(${table.teamSlug}) BETWEEN 1 AND ${sql.raw(String(MAX_SLUG_LENGTH))} AND ${table.teamSlug} NOT GLOB '*[^a-z0-9-]*' AND ${table.teamSlug} NOT GLOB '*-leads'`,
         ),
     ],
 )

@@ -587,9 +587,17 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
      * sh -- "classes" is "class", but "notes" is "note", not "not", and
      * offering "not" matched any description with the word "not" in it, which
      * is most of them.
+     *
+     * It runs both ways, because "a singular query already matches plural
+     * text" is only true of endings an open prefix can reach. It is false for
+     * -y/-ies: `query: "library"` answered nothing while "libraries" returned
+     * two library events, the same inversion as bass/bas in reverse.
      */
     const stem = (word: string): string => {
         const full = escape(word);
+        if (word.length > 3 && word.endsWith("y")) {
+            return `(?:${full}|${escape(word.slice(0, -1))}ies(?![a-z]))`;
+        }
         if (word.length <= 3 || !word.endsWith("s")) return full;
 
         const forms = [word.slice(0, -1)];
@@ -597,6 +605,7 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
             const shorter = word.slice(0, -2);
             if (shorter.length > 2 && /(?:[sxz]|ch|sh)$/.test(shorter)) forms.push(shorter);
         }
+        if (word.length > 4 && word.endsWith("ies")) forms.push(`${word.slice(0, -3)}y`);
         const bounded = forms.map((form) => `${escape(form)}(?![a-z])`);
         return `(?:${[full, ...bounded].join("|")})`;
     };
@@ -616,8 +625,13 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     // short-circuit, so trimming the punctuation off `query: "@@@"` -- or off
     // any query in a non-Latin script, which has no [a-z0-9] at all -- returned
     // the ENTIRE window as if every row had matched.
-    const raw = fold(query.trim().toLowerCase());
-    if (!raw) return true;
+    // Tested BEFORE folding, because fold() strips combining marks and can
+    // empty a string that was not empty: `query: "\u0301"` folded to "", hit
+    // this short-circuit and returned the whole window -- the exact failure
+    // this guard exists to stop, arriving one function call earlier.
+    const trimmed = query.trim();
+    if (!trimmed) return true;
+    const raw = fold(trimmed.toLowerCase());
     const haystack = fold(event.searchText);
     // Punctuation trimmed off the ends, the way `when` already does, so that a
     // quoted phrase reaches the matcher and a bare "?" does not match every
@@ -627,8 +641,10 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     // substring: a query in another script still finds text in that script,
     // and "&" still finds "E+E Film & Media Committee". A lone "?" therefore
     // matches any description containing one, which is unhelpful but true --
-    // unlike returning the whole window, which was neither.
-    if (!needle) return haystack.includes(raw);
+    // unlike returning the whole window, which was neither. The blank test
+    // matters: two combining marks fold to a lone space, and every row
+    // contains a space.
+    if (!needle) return raw.trim() !== "" && haystack.includes(raw);
     const pattern = queryPattern(needle, loose);
     if (!pattern) return haystack.includes(needle);
     if (pattern.test(haystack)) return true;

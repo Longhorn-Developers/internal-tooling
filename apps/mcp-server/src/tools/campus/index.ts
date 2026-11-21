@@ -704,6 +704,22 @@ export function registerCampusTools(server: McpServer) {
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }
+                // Whether the probe should match loosely is a property of the
+                // QUERY, not of the fully-filtered answer. With a category
+                // filter on, both passes come back empty, so `looseNote` is
+                // null, so a strict probe found nothing and the note went
+                // silent -- on a call where 11 rows were permanently out of
+                // that filter's reach. Same silence as the venue note's, by a
+                // different route.
+                const looseProbe =
+                    Boolean(looseNote) ||
+                    (Boolean(filters.query) &&
+                        filterEvents(calendar.events, {
+                            from: filters.from,
+                            to: filters.to,
+                            query: filters.query,
+                        }).length === 0);
+
                 // Every "held back" count has to run the WHOLE pipeline the
                 // answer ran. `filters` omits freeFood and the radius, which
                 // are applied after filterEvents, so a count taken from it
@@ -716,11 +732,13 @@ export function registerCampusTools(server: McpServer) {
                 }: EventFilters & { unlabelledOnly?: boolean }): number => {
                     let probe = filterEvents(calendar.events, filter);
                     if (unlabelledOnly) {
+                        // Any row with neither field, whatever calendar it came
+                        // from. Counting only the departmental ones said 4 rows
+                        // were unreachable on a day where 11 were -- and the
+                        // response's own arithmetic gave it away, since the
+                        // same day answered 22 unfiltered and 11 filtered.
                         probe = probe.filter(
-                            (event) =>
-                                event.source !== "calendar.utexas.edu" &&
-                                !event.categories.length &&
-                                !event.audiences.length,
+                            (event) => !event.categories.length && !event.audiences.length,
                         );
                     }
                     if (input.freeFood) probe = probe.filter(mentionsFreeFood);
@@ -749,7 +767,7 @@ export function registerCampusTools(server: McpServer) {
                     const unknown = heldBack({
                         ...filters,
                         venue: "unknown",
-                        looseQuery: Boolean(looseNote),
+                        looseQuery: looseProbe,
                     });
                     if (unknown > 0) {
                         notes.push(
@@ -766,12 +784,12 @@ export function registerCampusTools(server: McpServer) {
                     const { categories: _c, audiences: _a, ...others } = filters;
                     const unlabelled = heldBack({
                         ...others,
-                        looseQuery: Boolean(looseNote),
+                        looseQuery: looseProbe,
                         unlabelledOnly: true,
                     });
                     if (unlabelled > 0) {
                         notes.push(
-                            `${unlabelled} event(s) in this window come from a departmental calendar that publishes no category or audience, so this filter cannot reach them. Use department or query for those.`,
+                            `${unlabelled} event(s) in this window publish no category or audience at all, so this filter cannot reach them. Use query, or department where they have one, for those.`,
                         );
                     }
                 }

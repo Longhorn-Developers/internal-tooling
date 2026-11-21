@@ -11,6 +11,7 @@ import {
     walkMinutes,
 } from "../src/tools/campus/buildings";
 import {
+    EVENT_CATEGORIES,
     MAX_WINDOW_DAYS,
     SCOPE_BREAK,
     buildEvent,
@@ -2589,7 +2590,7 @@ describe("fixes from the fourth audit round", () => {
         // excluded all of them: "academic events this week" answered 4 on a
         // week with 14 CS talks.
         const { data } = await events({ when: "this week", categories: ["Academics"], limit: 40 });
-        expect(data.notes.join(" ")).toMatch(/publishes no category or audience/);
+        expect(data.notes.join(" ")).toMatch(/publish no category or audience/);
     });
 
     it("counts the venue note against every filter the answer used", async () => {
@@ -2844,5 +2845,66 @@ describe("plural stemming is an English rule, not a character count", () => {
         expect(filterEvents([makeEvent({ title: "New faces" })], { query: "faces" })).toHaveLength(
             1,
         );
+    });
+});
+
+describe("fixes from the seventh round", () => {
+    it("counts every unlabelled row, not only the departmental ones", async () => {
+        // The note blamed departmental calendars, but the central calendar
+        // publishes rows with no category and no audience too. It said 4 rows
+        // were unreachable on a day where 11 were -- and the response's own
+        // arithmetic gave it away: 22 unfiltered, 11 filtered.
+        // A one-day window, so every row fits under the limit and the count
+        // can be checked exactly rather than inferred by subtraction.
+        const all = await events({ when: "tomorrow", limit: 40 });
+        expect(all.data.matched).toBeLessThanOrEqual(40);
+        const unlabelled = all.data.events.filter(
+            (event) => !event.categories.length && !event.audiences.length,
+        );
+        const central = unlabelled.filter((event) => event.source === "calendar.utexas.edu");
+        const { data } = await events({
+            when: "tomorrow",
+            categories: [...EVENT_CATEGORIES],
+            limit: 40,
+        });
+        const note = data.notes.find((n) => n.includes("publish no category"));
+        if (unlabelled.length > 0) {
+            expect(note).toBeDefined();
+            expect(note).toContain(`${unlabelled.length} event(s)`);
+            // The point of the fix: central rows are counted too. If the feed
+            // ever stops publishing unlabelled central rows this is vacuous,
+            // so assert the premise rather than let it rot.
+            expect(central.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("reaches an -ies plural from the singular, and back", () => {
+        // "a singular query already matches plural text" is only true of
+        // endings an open prefix can reach. `query: "library"` answered nothing
+        // while "libraries" returned two library events -- bass/bas in reverse.
+        const lib = makeEvent({ title: "Staff Picks", description: "From the UT libraries" });
+        expect(filterEvents([lib], { query: "library" })).toHaveLength(1);
+        expect(filterEvents([lib], { query: "libraries" })).toHaveLength(1);
+        const study = makeEvent({ title: "CLS Bible Study" });
+        expect(filterEvents([study], { query: "bible studies" })).toHaveLength(1);
+        expect(filterEvents([study], { query: "bible study" })).toHaveLength(1);
+        // Bounded, so it cannot reach a longer word.
+        const partial = makeEvent({ title: "Librarianship talk" });
+        expect(filterEvents([partial], { query: "libraries" })).toHaveLength(0);
+    });
+
+    it("cannot be emptied into matching everything by a combining mark", () => {
+        // fold() strips U+0300-U+036F, so the emptiness test had to move BEFORE
+        // the fold: `query: "́"` folded to "" and hit the match-all
+        // short-circuit, returning all 76 rows in the window.
+        const rows = [makeEvent({ id: 1, title: "Football vs Arkansas" }), makeEvent({ id: 2 })];
+        for (const query of ["́", "̀́", "́ ́", "̈"]) {
+            expect(filterEvents(rows, { query })).toHaveLength(0);
+        }
+        // A real accent still folds and still matches.
+        const accented = makeEvent({ id: 3, title: "Perry-Castañeda Library" });
+        expect(filterEvents([accented], { query: "castaneda" })).toHaveLength(1);
+        // And an absent query still means "no query".
+        expect(filterEvents(rows, { query: "  " })).toHaveLength(2);
     });
 });

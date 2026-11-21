@@ -2736,7 +2736,113 @@ describe("small things the audits left", () => {
         const row = makeEvent({ title: "Free food in the SAC" });
         expect(filterEvents([row], { query: '"free food"' })).toHaveLength(1);
         const other = makeEvent({ title: "Anything", description: "Who knows?" });
-        expect(filterEvents([other], { query: "?" })).toHaveLength(1); // empty needle matches all
+        // A lone "?" matches text containing one -- not the whole window.
+        expect(filterEvents([other], { query: "?" })).toHaveLength(1);
+        expect(filterEvents([row], { query: "?" })).toHaveLength(0);
         expect(filterEvents([row], { query: "(free food)" })).toHaveLength(1);
+    });
+});
+
+describe("fixes from the sixth round", () => {
+    it("does not return the whole calendar for a query it cannot pattern-match", () => {
+        // REGRESSION from round five. An empty needle is the "no query given"
+        // short-circuit, so trimming the punctuation off a query that has no
+        // [a-z0-9] in it at all -- any non-Latin script, or "!!!" -- returned
+        // every row in the window as if they had all matched. The window held
+        // 76 events and the tool presented all 76 as matches for a Chinese
+        // query, with no note saying the query had been dropped.
+        const rows = [
+            makeEvent({ id: 1, title: "Football vs Arkansas" }),
+            makeEvent({ id: 2, title: "Chamber Music Recital" }),
+        ];
+        for (const query of ["!!!", "???", "@@@", "..."]) {
+            expect(filterEvents(rows, { query })).toHaveLength(0);
+        }
+        // A non-Latin query still matches text in that script.
+        const cjk = makeEvent({ id: 3, title: "書法 Calligraphy Workshop" });
+        expect(filterEvents([cjk, ...rows], { query: "書法" })).toHaveLength(1);
+        expect(filterEvents(rows, { query: "書法" })).toHaveLength(0);
+        // And a genuinely absent query still means "no query".
+        expect(filterEvents(rows, { query: "   " })).toHaveLength(2);
+    });
+
+    it("does not let a plural query match a shorter prefix", () => {
+        // REGRESSION from round five. The stem dropped the ending instead of
+        // making it optional, and the pattern has no right-hand boundary, so
+        // "bass" became the prefix "bas" and matched "basketball" -- while the
+        // vaguer "bas" was held to a whole word and matched only Bass Concert
+        // Hall. The exact query was less precise than the vague one.
+        const bass = makeEvent({
+            id: 1,
+            title: "Buena Vista Social Club",
+            locationName: "Bass Concert Hall",
+        });
+        const hoops = makeEvent({
+            id: 2,
+            title: "University of Texas Men's Basketball vs Southern Utah",
+        });
+        expect(filterEvents([bass, hoops], { query: "bass" })).toHaveLength(1);
+        expect(filterEvents([bass, hoops], { query: "bass" })[0]!.id).toBe(1);
+        expect(filterEvents([bass, hoops], { query: "basketball" })).toHaveLength(1);
+
+        const faculty = makeEvent({ id: 3, title: "Christian Faculty and Staff Network" });
+        expect(filterEvents([faculty], { query: "faces" })).toHaveLength(0);
+        const presented = makeEvent({ id: 4, title: "Football vs Arkansas - presented by H-E-B" });
+        expect(filterEvents([presented], { query: "press" })).toHaveLength(0);
+        const not = makeEvent({ id: 5, title: "Mama's Broke Reunion Album Release Tour" });
+        expect(filterEvents([not], { query: "notes" })).toHaveLength(0);
+
+        // The plural tolerance it was added for still works, both ways.
+        for (const [plural, singular] of [
+            ["exhibitions", "An exhibition of prints"],
+            ["workshops", "A writing workshop"],
+            ["tours", "Campus tour"],
+            ["recitals", "Bass recital"],
+            ["classes", "A pottery class"],
+        ] as const) {
+            expect(filterEvents([makeEvent({ title: singular })], { query: plural })).toHaveLength(
+                1,
+            );
+        }
+        expect(
+            filterEvents([makeEvent({ title: "Two exhibitions" })], { query: "exhibition" }),
+        ).toHaveLength(1);
+    });
+});
+
+describe("plural stemming is an English rule, not a character count", () => {
+    it("does not offer a stem that is its own common word", () => {
+        // "notes" minus "es" is "not", and "faces" minus "es" is "fac". Bounded
+        // or not, the word "not" appears in most descriptions, so `query:
+        // "notes"` returned three unrelated rows. "es" is only a plural ending
+        // after s, x, z, ch or sh.
+        const not = makeEvent({
+            id: 1,
+            title: "Album Release Tour",
+            description: "Tickets are not required.",
+        });
+        expect(filterEvents([not], { query: "notes" })).toHaveLength(0);
+        const fac = makeEvent({ id: 2, title: "Career Storytelling Workshop", description: "fac" });
+        expect(filterEvents([fac], { query: "faces" })).toHaveLength(0);
+
+        // Where "es" IS the plural ending, it still works.
+        for (const [plural, singular] of [
+            ["classes", "A pottery class"],
+            ["boxes", "Ballot box"],
+            ["lunches", "Free lunch"],
+            ["brunches", "Sunday brunch"],
+        ] as const) {
+            expect(filterEvents([makeEvent({ title: singular })], { query: plural })).toHaveLength(
+                1,
+            );
+        }
+        // And a plain -s plural keeps working through the other branch.
+        expect(
+            filterEvents([makeEvent({ title: "An exhibition" })], { query: "exhibitions" }),
+        ).toHaveLength(1);
+        expect(filterEvents([makeEvent({ title: "A note" })], { query: "notes" })).toHaveLength(1);
+        expect(filterEvents([makeEvent({ title: "New faces" })], { query: "faces" })).toHaveLength(
+            1,
+        );
     });
 });

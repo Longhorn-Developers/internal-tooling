@@ -577,13 +577,28 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
      *
      * A singular query already matched plural text, because the pattern is an
      * open prefix -- only the plural query was dead, and it answered a
-     * confident nothing. Left alone below four characters, where stripping an
-     * "s" leaves too little to mean anything.
+     * confident nothing.
+     *
+     * Two rules the obvious version got wrong. The stemmed form has to be
+     * BOUNDED: simply shortening the required prefix turned `query: "bass"`
+     * into `bas` and returned five basketball games, while the vaguer
+     * `query: "bas"` was held to a whole word and returned the one Bass
+     * Concert Hall show. And "es" is only a plural ending after s, x, z, ch or
+     * sh -- "classes" is "class", but "notes" is "note", not "not", and
+     * offering "not" matched any description with the word "not" in it, which
+     * is most of them.
      */
     const stem = (word: string): string => {
-        if (word.length > 4 && word.endsWith("es")) return `${escape(word.slice(0, -2))}(?:es)?`;
-        if (word.length > 3 && word.endsWith("s")) return `${escape(word.slice(0, -1))}s?`;
-        return escape(word);
+        const full = escape(word);
+        if (word.length <= 3 || !word.endsWith("s")) return full;
+
+        const forms = [word.slice(0, -1)];
+        if (word.endsWith("es")) {
+            const shorter = word.slice(0, -2);
+            if (shorter.length > 2 && /(?:[sxz]|ch|sh)$/.test(shorter)) forms.push(shorter);
+        }
+        const bounded = forms.map((form) => `${escape(form)}(?![a-z])`);
+        return `(?:${[full, ...bounded].join("|")})`;
     };
 
     // Flexible between words: "pre-med" finds "premed", and either apostrophe.
@@ -596,12 +611,24 @@ export function queryPattern(needle: string, loose = false): RegExp | null {
 
 /** `loose` drops the short-needle restriction, so "bio" reaches "biology". */
 function matchesQuery(event: CampusEvent, query: string, loose = false): boolean {
-    // Trailing and leading punctuation trimmed, the way `when` already does:
-    // a quoted phrase bypassed the matcher entirely and `query: "?"` matched
-    // any description containing a question mark.
-    const needle = fold(query.trim().toLowerCase()).replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
-    if (!needle) return true;
+    // "No query given" and "the query trimmed away to nothing" are different
+    // questions with the same empty string. An empty needle is the match-all
+    // short-circuit, so trimming the punctuation off `query: "@@@"` -- or off
+    // any query in a non-Latin script, which has no [a-z0-9] at all -- returned
+    // the ENTIRE window as if every row had matched.
+    const raw = fold(query.trim().toLowerCase());
+    if (!raw) return true;
     const haystack = fold(event.searchText);
+    // Punctuation trimmed off the ends, the way `when` already does, so that a
+    // quoted phrase reaches the matcher and a bare "?" does not match every
+    // description containing one.
+    const needle = raw.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+    // Nothing left to build a pattern from, so match what was typed as a
+    // substring: a query in another script still finds text in that script,
+    // and "&" still finds "E+E Film & Media Committee". A lone "?" therefore
+    // matches any description containing one, which is unhelpful but true --
+    // unlike returning the whole window, which was neither.
+    if (!needle) return haystack.includes(raw);
     const pattern = queryPattern(needle, loose);
     if (!pattern) return haystack.includes(needle);
     if (pattern.test(haystack)) return true;

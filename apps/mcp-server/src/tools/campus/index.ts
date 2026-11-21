@@ -121,7 +121,10 @@ const EVENTS_OUTPUT = z.object({
             /** Start of its last occurrence in the window, when it runs more than once. */
             lastStart: z.string().nullable(),
             /**
-             * Other start times on the SAME day, when there are any.
+             * Every other start time in the window, when there are any.
+             *
+             * Same-day only at first, which hid the extra showings of a series
+             * that also spans days. `lastStart` is a member of this too.
              *
              * A second showing used to be dropped: "Buena Vista Social Club"
              * plays Bass Concert Hall at 2pm and 8pm and only the matinee was
@@ -701,24 +704,29 @@ export function registerCampusTools(server: McpServer) {
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }
-                if (input.venue && input.venue !== "unknown") {
-                    // Counted against the user's OTHER filters, not the whole
-                    // window. A window-wide count told someone asking for
-                    // virtual CS events that 5 rows were held back, and
-                    // following the advice returned none of them: all five were
-                    // McCombs rows the department filter excluded anyway.
-                    // `looseQuery` too: when the answer itself came from the
-                    // loose retry, a strict probe found nothing to report and
-                    // the note went silent on rows that do exist.
-                    let probe = filterEvents(calendar.events, {
-                        ...filters,
-                        venue: "unknown",
-                        looseQuery: Boolean(looseNote),
-                    });
+                // Every "held back" count has to run the WHOLE pipeline the
+                // answer ran. `filters` omits freeFood and the radius, which
+                // are applied after filterEvents, so a count taken from it
+                // promises rows the follow-up call it suggests cannot return.
+                // Three notes got this wrong one at a time; this is the single
+                // path they now share.
+                const heldBack = ({
+                    unlabelledOnly,
+                    ...filter
+                }: EventFilters & { unlabelledOnly?: boolean }): number => {
+                    let probe = filterEvents(calendar.events, filter);
+                    if (unlabelledOnly) {
+                        probe = probe.filter(
+                            (event) =>
+                                event.source !== "calendar.utexas.edu" &&
+                                !event.categories.length &&
+                                !event.audiences.length,
+                        );
+                    }
                     if (input.freeFood) probe = probe.filter(mentionsFreeFood);
-                    let probeSeries = collapseSeries(probe);
+                    let series = collapseSeries(probe);
                     if (anchor) {
-                        probeSeries = probeSeries.filter(
+                        series = series.filter(
                             ({ event }) =>
                                 event.latitude !== null &&
                                 event.longitude !== null &&
@@ -728,7 +736,21 @@ export function registerCampusTools(server: McpServer) {
                                 }) <= radius,
                         );
                     }
-                    const unknown = probeSeries.length;
+                    return series.length;
+                };
+
+                if (input.venue && input.venue !== "unknown") {
+                    // Counted against the user's OTHER filters, not the whole
+                    // window. A window-wide count told someone asking for
+                    // virtual CS events that 5 rows were held back, and
+                    // following the advice returned none of them: all five were
+                    // McCombs rows the department filter excluded anyway.
+                    // `looseQuery` too, so a loose answer gets a loose probe.
+                    const unknown = heldBack({
+                        ...filters,
+                        venue: "unknown",
+                        looseQuery: Boolean(looseNote),
+                    });
                     if (unknown > 0) {
                         notes.push(
                             `${unknown} event(s) matching your other filters do not say whether they are online, so this venue filter excludes them. Pass venue "unknown" to see those.`,
@@ -737,16 +759,16 @@ export function registerCampusTools(server: McpServer) {
                 }
 
                 if (input.categories?.length || input.audiences?.length) {
-                    // Against the user's OTHER filters, not the bare window.
-                    // Counting the window said 33 rows were unreachable on a
-                    // call that had already narrowed itself to 14 of them.
+                    // Against the user's OTHER filters, not the bare window:
+                    // counting the window claimed 33 rows were unreachable on a
+                    // call that had narrowed itself to 14 of them, then 30 on a
+                    // freeFood call where exactly 1 was reachable.
                     const { categories: _c, audiences: _a, ...others } = filters;
-                    const unlabelled = collapseSeries(filterEvents(calendar.events, others)).filter(
-                        ({ event }) =>
-                            event.source !== "calendar.utexas.edu" &&
-                            !event.categories.length &&
-                            !event.audiences.length,
-                    ).length;
+                    const unlabelled = heldBack({
+                        ...others,
+                        looseQuery: Boolean(looseNote),
+                        unlabelledOnly: true,
+                    });
                     if (unlabelled > 0) {
                         notes.push(
                             `${unlabelled} event(s) in this window come from a departmental calendar that publishes no category or audience, so this filter cannot reach them. Use department or query for those.`,

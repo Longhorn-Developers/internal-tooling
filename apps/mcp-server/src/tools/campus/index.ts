@@ -167,6 +167,16 @@ export interface Window {
     from: Date;
     to: Date;
     label: string;
+    /**
+     * The end the caller asked for, when it reached past what this tool reads.
+     *
+     * Every window used to be at most 14 days wide, so a guard on the window's
+     * START was sufficient by accident. A range or an open end can start
+     * tomorrow and finish years out, and nothing re-checked the end: the tool
+     * printed "the next 999 days" over a window ending in 2029, fetched 61
+     * days, and dropped the rest without a word.
+     */
+    requestedTo?: Date;
 }
 
 /** Turn a phrase into a window in Austin time. */
@@ -197,6 +207,27 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
             day: "numeric",
         }).format(at);
     };
+
+    // As far ahead as one call can actually read.
+    const horizon = dayStart(MAX_WINDOW_DAYS);
+    const isoOf = (at: Date): string => {
+        const day = austinNow(at);
+        const month = String(day.month).padStart(2, "0");
+        return `${day.year}-${month}-${String(day.day).padStart(2, "0")}`;
+    };
+    /** Clamps a window to the horizon, and remembers what was asked for. */
+    const reachable = (from: Date, to: Date, label: (from: Date, to: Date) => string): Window => {
+        const start = from < now ? now : from;
+        const end = to > horizon ? horizon : to;
+        return {
+            from: start,
+            to: end,
+            label: label(start, end),
+            ...(to > horizon ? { requestedTo: to } : {}),
+        };
+    };
+    /** The last day INSIDE a window, whose `to` is an exclusive midnight. */
+    const lastDay = (to: Date) => isoOf(new Date(to.getTime() - 1));
 
     // Trailing punctuation is how a person types and how relayed text
     // arrives: "tonight?" and "Tonight!" were rejected outright.
@@ -245,7 +276,10 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (spanDays) {
         const days = Number(spanDays[1]);
         if (days < 1) return null;
-        return { from: now, to: dayStart(days), label: `the next ${days} days` };
+        return reachable(now, dayStart(days), (from, to) => {
+            const span = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+            return `the next ${Math.max(1, span)} days`;
+        });
     }
 
     // "2026-12-01..2026-12-07", "2026-12-01 to 2026-12-07". The end day is
@@ -261,8 +295,15 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         if (!start || !end) return null;
         if (end.midnight < start.midnight) return null;
         const to = austinInstant(end.year, end.month, end.day + 1, 0);
-        const from = start.midnight < now && now < to ? now : start.midnight;
-        return { from, to, label: `${range[1]} to ${range[2]}` };
+        // Labelled from the window actually used, not from what was typed: a
+        // range starting in the past printed "2026-11-01 to 2026-12-07" over a
+        // window that opened today, and a reader could not tell whether the
+        // count included November.
+        return reachable(
+            start.midnight,
+            to,
+            (from, until) => `${isoOf(from)} to ${lastDay(until)}`,
+        );
     }
 
     // "after 2026-12-01", "from 2026-12-01", "2026-12-01 onwards". Runs to the
@@ -274,9 +315,12 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (open) {
         const day = isoDay(open[1] ?? open[2]!);
         if (!day) return null;
-        const to = austinInstant(day.year, day.month, day.day + 1 + MAX_WINDOW_DAYS, 0);
-        const from = day.midnight < now ? now : day.midnight;
-        return { from, to, label: `from ${open[1] ?? open[2]} onwards` };
+        // Anchored on NOW, not on the named day. Sixty days after the DAY made
+        // a wider request return fewer events -- "after 2026-09-24" answered
+        // over two days and 29 rows where "after 2026-11-22" found 314 -- and
+        // an open end in the past was refused outright, though "from September
+        // onwards" is a question about the future.
+        return reachable(day.midnight, horizon, (from) => `from ${isoOf(from)} onwards`);
     }
 
     const single = isoDay(value);
@@ -534,13 +578,18 @@ export function registerCampusTools(server: McpServer) {
                                 'RELATIVE: "today" (the default, from now rather than this ' +
                                 'morning), "tonight", "tomorrow", "this week" (the next 7 ' +
                                 'days), "next week", "weekend". ' +
-                                'A WEEKDAY: "friday", "this friday", or "next friday" for the ' +
-                                "one after that. " +
+                                'A WEEKDAY: "friday", "this friday" or "next friday". These ' +
+                                "mean the next Friday to come; where that day is still inside " +
+                                'this Monday-to-Sunday week, "next friday" is the one after. ' +
+                                "Every answer is dated, so read the date rather than relying " +
+                                "on which one you asked for. " +
                                 'ONE DAY: "2026-11-12". ' +
-                                'A RANGE: "2026-12-01..2026-12-07" or "2026-12-01 to ' +
-                                '2026-12-07", with both days included. ' +
-                                'OPEN-ENDED: "after 2026-12-01" or "from 2026-12-01", which ' +
-                                "runs to the end of what the feed serves. " +
+                                'A RANGE: "2026-12-01..2026-12-07", or the same with "to", ' +
+                                '"through" or "until" in place of "..", with both days ' +
+                                "included. " +
+                                'OPEN-ENDED: "after 2026-12-01", or the same with "from" or ' +
+                                '"since", which runs from that day (or today, if it has gone) ' +
+                                `to ${MAX_WINDOW_DAYS} days from today. ` +
                                 'A COUNT OF DAYS: "next 30 days". ' +
                                 `No further than ${MAX_WINDOW_DAYS} days out, and not into the ` +
                                 "past. Month names, times of day and anything else are " +
@@ -619,7 +668,8 @@ export function registerCampusTools(server: McpServer) {
                         .optional()
                         .describe(
                             `How far from \`near\` to look, in metres. Default ` +
-                                `${DEFAULT_NEAR_METRES}. Only meaningful with \`near\`. ` +
+                                `${DEFAULT_NEAR_METRES}. REQUIRES \`near\`; on its own it is ` +
+                                "an error. " +
                                 "Widen it rather than dropping `near`: the ordering already " +
                                 "puts the closest first.",
                         ),
@@ -790,6 +840,15 @@ export function registerCampusTools(server: McpServer) {
                 let matched = series.map((entry) => entry.event);
 
                 const notes: string[] = [];
+                if (window.requestedTo) {
+                    // First, because it frames every count below it.
+                    notes.push(
+                        `You asked as far as ${window.requestedTo.toISOString().slice(0, 10)}, ` +
+                            `but this tool reads ${MAX_WINDOW_DAYS} days ahead, so the window ` +
+                            `stops at ${window.to.toISOString().slice(0, 10)}. Anything after ` +
+                            "that has not been read, rather than not existing.",
+                    );
+                }
                 if (sourceNote) notes.push(sourceNote);
 
                 // A department that matches nothing is the tool's most
@@ -894,7 +953,7 @@ export function registerCampusTools(server: McpServer) {
                     });
                     if (unknown > 0) {
                         notes.push(
-                            `${unknown} event(s) matching your other filters do not say whether they are online, so this venue filter excludes them. Pass venue "unknown" to see those.`,
+                            `${unknown} event(s) matching your other filters do not say whether they are online, so this venue filter excludes them. Pass only: ["venue not stated"] to see those.`,
                         );
                     }
                 }
@@ -905,11 +964,22 @@ export function registerCampusTools(server: McpServer) {
                     // call that had narrowed itself to 14 of them, then 30 on a
                     // freeFood call where exactly 1 was reachable.
                     const { categories: _c, audiences: _a, ...others } = filters;
-                    const unlabelled = heldBack({
+                    let unlabelled = heldBack({
                         ...others,
                         looseQuery: looseProbe,
                         unlabelledOnly: true,
                     });
+                    // An empty answer has to explain itself. With the other
+                    // filters ANDed in this came back 0 on a call the tool's
+                    // own examples suggest, so the one filter that CANNOT
+                    // reach a departmental row said nothing at all.
+                    if (unlabelled === 0 && series.length === 0) {
+                        unlabelled = heldBack({
+                            from: filters.from,
+                            to: filters.to,
+                            unlabelledOnly: true,
+                        });
+                    }
                     if (unlabelled > 0) {
                         notes.push(
                             `${unlabelled} event(s) in this window publish no category or audience at all, so this filter cannot reach them. Use query, or department where they have one, for those.`,
@@ -925,6 +995,7 @@ export function registerCampusTools(server: McpServer) {
 
                 if (anchor) {
                     const before = series.length;
+                    const beforeRows = series;
                     const metresFrom = ({ event }: (typeof series)[number]) =>
                         event.latitude !== null && event.longitude !== null
                             ? metresBetween(anchor, {
@@ -952,10 +1023,19 @@ export function registerCampusTools(server: McpServer) {
                     matched = series.map((entry) => entry.event);
                     const dropped = before - series.length;
                     if (dropped > 0) {
+                        // Counted apart. Lumping them together said "38
+                        // excluded by the radius" where 32 had no coordinates
+                        // at all, so widening it could only ever find 6.
+                        const unplaceable = beforeRows.filter(
+                            ({ event }) => event.latitude === null || event.longitude === null,
+                        ).length;
+                        const tooFar = dropped - unplaceable;
                         notes.push(
-                            `${dropped} event(s) matching your other filters were excluded by the ` +
-                                `${radius} m radius around ${anchor.code}, including any with ` +
-                                "no coordinates at all.",
+                            `${dropped} event(s) matching your other filters are not shown: ` +
+                                `${tooFar} are outside the ${radius} m radius around ` +
+                                `${anchor.code}, and ${unplaceable} publish no coordinates, so ` +
+                                "they cannot be measured either way. Widening the radius reaches " +
+                                `the ${tooFar}, not the ${unplaceable}.`,
                         );
                     }
                 }
@@ -984,7 +1064,8 @@ export function registerCampusTools(server: McpServer) {
 
                 if (freeFood) {
                     notes.push(
-                        "freeFood is a text match over the title, the full description and the location text. UT's calendar " +
+                        'only: ["free food"] is a text match over the title, the full ' +
+                            "description and the location text. UT's calendar " +
                             "has no free-food field, so this finds events that say food is " +
                             "provided and will miss any that do not mention it.",
                     );
@@ -1000,7 +1081,7 @@ export function registerCampusTools(server: McpServer) {
                 if (away > 0) {
                     notes.push(
                         `${away} of these are away from Austin, such as road games, and are ` +
-                            "marked NOT on campus. Pass onCampusOnly to exclude them.",
+                            'marked NOT on campus. Pass only: ["on campus"] to exclude them.',
                     );
                 }
                 if (coverage.noCoordinates > 0 && !anchor) {

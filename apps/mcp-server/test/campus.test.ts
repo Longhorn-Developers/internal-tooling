@@ -1059,7 +1059,7 @@ describe("find_events", () => {
             expect(event.latitude).not.toBeNull();
             expect(event.walkMinutes).not.toBeNull();
         });
-        expect(wide.data.notes.join(" ")).toMatch(/excluded by the 5000 m radius/);
+        expect(wide.data.notes.join(" ")).toMatch(/outside the 5000 m radius/);
     });
 
     it("refuses a near it cannot resolve rather than ignoring it", async () => {
@@ -2950,8 +2950,12 @@ describe("date ranges and open-ended windows", () => {
             expect(result.isError).toBe(true);
             expect(result.content[0]!.text).toContain("2026-12-01..2026-12-07");
         }
-        const past = await call("find_events", { when: "after 2020-01-01" });
-        expect(past.isError).toBe(true);
+        // But an open end whose START is in the past is a question about the
+        // future, and must answer as the widest open window, not be refused.
+        const wide = await events({ when: "after 2020-01-01", limit: 1 });
+        const widest = await events({ when: `next ${MAX_WINDOW_DAYS} days`, limit: 1 });
+        expect(wide.data.matched).toBe(widest.data.matched);
+        expect(wide.data.window.to).toBe(widest.data.window.to);
     });
 });
 
@@ -3021,5 +3025,73 @@ describe("only replaces the four narrowing parameters", () => {
     it("refuses a value that is not in the list", async () => {
         const result = await call("find_events", { when: "today", only: ["free parking"] });
         expect(result.isError).toBe(true);
+    });
+});
+
+describe("the window never advertises more than it read", () => {
+    it("clamps a range or an open end to the readable horizon, and says so", async () => {
+        // The guard used to test only the window's START, so these advertised
+        // a window ending years out, fetched 61 days and dropped the rest in
+        // silence. An `after` window already ENDS at the horizon, so it is
+        // never trimmed and must not claim to be.
+        for (const when of ["next 999 days", "2026-12-01..2027-06-01", "after 2026-12-12"]) {
+            const { data } = await events({ when, limit: 1 });
+            const spanDays =
+                (Date.parse(data.window.to) - Date.parse(data.window.from)) / 86_400_000;
+            expect(spanDays).toBeLessThanOrEqual(MAX_WINDOW_DAYS + 1);
+        }
+        for (const when of ["next 999 days", "2026-12-01..2027-06-01"]) {
+            const { content } = await events({ when, limit: 1 });
+            expect(content[0]!.text).toContain("has not been read");
+        }
+        // A window that fits is not trimmed and says nothing about it.
+        const fits = await events({ when: "2026-12-01..2026-12-07", limit: 1 });
+        expect(fits.content[0]!.text).not.toContain("has not been read");
+    });
+
+    it("labels the window it used, not the one that was typed", async () => {
+        // A range opening in the past printed its typed start, so a reader
+        // could not tell whether the count covered those weeks.
+        const { data, content } = await events({ when: "2026-01-01..2026-12-07", limit: 1 });
+        const from = data.window.from.slice(0, 10);
+        expect(content[0]!.text).toContain(from);
+        expect(content[0]!.text).not.toContain("2026-01-01 to");
+    });
+
+    it("widens, never narrows, as the open end moves earlier", async () => {
+        // "after <past date>" ended 60 days after THAT date, so a wider
+        // request answered over a narrower window: 29 rows where the same
+        // question asked from today found 314.
+        const counts = [];
+        for (const when of ["after 2026-09-24", "after 2026-10-01", "after 2020-01-01"]) {
+            const { data } = await events({ when, limit: 1 });
+            counts.push(data.matched);
+        }
+        expect(new Set(counts).size).toBe(1);
+    });
+});
+
+describe("notes only name parameters that exist", () => {
+    it("never tells the caller to pass a parameter the schema refuses", async () => {
+        // Three notes still said onCampusOnly, venue "unknown" and freeFood
+        // after those four parameters became `only`, and the schema is strict,
+        // so following the advice was an error.
+        const gone = ["onCampusOnly", "freeAdmission", "freeFood", 'venue "unknown"', "venue:"];
+        const calls = [
+            { when: "today", limit: 3 },
+            { when: "this week", only: ["virtual", "hybrid"], limit: 40 },
+            { when: "this week", only: ["free food"], limit: 40 },
+            { when: "this week", only: ["in person"], limit: 40 },
+            { when: "this week", near: "GDC", withinMetres: 600, limit: 40 },
+            { when: "this week", categories: ["Academics"], limit: 40 },
+        ];
+        for (const args of calls) {
+            const { data } = await events(args);
+            for (const note of data.notes) {
+                for (const stale of gone) {
+                    expect(note).not.toContain(stale);
+                }
+            }
+        }
     });
 });

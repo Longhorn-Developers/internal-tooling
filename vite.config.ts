@@ -11,6 +11,9 @@ export default defineConfig({
         ignorePatterns: [
             // Responses captured from UT, kept exactly as served.
             "**/test/fixtures/**",
+            // Generated from UT building data, not hand-edited. 1.6k lines of
+            // reformatted coordinates review no better than one.
+            "**/campus/buildings.json",
             "**/worker-configuration.d.ts",
             "**/dist/**",
             "**/*.md",

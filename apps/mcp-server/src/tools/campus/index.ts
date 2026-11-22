@@ -53,6 +53,28 @@ const MAX_ROWS = 40;
 const DEFAULT_ROWS = 15;
 const DEFAULT_NEAR_METRES = 400;
 
+/**
+ * The `only` vocabulary.
+ *
+ * One enumerated list replaced a venue enum and three booleans. Four separate
+ * parameters meant a caller had to know in advance what each allowed; these
+ * read off the schema. The venue half is a SET, so "virtual or hybrid" is
+ * sayable, which the enum could not express.
+ */
+const ONLY_VENUES = [
+    { label: "in person", venue: "inperson" },
+    { label: "virtual", venue: "virtual" },
+    { label: "hybrid", venue: "hybrid" },
+    { label: "venue not stated", venue: "unknown" },
+] as const satisfies readonly { label: string; venue: (typeof VENUE_TYPES)[number] }[];
+
+const ONLY_VALUES = [
+    ...ONLY_VENUES.map((entry) => entry.label),
+    "free food",
+    "free admission",
+    "on campus",
+] as const;
+
 const LOCATION_OUTPUT = z.object({
     query: z.string(),
     resolved: z.boolean(),
@@ -105,6 +127,8 @@ const EVENTS_OUTPUT = z.object({
             latitude: z.number().nullable(),
             longitude: z.number().nullable(),
             coordinateSource: z.string().nullable(),
+            /** Metres from `near`, null without it. What the ranking sorted on. */
+            metresAway: z.number().nullable(),
             walkMinutes: z.number().nullable(),
             venue: z.string(),
             categories: z.array(z.string()),
@@ -215,20 +239,73 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         return span(offset, offset + 1, dated(offset));
     }
 
-    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (iso) {
-        const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
-        const midnight = austinInstant(year, month, day, 0);
-        // Reject a date that rolled: "2026-02-30" would otherwise answer about 2 March without saying so.
-        const check = austinNow(midnight);
-        if (check.year !== year || check.month !== month || check.day !== day) return null;
-        const to = austinInstant(year, month, day + 1, 0);
+    // "next 30 days", "next 3 days", "30 days". Bounded by the caller's
+    // out-of-range check, so an absurd N gets the same message as a far date.
+    const spanDays = /^(?:next\s+|the\s+next\s+)?(\d{1,3})\s*days?$/.exec(value);
+    if (spanDays) {
+        const days = Number(spanDays[1]);
+        if (days < 1) return null;
+        return { from: now, to: dayStart(days), label: `the next ${days} days` };
+    }
+
+    // "2026-12-01..2026-12-07", "2026-12-01 to 2026-12-07". The end day is
+    // INCLUSIVE -- a person asking for the 1st to the 7th means through the
+    // 7th, so the window closes at the 8th's midnight.
+    const range =
+        /^(\d{4}-\d{2}-\d{2})\s*(?:\.\.|-{1,2}>?|to|through|until)\s*(\d{4}-\d{2}-\d{2})$/.exec(
+            value,
+        );
+    if (range) {
+        const start = isoDay(range[1]!);
+        const end = isoDay(range[2]!);
+        if (!start || !end) return null;
+        if (end.midnight < start.midnight) return null;
+        const to = austinInstant(end.year, end.month, end.day + 1, 0);
+        const from = start.midnight < now && now < to ? now : start.midnight;
+        return { from, to, label: `${range[1]} to ${range[2]}` };
+    }
+
+    // "after 2026-12-01", "from 2026-12-01", "2026-12-01 onwards". Runs to the
+    // far edge of what one call can serve; the caller trims and says so.
+    const open =
+        /^(?:after|from|since|starting)\s+(\d{4}-\d{2}-\d{2})$|^(\d{4}-\d{2}-\d{2})\s+(?:onwards?|on)$/.exec(
+            value,
+        );
+    if (open) {
+        const day = isoDay(open[1] ?? open[2]!);
+        if (!day) return null;
+        const to = austinInstant(day.year, day.month, day.day + 1 + MAX_WINDOW_DAYS, 0);
+        const from = day.midnight < now ? now : day.midnight;
+        return { from, to, label: `from ${open[1] ?? open[2]} onwards` };
+    }
+
+    const single = isoDay(value);
+    if (single) {
+        const to = austinInstant(single.year, single.month, single.day + 1, 0);
         // Today by its date is still today: open at `now` rather than replaying
         // the morning.
-        const from = midnight < now && now < to ? now : midnight;
+        const from = single.midnight < now && now < to ? now : single.midnight;
         return { from, to, label: value };
     }
     return null;
+}
+
+/**
+ * One "YYYY-MM-DD", or null.
+ *
+ * Rejects a date that rolled: "2026-02-30" would otherwise answer about 2
+ * March without saying so.
+ */
+function isoDay(
+    value: string,
+): { year: number; month: number; day: number; midnight: Date } | null {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (!iso) return null;
+    const [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+    const midnight = austinInstant(year, month, day, 0);
+    const check = austinNow(midnight);
+    if (check.year !== year || check.month !== month || check.day !== day) return null;
+    return { year, month, day, midnight };
 }
 
 /** Days of calendar to request, from how far the window reaches. */
@@ -436,7 +513,16 @@ export function registerCampusTools(server: McpServer) {
                 "departmental ones. Moody, Nursing, Fine Arts, Liberal Arts, Texas Global " +
                 "and the iSchool are not read, and student club events are mostly on social " +
                 "media or HornsLink. An empty answer means nothing matched these calendars, " +
-                "not that nothing is happening.",
+                "not that nothing is happening. " +
+                'EXAMPLES: everything tomorrow -> {when: "tomorrow"}. ' +
+                'Free food this week -> {when: "this week", only: ["free food"]}. ' +
+                'CS talks in December -> {when: "2026-12-01..2026-12-31", department: ' +
+                '"Computer Science"}. ' +
+                'What is on near my building -> {near: "GDC", withinMetres: 600}. ' +
+                'Online events for students -> {only: ["virtual", "hybrid"], audiences: ' +
+                '["Students"]}. ' +
+                'Anything about basketball after finals -> {when: "after 2026-12-12", query: ' +
+                '"basketball"}.',
             outputSchema: EVENTS_OUTPUT,
             inputSchema: z
                 .object({
@@ -444,31 +530,65 @@ export function registerCampusTools(server: McpServer) {
                         .string()
                         .optional()
                         .describe(
-                            '"today" (default), "tonight", "tomorrow", "this week", ' +
-                                '"weekend", a weekday, or "2026-11-12"',
+                            "When to look, as one of these exact forms. " +
+                                'RELATIVE: "today" (the default, from now rather than this ' +
+                                'morning), "tonight", "tomorrow", "this week" (the next 7 ' +
+                                'days), "next week", "weekend". ' +
+                                'A WEEKDAY: "friday", "this friday", or "next friday" for the ' +
+                                "one after that. " +
+                                'ONE DAY: "2026-11-12". ' +
+                                'A RANGE: "2026-12-01..2026-12-07" or "2026-12-01 to ' +
+                                '2026-12-07", with both days included. ' +
+                                'OPEN-ENDED: "after 2026-12-01" or "from 2026-12-01", which ' +
+                                "runs to the end of what the feed serves. " +
+                                'A COUNT OF DAYS: "next 30 days". ' +
+                                `No further than ${MAX_WINDOW_DAYS} days out, and not into the ` +
+                                "past. Month names, times of day and anything else are " +
+                                "rejected with a message naming these forms.",
                         ),
                     query: z
                         .string()
                         .optional()
                         .describe(
-                            "Match the title, the full description, tags, department or location. " +
-                                "A word of three letters or fewer has to match as a whole word.",
+                            "Free text matched against the title, the full description, the " +
+                                "location and the room. Several words match in any order. " +
+                                "Singular and plural both work. A word of three letters or " +
+                                'fewer must match a whole word, so "AI" cannot match "aid". ' +
+                                "Tags and departments are matched only by an exact phrase, so " +
+                                'that "art history" does not sweep in every Liberal Arts ' +
+                                "event. Use this rather than `department` for a subject.",
                         ),
                     categories: z
                         .array(z.string())
                         .optional()
-                        .describe(`Any of: ${EVENT_CATEGORIES.join(", ")}`),
+                        .describe(
+                            "Keep events in ANY of these. Exact values only: " +
+                                `${EVENT_CATEGORIES.join(", ")}. ` +
+                                "The departmental calendars publish no category, so this " +
+                                "filter cannot reach them at all -- use department or query " +
+                                "for those.",
+                        ),
                     audiences: z
                         .array(z.string())
                         .optional()
-                        .describe(`Who it is for. Any of: ${AUDIENCES.join(", ")}`),
-                    venue: z
-                        .enum(VENUE_TYPES)
+                        .describe(
+                            "Keep events for ANY of these. Exact values only: " +
+                                `${AUDIENCES.join(", ")}. ` +
+                                "Most events name no audience, and the departmental calendars " +
+                                "publish none, so this excludes more than it looks like.",
+                        ),
+                    only: z
+                        .array(z.enum(ONLY_VALUES))
                         .optional()
                         .describe(
-                            "Restrict to in-person, virtual, hybrid, or unknown. Some " +
-                                "departmental calendars publish no venue, and those are " +
-                                '"unknown" rather than assumed in person.',
+                            "Keep only events with ALL of these. Venue values are a set, so " +
+                                '["virtual", "hybrid"] means either. Values: ' +
+                                ONLY_VALUES.map((v) => `"${v}"`).join(", ") +
+                                '. "venue not stated" is its own case because the departmental ' +
+                                "calendars publish no venue, and those are not assumed in " +
+                                'person. "free food" is read off the event text, not a ' +
+                                'published field. "on campus" drops road games; events with no ' +
+                                "location are kept, since they are unknown rather than away.",
                         ),
                     department: z
                         .string()
@@ -484,31 +604,24 @@ export function registerCampusTools(server: McpServer) {
                     near: z
                         .string()
                         .optional()
-                        .describe('Only events near this building, e.g. "GDC" or "the SAC"'),
+                        .describe(
+                            "A building code, name or nickname to measure from: " +
+                                '"GDC", "the SAC", "PCL", "Gearing 114". Results come back ' +
+                                "NEAREST FIRST instead of soonest first, and each row carries " +
+                                "its distance. Events with no coordinates are dropped, since " +
+                                "they cannot be ranked. Call resolve_ut_location first if you " +
+                                "are unsure a name resolves.",
+                        ),
                     withinMetres: z
                         .number()
                         .int()
                         .positive()
                         .optional()
-                        .describe(`Radius for near. Default ${DEFAULT_NEAR_METRES}.`),
-                    freeFood: z
-                        .boolean()
-                        .optional()
                         .describe(
-                            "Only events whose text says food is provided. A text heuristic, " +
-                                "not a field the calendar publishes.",
-                        ),
-                    freeAdmission: z
-                        .boolean()
-                        .optional()
-                        .describe("Only events the calendar marks as free to attend"),
-                    onCampusOnly: z
-                        .boolean()
-                        .optional()
-                        .describe(
-                            "Drop events known to be away from Austin, such as road games. " +
-                                "Events with no location are kept, since they are unknown " +
-                                "rather than away.",
+                            `How far from \`near\` to look, in metres. Default ` +
+                                `${DEFAULT_NEAR_METRES}. Only meaningful with \`near\`. ` +
+                                "Widen it rather than dropping `near`: the ordering already " +
+                                "puts the closest first.",
                         ),
                     limit: z
                         .number()
@@ -528,21 +641,21 @@ export function registerCampusTools(server: McpServer) {
                 query?: string;
                 categories?: string[];
                 audiences?: string[];
-                venue?: (typeof VENUE_TYPES)[number];
+                only?: (typeof ONLY_VALUES)[number][];
                 department?: string;
                 near?: string;
                 withinMetres?: number;
-                freeFood?: boolean;
-                freeAdmission?: boolean;
-                onCampusOnly?: boolean;
                 limit?: number;
             }) => {
                 const now = new Date();
                 const window = parseWindow(input.when, now);
                 if (!window) {
                     throw new Error(
-                        `Couldn't read when="${input.when}". Try "today", "tonight", ` +
-                            '"tomorrow", "this week", "weekend", a weekday, or "2026-11-12".',
+                        `Couldn't read when="${input.when}". Use one of: "today", ` +
+                            '"tonight", "tomorrow", "this week", "next week", "weekend", a ' +
+                            'weekday like "friday" or "next friday", a date like ' +
+                            '"2026-11-12", a range like "2026-12-01..2026-12-07", ' +
+                            '"after 2026-12-01", or "next 30 days".',
                     );
                 }
                 const unreachable = outOfRange(window, now);
@@ -603,6 +716,16 @@ export function registerCampusTools(server: McpServer) {
                     near = hit.building;
                 }
                 // Bound to a const so it narrows inside the closures below.
+                // One enumerated list instead of a venue enum and three
+                // booleans. The model could not see what the four of them
+                // allowed; it can read this one off the schema. Venue is a set
+                // here, so "virtual or hybrid" is sayable, which it was not.
+                const only = new Set(input.only ?? []);
+                const venues = ONLY_VENUES.filter((v) => only.has(v.label)).map((v) => v.venue);
+                const freeFood = only.has("free food");
+                const freeAdmission = only.has("free admission");
+                const onCampusOnly = only.has("on campus");
+
                 const anchor = near;
                 const radius = input.withinMetres ?? DEFAULT_NEAR_METRES;
 
@@ -642,10 +765,10 @@ export function registerCampusTools(server: McpServer) {
                     // Trimmed so validation and matching see the same strings.
                     categories: input.categories?.map((value) => value.trim()),
                     audiences: input.audiences?.map((value) => value.trim()),
-                    venue: input.venue,
+                    venues: venues.length ? venues : undefined,
                     department: input.department?.trim() || undefined,
-                    freeAdmission: input.freeAdmission,
-                    onCampusOnly: input.onCampusOnly,
+                    freeAdmission,
+                    onCampusOnly,
                 };
                 let rows = filterEvents(calendar.events, filters);
                 // A three-letter query is held to a whole word, so that "AI" cannot match "aid".
@@ -661,7 +784,7 @@ export function registerCampusTools(server: McpServer) {
                               return `Nothing matched "${input.query}" as a whole word, so these matched it as the start of a longer word.`;
                           })()
                         : null;
-                if (input.freeFood) rows = rows.filter(mentionsFreeFood);
+                if (freeFood) rows = rows.filter(mentionsFreeFood);
                 // Collapse before anything is counted or capped.
                 let series = collapseSeries(rows);
                 let matched = series.map((entry) => entry.event);
@@ -676,7 +799,7 @@ export function registerCampusTools(server: McpServer) {
                 // the department's own calendar. So say what this field holds.
                 // Collapsed, or this counts occurrence rows and reports 170
                 // events in a window the line above calls 96.
-                const needsWindowCount = Boolean(input.department) || Boolean(input.venue);
+                const needsWindowCount = Boolean(input.department) || venues.length > 0;
                 const inWindowAll = needsWindowCount
                     ? collapseSeries(
                           filterEvents(calendar.events, { from: filters.from, to: filters.to }),
@@ -741,7 +864,7 @@ export function registerCampusTools(server: McpServer) {
                             (event) => !event.categories.length && !event.audiences.length,
                         );
                     }
-                    if (input.freeFood) probe = probe.filter(mentionsFreeFood);
+                    if (freeFood) probe = probe.filter(mentionsFreeFood);
                     let series = collapseSeries(probe);
                     if (anchor) {
                         series = series.filter(
@@ -757,7 +880,7 @@ export function registerCampusTools(server: McpServer) {
                     return series.length;
                 };
 
-                if (input.venue && input.venue !== "unknown") {
+                if (venues.length && !venues.includes("unknown")) {
                     // Counted against the user's OTHER filters, not the whole
                     // window. A window-wide count told someone asking for
                     // virtual CS events that 5 rows were held back, and
@@ -766,7 +889,7 @@ export function registerCampusTools(server: McpServer) {
                     // `looseQuery` too, so a loose answer gets a loose probe.
                     const unknown = heldBack({
                         ...filters,
-                        venue: "unknown",
+                        venues: ["unknown"],
                         looseQuery: looseProbe,
                     });
                     if (unknown > 0) {
@@ -802,15 +925,30 @@ export function registerCampusTools(server: McpServer) {
 
                 if (anchor) {
                     const before = series.length;
-                    series = series.filter(
-                        ({ event }) =>
-                            event.latitude !== null &&
-                            event.longitude !== null &&
-                            metresBetween(anchor, {
-                                latitude: event.latitude,
-                                longitude: event.longitude,
-                            }) <= radius,
-                    );
+                    const metresFrom = ({ event }: (typeof series)[number]) =>
+                        event.latitude !== null && event.longitude !== null
+                            ? metresBetween(anchor, {
+                                  latitude: event.latitude,
+                                  longitude: event.longitude,
+                              })
+                            : null;
+                    series = series.filter((entry) => {
+                        const metres = metresFrom(entry);
+                        return metres !== null && metres <= radius;
+                    });
+                    // Nearest first once a place is named, because that is what
+                    // the question was. Time order is the tie-break, and it
+                    // stays the order everywhere else. Sorted BEFORE the limit
+                    // slice, or `limit` would keep the soonest N and then rank
+                    // only those -- the nearest event could be cut entirely.
+                    series = series
+                        .map((entry) => ({ entry, metres: metresFrom(entry) ?? 0 }))
+                        .sort(
+                            (a, b) =>
+                                a.metres - b.metres ||
+                                Date.parse(a.entry.event.start) - Date.parse(b.entry.event.start),
+                        )
+                        .map(({ entry }) => entry);
                     matched = series.map((entry) => entry.event);
                     const dropped = before - series.length;
                     if (dropped > 0) {
@@ -820,6 +958,12 @@ export function registerCampusTools(server: McpServer) {
                                 "no coordinates at all.",
                         );
                     }
+                }
+
+                if (anchor && series.length > 1) {
+                    notes.push(
+                        `Ordered by distance from ${anchor.code}, nearest first, rather than by start time.`,
+                    );
                 }
 
                 // Pushed here, after every filter. The note says "these
@@ -838,7 +982,7 @@ export function registerCampusTools(server: McpServer) {
                     noCoordinates: matched.filter((e) => e.coordinateSource === null).length,
                 };
 
-                if (input.freeFood) {
+                if (freeFood) {
                     notes.push(
                         "freeFood is a text match over the title, the full description and the location text. UT's calendar " +
                             "has no free-food field, so this finds events that say food is " +
@@ -898,6 +1042,7 @@ export function registerCampusTools(server: McpServer) {
                         latitude: event.latitude,
                         longitude: event.longitude,
                         coordinateSource: event.coordinateSource,
+                        metresAway: metres === null ? null : Math.round(metres),
                         walkMinutes: metres === null ? null : walkMinutes(metres),
                         venue: event.venue,
                         categories: event.categories,
@@ -959,8 +1104,11 @@ export function registerCampusTools(server: McpServer) {
                                           .join(", ") || "location not given"
                                   }` +
                                       (row.buildingCode ? ` [${row.buildingCode}]` : "") +
-                                      (row.walkMinutes !== null
-                                          ? ` · ~${row.walkMinutes} min walk`
+                                      // The distance too, not just the walk
+                                      // time: it is what the rows are ordered
+                                      // by, so a reader can see the ranking.
+                                      (row.metresAway !== null
+                                          ? ` · ${row.metresAway} m, ~${row.walkMinutes} min walk`
                                           : ""),
                                   // Each segment supplies its own newline. The
                                   // venue line had none, so it glued onto

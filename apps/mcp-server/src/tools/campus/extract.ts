@@ -500,7 +500,8 @@ export interface EventFilters {
     looseQuery?: boolean;
     categories?: string[];
     audiences?: string[];
-    venue?: VenueType;
+    /** Any of these venue kinds. A set, so "virtual or hybrid" is sayable. */
+    venues?: VenueType[];
     department?: string;
     freeAdmission?: boolean;
     /** Cancelled events are excluded unless this is true. */
@@ -678,6 +679,7 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
 }
 
 export function filterEvents(events: CampusEvent[], filters: EventFilters): CampusEvent[] {
+    const wantVenues = new Set(filters.venues ?? []);
     const wantCategories = lower(filters.categories ?? []);
     const wantAudiences = lower(filters.audiences ?? []);
     const department = departmentTerm(filters.department);
@@ -717,7 +719,7 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
         ) {
             return false;
         }
-        if (filters.venue && event.venue !== filters.venue) return false;
+        if (wantVenues.size && !wantVenues.has(event.venue)) return false;
         // The alias target OR the literal word. "engineering" resolves to
         // "cockrell", which denied the Oden Institute for Computational Engineering
         // while printing its name in the same sentence.

@@ -69,6 +69,7 @@ type EventsStructured = {
         buildingCode: string | null;
         latitude: number | null;
         coordinateSource: string | null;
+        metresAway: number | null;
         walkMinutes: number | null;
         venue: string;
         categories: string[];
@@ -1002,7 +1003,7 @@ describe("find_events", () => {
 
     it("filters by venue type", async () => {
         const all = await events({ when: "this week", limit: 40 });
-        const { data } = await events({ when: "this week", venue: "virtual", limit: 40 });
+        const { data } = await events({ when: "this week", only: ["virtual"], limit: 40 });
         expectAll(data.events, (event) => expect(event.venue).toBe("virtual"));
         expect(data.matched).toBeLessThan(all.data.matched);
     });
@@ -1020,7 +1021,7 @@ describe("find_events", () => {
 
     it("filters by free admission", async () => {
         const all = await events({ when: "this week", limit: 40 });
-        const { data } = await events({ when: "this week", freeAdmission: true, limit: 40 });
+        const { data } = await events({ when: "this week", only: ["free admission"], limit: 40 });
         expectAll(data.events, (event) => expect(event.freeAdmission).toBe(true));
         expect(data.matched).toBeLessThan(all.data.matched);
     });
@@ -1085,14 +1086,18 @@ describe("find_events", () => {
 
     it("finds events that say food is provided, and admits it is a text match", async () => {
         const all = await events({ when: "this week", limit: 40 });
-        const { data, content } = await events({ when: "this week", freeFood: true, limit: 40 });
+        const { data, content } = await events({
+            when: "this week",
+            only: ["free food"],
+            limit: 40,
+        });
         expectAll(data.events, (event) => expect(event.mentionsFreeFood).toBe(true));
         expect(data.matched).toBeLessThan(all.data.matched);
         expect(content[0]?.text).toContain("no free-food field");
     });
 
     it("does not confuse free admission with free food", async () => {
-        const { data } = await events({ when: "this week", freeAdmission: true, limit: 40 });
+        const { data } = await events({ when: "this week", only: ["free admission"], limit: 40 });
         expectAll(data.events, (event) => expect(event.freeAdmission).toBe(true));
         expect(data.events.every((event) => event.mentionsFreeFood)).toBe(false);
     });
@@ -1102,7 +1107,7 @@ describe("find_events", () => {
         const away = all.data.events.filter((event) => event.onCampus === false);
         expect(away.length).toBeGreaterThan(0);
         expect(all.content[0]?.text).toContain("NOT on campus");
-        const here = await events({ when: "this week", onCampusOnly: true, limit: 40 });
+        const here = await events({ when: "this week", only: ["on campus"], limit: 40 });
         expectAll(here.data.events, (event) => expect(event.onCampus).not.toBe(false));
         expect(here.data.matched).toBeLessThan(all.data.matched);
     });
@@ -1115,7 +1120,7 @@ describe("find_events", () => {
             /\b(California|Kentucky|Georgia)\b/.test(event.locationName ?? ""),
         );
         expect(spelled.length).toBeGreaterThan(0);
-        const here = await events({ when: "this week", onCampusOnly: true, limit: 40 });
+        const here = await events({ when: "this week", only: ["on campus"], limit: 40 });
         for (const title of spelled.map((event) => event.title)) {
             expect(here.data.events.map((event) => event.title)).not.toContain(title);
         }
@@ -2312,8 +2317,8 @@ describe("notes that used to contradict the rows", () => {
     });
 
     it("says how many rows a venue filter held back as unknown", async () => {
-        const { data } = await events({ when: "this week", venue: "inperson", limit: 40 });
-        const unknowns = await events({ when: "this week", venue: "unknown", limit: 40 });
+        const { data } = await events({ when: "this week", only: ["in person"], limit: 40 });
+        const unknowns = await events({ when: "this week", only: ["venue not stated"], limit: 40 });
         if (unknowns.data.events.length > 0) {
             expect(data.notes.join(" ")).toMatch(/do not say whether they are online/);
         }
@@ -2471,7 +2476,7 @@ describe("note counts respect the other filters", () => {
         const { data } = await events({
             when: "this week",
             department: "Computer Science",
-            venue: "virtual",
+            only: ["virtual"],
             limit: 10,
         });
         const suggestion = data.notes.find((n) => n.includes("do not say whether they are online"));
@@ -2479,7 +2484,7 @@ describe("note counts respect the other filters", () => {
             const follow = await events({
                 when: "this week",
                 department: "Computer Science",
-                venue: "unknown",
+                only: ["venue not stated"],
                 limit: 10,
             });
             expect(follow.data.events.length).toBeGreaterThan(0);
@@ -2598,16 +2603,14 @@ describe("fixes from the fourth audit round", () => {
         // suggested follow-up call returned none of.
         const { data } = await events({
             when: "this week",
-            venue: "inperson",
-            freeFood: true,
+            only: ["in person", "free food"],
             limit: 40,
         });
         const note = data.notes.find((n) => n.includes("do not say whether they are online"));
         if (note) {
             const follow = await events({
                 when: "this week",
-                venue: "unknown",
-                freeFood: true,
+                only: ["venue not stated", "free food"],
                 limit: 40,
             });
             expect(follow.data.events.length).toBeGreaterThan(0);
@@ -2906,5 +2909,117 @@ describe("fixes from the seventh round", () => {
         expect(filterEvents([accented], { query: "castaneda" })).toHaveLength(1);
         // And an absent query still means "no query".
         expect(filterEvents(rows, { query: "  " })).toHaveLength(2);
+    });
+});
+
+describe("date ranges and open-ended windows", () => {
+    it("reads a range, with both days included", async () => {
+        const { data, content } = await events({ when: "2026-12-01..2026-12-07", limit: 40 });
+        expect(content[0]!.text).toContain("2026-12-01 to 2026-12-07");
+        for (const event of data.events) {
+            expect(event.start.slice(0, 10) >= "2026-12-01").toBe(true);
+            // Through the 7th, not up to it: a person asking 1st-to-7th means
+            // the 7th as well.
+            expect(event.start.slice(0, 10) <= "2026-12-07").toBe(true);
+        }
+        const spelled = await events({ when: "2026-12-01 to 2026-12-07", limit: 40 });
+        expect(spelled.content[0]!.text).toContain("2026-12-01 to 2026-12-07");
+    });
+
+    it("reads an open-ended window", async () => {
+        const { data, content } = await events({ when: "after 2026-12-01", limit: 40 });
+        expect(content[0]!.text).toContain("from 2026-12-01 onwards");
+        for (const event of data.events) {
+            expect(event.start.slice(0, 10) >= "2026-12-01").toBe(true);
+        }
+        const from = await events({ when: "from 2026-12-01", limit: 40 });
+        expect(from.content[0]!.text).toContain("from 2026-12-01 onwards");
+    });
+
+    it("reads a count of days", async () => {
+        const { content } = await events({ when: "next 30 days", limit: 40 });
+        expect(content[0]!.text).toContain("the next 30 days");
+        const bare = await events({ when: "14 days", limit: 40 });
+        expect(bare.content[0]!.text).toContain("the next 14 days");
+    });
+
+    it("still refuses a range it cannot honour, and says what it takes", async () => {
+        // A rolled end date, a backwards range, and a range past the feed.
+        for (const when of ["2026-12-01..2026-02-30", "2026-12-07..2026-12-01"]) {
+            const result = await call("find_events", { when });
+            expect(result.isError).toBe(true);
+            expect(result.content[0]!.text).toContain("2026-12-01..2026-12-07");
+        }
+        const past = await call("find_events", { when: "after 2020-01-01" });
+        expect(past.isError).toBe(true);
+    });
+});
+
+describe("near ranks by distance", () => {
+    it("returns the closest first, not the soonest", async () => {
+        const { data, content } = await events({
+            when: "this week",
+            near: "GDC",
+            withinMetres: 5000,
+            limit: 40,
+        });
+        const distances = data.events
+            .map((event) => event.metresAway)
+            .filter((metres): metres is number => metres !== null);
+        expect(distances.length).toBeGreaterThan(1);
+        // Monotonic, and that is the whole point of the parameter.
+        for (let i = 1; i < distances.length; i++) {
+            expect(distances[i]!).toBeGreaterThanOrEqual(distances[i - 1]!);
+        }
+        expect(content[0]!.text).toContain("nearest first");
+    });
+
+    it("ranks before it truncates", async () => {
+        // The limit slice used to run first, so it kept the soonest N and then
+        // ordered those -- the nearest event in the window could be cut.
+        const wide = await events({
+            when: "this week",
+            near: "GDC",
+            withinMetres: 5000,
+            limit: 40,
+        });
+        const narrow = await events({
+            when: "this week",
+            near: "GDC",
+            withinMetres: 5000,
+            limit: 1,
+        });
+        if (wide.data.events.length > 1 && narrow.data.events.length === 1) {
+            expect(narrow.data.events[0]!.metresAway).toBe(wide.data.events[0]!.metresAway);
+        }
+    });
+
+    it("leaves the order alone when no place is named", async () => {
+        const { data, content } = await events({ when: "this week", limit: 40 });
+        const starts = data.events.map((event) => Date.parse(event.start));
+        for (let i = 1; i < starts.length; i++) {
+            expect(starts[i]!).toBeGreaterThanOrEqual(starts[i - 1]!);
+        }
+        expect(content[0]!.text).not.toContain("nearest first");
+    });
+});
+
+describe("only replaces the four narrowing parameters", () => {
+    it("takes several values at once, and venue as a set", async () => {
+        const either = await events({ when: "this week", only: ["virtual", "hybrid"], limit: 40 });
+        for (const event of either.data.events) {
+            expect(["virtual", "hybrid"]).toContain(event.venue);
+        }
+        const both = await events({
+            when: "this week",
+            only: ["in person", "free food"],
+            limit: 40,
+        });
+        for (const event of both.data.events) expect(event.venue).toBe("inperson");
+    });
+
+    it("refuses a value that is not in the list", async () => {
+        const result = await call("find_events", { when: "today", only: ["free parking"] });
+        expect(result.isError).toBe(true);
     });
 });

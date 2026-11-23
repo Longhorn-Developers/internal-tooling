@@ -177,6 +177,32 @@ export interface Window {
      * days, and dropped the rest without a word.
      */
     requestedTo?: Date;
+    /**
+     * Set when the caller asked for no end at all.
+     *
+     * An open end is always cut at the horizon, so `to > horizon` is never
+     * true for it and the trim went structurally unreported -- on the tool's
+     * own documented example, which is what the clamp was written to fix.
+     */
+    openEnded?: boolean;
+}
+
+/** A window's day in Austin, as YYYY-MM-DD. */
+function isoOf(at: Date): string {
+    const day = austinNow(at);
+    const month = String(day.month).padStart(2, "0");
+    return `${day.year}-${month}-${String(day.day).padStart(2, "0")}`;
+}
+
+/**
+ * The last day INSIDE a window, whose `to` is an exclusive midnight.
+ *
+ * The trim note reached for `toISOString()` instead and named the day AFTER
+ * both ends: it told a caller who typed 2027-01-21 that they had asked as far
+ * as 2027-01-22, and contradicted the label printed three lines above it.
+ */
+function lastDayOf(to: Date): string {
+    return isoOf(new Date(to.getTime() - 1));
 }
 
 /** Turn a phrase into a window in Austin time. */
@@ -208,13 +234,16 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         }).format(at);
     };
 
-    // As far ahead as one call can actually read.
-    const horizon = dayStart(MAX_WINDOW_DAYS);
-    const isoOf = (at: Date): string => {
-        const day = austinNow(at);
-        const month = String(day.month).padStart(2, "0");
-        return `${day.year}-${month}-${String(day.day).padStart(2, "0")}`;
-    };
+    // As far ahead as one call can actually read, EXCLUSIVE.
+    //
+    // `dayStart(MAX_WINDOW_DAYS)` is the midnight that OPENS the last readable
+    // day, so clamping to it threw that whole day away: `after <today+60>`
+    // collapsed to a zero-width window and answered "Nothing on UT's
+    // calendar" for a day holding 16 events, one of them a basketball game.
+    // `outOfRange` admits a start up to day 60 and `daysNeeded` fetches 61
+    // days, so the readable set is days 0 through 60 and the exclusive end is
+    // the midnight after day 60.
+    const horizon = dayStart(MAX_WINDOW_DAYS + 1);
     /** Clamps a window to the horizon, and remembers what was asked for. */
     const reachable = (from: Date, to: Date, label: (from: Date, to: Date) => string): Window => {
         const start = from < now ? now : from;
@@ -226,9 +255,6 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
             ...(to > horizon ? { requestedTo: to } : {}),
         };
     };
-    /** The last day INSIDE a window, whose `to` is an exclusive midnight. */
-    const lastDay = (to: Date) => isoOf(new Date(to.getTime() - 1));
-
     // Trailing punctuation is how a person types and how relayed text
     // arrives: "tonight?" and "Tonight!" were rejected outright.
     const value = (phrase ?? "today")
@@ -276,8 +302,14 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     if (spanDays) {
         const days = Number(spanDays[1]);
         if (days < 1) return null;
-        return reachable(now, dayStart(days), (from, to) => {
-            const span = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+        // Counted in whole days from TODAY's midnight, not from `now`. From
+        // `now` the duration is `days` minus however much of today has gone,
+        // so Math.round dropped one from noon onwards: every afternoon,
+        // "next 30 days" was labelled "the next 29 days" and "next 2 days"
+        // became "the next 1 days". The suite's clock is 09:00, so it could
+        // never see it.
+        return reachable(now, dayStart(days), (_from, to) => {
+            const span = Math.round((to.getTime() - dayStart(0).getTime()) / 86_400_000);
             return `the next ${Math.max(1, span)} days`;
         });
     }
@@ -302,7 +334,7 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         return reachable(
             start.midnight,
             to,
-            (from, until) => `${isoOf(from)} to ${lastDay(until)}`,
+            (from, until) => `${isoOf(from)} to ${lastDayOf(until)}`,
         );
     }
 
@@ -320,7 +352,17 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         // over two days and 29 rows where "after 2026-11-22" found 314 -- and
         // an open end in the past was refused outright, though "from September
         // onwards" is a question about the future.
-        return reachable(day.midnight, horizon, (from) => `from ${isoOf(from)} onwards`);
+        // Labelled with its real end, not "onwards": the window IS bounded,
+        // and calling it open-ended is what let a reader conclude UT
+        // basketball ends in January.
+        return {
+            ...reachable(
+                day.midnight,
+                horizon,
+                (from, until) => `${isoOf(from)} to ${lastDayOf(until)}`,
+            ),
+            openEnded: true,
+        };
     }
 
     const single = isoDay(value);
@@ -710,7 +752,13 @@ export function registerCampusTools(server: McpServer) {
                 }
                 const unreachable = outOfRange(window, now);
                 if (unreachable) {
-                    throw new Error(`Can't answer for ${window.label}: ${unreachable}`);
+                    // What they typed, not `window.label`: clamping a range
+                    // that is out of range leaves `from` after `to`, so the
+                    // refusal quoted a backwards pair matching neither the
+                    // request nor any real window.
+                    throw new Error(
+                        `Can't answer for ${input.when?.trim() || window.label}: ${unreachable}`,
+                    );
                 }
 
                 const badCategories = (input.categories ?? []).filter(
@@ -840,13 +888,19 @@ export function registerCampusTools(server: McpServer) {
                 let matched = series.map((entry) => entry.event);
 
                 const notes: string[] = [];
-                if (window.requestedTo) {
-                    // First, because it frames every count below it.
+                // First, because it frames every count below it.
+                if (window.openEnded) {
                     notes.push(
-                        `You asked as far as ${window.requestedTo.toISOString().slice(0, 10)}, ` +
-                            `but this tool reads ${MAX_WINDOW_DAYS} days ahead, so the window ` +
-                            `stops at ${window.to.toISOString().slice(0, 10)}. Anything after ` +
-                            "that has not been read, rather than not existing.",
+                        `An open end has no limit, but this tool reads ${MAX_WINDOW_DAYS} days ` +
+                            `ahead, so this window stops at ${lastDayOf(window.to)}. Anything ` +
+                            "later has not been read, rather than not existing.",
+                    );
+                } else if (window.requestedTo) {
+                    notes.push(
+                        `You asked as far as ${lastDayOf(window.requestedTo)}, but this tool ` +
+                            `reads ${MAX_WINDOW_DAYS} days ahead, so the window stops at ` +
+                            `${lastDayOf(window.to)}. Anything later has not been read, rather ` +
+                            "than not existing.",
                     );
                 }
                 if (sourceNote) notes.push(sourceNote);
@@ -910,8 +964,9 @@ export function registerCampusTools(server: McpServer) {
                 // path they now share.
                 const heldBack = ({
                     unlabelledOnly,
+                    skipFreeFood,
                     ...filter
-                }: EventFilters & { unlabelledOnly?: boolean }): number => {
+                }: EventFilters & { unlabelledOnly?: boolean; skipFreeFood?: boolean }): number => {
                     let probe = filterEvents(calendar.events, filter);
                     if (unlabelledOnly) {
                         // Any row with neither field, whatever calendar it came
@@ -923,7 +978,7 @@ export function registerCampusTools(server: McpServer) {
                             (event) => !event.categories.length && !event.audiences.length,
                         );
                     }
-                    if (freeFood) probe = probe.filter(mentionsFreeFood);
+                    if (freeFood && !skipFreeFood) probe = probe.filter(mentionsFreeFood);
                     let series = collapseSeries(probe);
                     if (anchor) {
                         series = series.filter(
@@ -973,13 +1028,6 @@ export function registerCampusTools(server: McpServer) {
                     // filters ANDed in this came back 0 on a call the tool's
                     // own examples suggest, so the one filter that CANNOT
                     // reach a departmental row said nothing at all.
-                    if (unlabelled === 0 && series.length === 0) {
-                        unlabelled = heldBack({
-                            from: filters.from,
-                            to: filters.to,
-                            unlabelledOnly: true,
-                        });
-                    }
                     if (unlabelled > 0) {
                         notes.push(
                             `${unlabelled} event(s) in this window publish no category or audience at all, so this filter cannot reach them. Use query, or department where they have one, for those.`,
@@ -1030,12 +1078,21 @@ export function registerCampusTools(server: McpServer) {
                             ({ event }) => event.latitude === null || event.longitude === null,
                         ).length;
                         const tooFar = dropped - unplaceable;
+                        const parts = [
+                            tooFar > 0
+                                ? `${tooFar} are outside the ${radius} m radius around ${anchor.code}`
+                                : null,
+                            unplaceable > 0
+                                ? `${unplaceable} publish no coordinates, so they cannot be ` +
+                                  "measured either way"
+                                : null,
+                        ].filter(Boolean);
                         notes.push(
                             `${dropped} event(s) matching your other filters are not shown: ` +
-                                `${tooFar} are outside the ${radius} m radius around ` +
-                                `${anchor.code}, and ${unplaceable} publish no coordinates, so ` +
-                                "they cannot be measured either way. Widening the radius reaches " +
-                                `the ${tooFar}, not the ${unplaceable}.`,
+                                `${parts.join(", and ")}.` +
+                                (tooFar > 0
+                                    ? ` Widening the radius reaches ${tooFar} of them.`
+                                    : " Widening the radius would not reach any of them."),
                         );
                     }
                 }
@@ -1044,6 +1101,60 @@ export function registerCampusTools(server: McpServer) {
                     notes.push(
                         `Ordered by distance from ${anchor.code}, nearest first, rather than by start time.`,
                     );
+                }
+
+                // An empty answer has to say WHICH filter emptied it, and the
+                // only honest way to know is to drop each one and look. Guessing
+                // got it wrong twice: it blamed unlabelled rows for an
+                // "online events for students" query the venue filter had
+                // emptied, and told someone whose category value was simply
+                // wrong that 37 unlabelled rows were the problem.
+                if (series.length === 0) {
+                    const alternatives: [string, EventFilters][] = [];
+                    if (filters.query) {
+                        alternatives.push(["query", { ...filters, query: undefined }]);
+                    }
+                    if (filters.categories?.length) {
+                        alternatives.push(["categories", { ...filters, categories: undefined }]);
+                    }
+                    if (filters.audiences?.length) {
+                        alternatives.push(["audiences", { ...filters, audiences: undefined }]);
+                    }
+                    if (venues.length) {
+                        alternatives.push([
+                            `only ${venues.join(" or ")}`,
+                            { ...filters, venues: undefined },
+                        ]);
+                    }
+                    if (filters.department) {
+                        alternatives.push(["department", { ...filters, department: undefined }]);
+                    }
+                    if (filters.freeAdmission) {
+                        alternatives.push([
+                            'only "free admission"',
+                            { ...filters, freeAdmission: undefined },
+                        ]);
+                    }
+                    if (filters.onCampusOnly) {
+                        alternatives.push([
+                            'only "on campus"',
+                            { ...filters, onCampusOnly: undefined },
+                        ]);
+                    }
+                    // Through the whole pipeline, so freeFood and the radius
+                    // count too and the suggestion can actually be followed.
+                    const blame = alternatives
+                        .filter(([, without]) => heldBack(without) > 0)
+                        .map(([name]) => name);
+                    if (freeFood && heldBack({ ...filters, skipFreeFood: true }) > 0) {
+                        blame.push('only "free food"');
+                    }
+                    if (blame.length > 0) {
+                        notes.push(
+                            `Nothing matched all of your filters. Dropping ${blame.join(" or ")} ` +
+                                "would return events in this window.",
+                        );
+                    }
                 }
 
                 // Pushed here, after every filter. The note says "these

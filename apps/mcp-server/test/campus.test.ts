@@ -2928,12 +2928,16 @@ describe("date ranges and open-ended windows", () => {
 
     it("reads an open-ended window", async () => {
         const { data, content } = await events({ when: "after 2026-12-01", limit: 40 });
-        expect(content[0]!.text).toContain("from 2026-12-01 onwards");
+        // Bounded, and labelled with its real end: calling it "onwards" is
+        // what let a reader conclude the season ended in January.
+        expect(content[0]!.text).toMatch(/2026-12-01 to \d{4}-\d{2}-\d{2}/);
+        expect(content[0]!.text).not.toContain("onwards");
+        expect(content[0]!.text).toContain("has not been read");
         for (const event of data.events) {
             expect(event.start.slice(0, 10) >= "2026-12-01").toBe(true);
         }
         const from = await events({ when: "from 2026-12-01", limit: 40 });
-        expect(from.content[0]!.text).toContain("from 2026-12-01 onwards");
+        expect(from.content[0]!.text).toMatch(/2026-12-01 to \d{4}-\d{2}-\d{2}/);
     });
 
     it("reads a count of days", async () => {
@@ -2953,7 +2957,9 @@ describe("date ranges and open-ended windows", () => {
         // But an open end whose START is in the past is a question about the
         // future, and must answer as the widest open window, not be refused.
         const wide = await events({ when: "after 2020-01-01", limit: 1 });
-        const widest = await events({ when: `next ${MAX_WINDOW_DAYS} days`, limit: 1 });
+        // MAX + 1 calendar days: day 0 through day MAX is what the fetch
+        // reads, so "next 60 days" (days 0-59) stops one day short of it.
+        const widest = await events({ when: `next ${MAX_WINDOW_DAYS + 1} days`, limit: 1 });
         expect(wide.data.matched).toBe(widest.data.matched);
         expect(wide.data.window.to).toBe(widest.data.window.to);
     });
@@ -3092,6 +3098,154 @@ describe("notes only name parameters that exist", () => {
                     expect(note).not.toContain(stale);
                 }
             }
+        }
+    });
+});
+
+describe("the far edge of the horizon", () => {
+    it("includes the last day it can read", async () => {
+        // The horizon was the midnight that OPENS day 60, so clamping threw
+        // that whole day away: `after <today+60>` collapsed to a zero-width
+        // window and answered "Nothing" for a day holding real events.
+        const last = new Date(CAMPUS_NOW.getTime() + MAX_WINDOW_DAYS * 86_400_000)
+            .toISOString()
+            .slice(0, 10);
+        const single = await events({ when: last, limit: 40 });
+        const open = await events({ when: `after ${last}`, limit: 40 });
+        expect(open.data.window.to > open.data.window.from).toBe(true);
+        // The same day, reached two ways, must hold the same events.
+        expect(open.data.matched).toBe(single.data.matched);
+        if (single.data.matched > 0) {
+            expect(open.content[0]!.text).not.toContain("Nothing on UT's calendar");
+        }
+    });
+
+    it("does not drop the last day out of a range that asks for it", async () => {
+        const last = new Date(CAMPUS_NOW.getTime() + MAX_WINDOW_DAYS * 86_400_000)
+            .toISOString()
+            .slice(0, 10);
+        const range = await events({ when: `2026-12-01 to ${last}`, limit: 40 });
+        expect(range.content[0]!.text).toContain(`to ${last}`);
+        expect(range.content[0]!.text).not.toContain("has not been read");
+    });
+
+    it("tells an open-ended window that it was cut", async () => {
+        // Always cut at the horizon, so `to > horizon` was never true and the
+        // trim went structurally unreported -- on the tool's own example.
+        const { content } = await events({ when: "after 2026-12-12", limit: 1 });
+        expect(content[0]!.text).toContain("has not been read");
+        expect(content[0]!.text).not.toContain("onwards");
+    });
+
+    it("quotes the day the caller typed, inclusively, in the trim note", async () => {
+        // Both dates were exclusive midnights, so the note named the day AFTER
+        // each end: it told someone who typed 2027-01-21 they asked as far as
+        // 2027-01-22, and contradicted its own header.
+        const { content } = await events({ when: "2026-12-01..2027-06-01", limit: 1 });
+        const text = content[0]!.text;
+        expect(text).toContain("You asked as far as 2027-06-01");
+        const header = text.split("\n")[0]!;
+        const stops = /stops at (\d{4}-\d{2}-\d{2})/.exec(text)?.[1];
+        expect(stops).toBeDefined();
+        // The note and the header must name the same last day.
+        expect(header).toContain(stops!);
+    });
+
+    it("refuses with the range that was typed, not an inverted one", async () => {
+        // Clamping an out-of-range request leaves `from` after `to`, so the
+        // refusal quoted a backwards pair matching neither the request nor any
+        // real window.
+        const far = await call("find_events", { when: "2027-03-01 to 2027-04-01" });
+        expect(far.isError).toBe(true);
+        expect(far.content[0]!.text).toContain("2027-03-01 to 2027-04-01");
+        // Past relative to the suite's clock, which is 2026-11-09.
+        const past = await call("find_events", { when: "2026-10-01 to 2026-10-21" });
+        expect(past.isError).toBe(true);
+        expect(past.content[0]!.text).toContain("2026-10-01 to 2026-10-21");
+    });
+});
+
+describe("the span label does not depend on the time of day", () => {
+    it("says the number of days asked for, in the afternoon too", () => {
+        // The label counted from `now`, so from noon onwards Math.round
+        // dropped one: "next 30 days" became "the next 29 days" and
+        // "next 2 days" became "the next 1 days". The suite's clock is 09:00,
+        // so only a parseWindow call with a later one can see it.
+        for (const hour of [0, 9, 12, 13, 17, 23]) {
+            const at = new Date(CAMPUS_NOW);
+            at.setUTCHours(hour + 6, 30, 0, 0);
+            for (const days of [2, 14, 30]) {
+                const window = parseWindow(`next ${days} days`, at);
+                expect(window).not.toBeNull();
+                expect(window!.label).toBe(`the next ${days} days`);
+            }
+        }
+    });
+});
+
+describe("an empty answer names the filter that emptied it", () => {
+    it("suggests only filters that actually rescue the answer", async () => {
+        // The invariant that matters: every name it offers must really return
+        // events when dropped. Guessing broke it twice -- it blamed unlabelled
+        // rows for an "online events for students" query the venue filter had
+        // emptied, and told a caller whose category value was wrong that 37
+        // unlabelled rows were the problem and to use query, which they had.
+        const combos: Record<string, unknown>[] = [
+            { when: "this week", categories: ["Athletics"], query: "basketball" },
+            { when: "this week", only: ["virtual", "hybrid"], audiences: ["Students"] },
+            { when: "this week", department: "Computer Science", only: ["free food"] },
+            { when: "this week", query: "basketball", only: ["free admission"] },
+            { when: "this week", audiences: ["Alumni"], only: ["free food"] },
+        ];
+        const KEYS = ["query", "categories", "audiences", "department", "only"] as const;
+        let exercised = 0;
+        for (const args of combos) {
+            const { data, content } = await events({ ...args, limit: 40 });
+            if (data.matched > 0) continue;
+            const text = content[0]!.text;
+            if (!text.includes("Nothing matched all of your filters")) continue;
+            const suggestion = /Dropping (.+?) would return events/.exec(text)?.[1];
+            expect(suggestion).toBeDefined();
+            for (const key of KEYS) {
+                const named =
+                    key === "only" ? /only /.test(suggestion!) : suggestion!.includes(key);
+                if (!named) continue;
+                const without: Record<string, unknown> = { ...args, limit: 40 };
+                delete without[key];
+                const rescued = await events(without);
+                // If it says dropping this helps, dropping it must help.
+                expect(rescued.data.matched).toBeGreaterThan(0);
+                exercised++;
+            }
+        }
+        // And at least one combination has to have produced a suggestion, or
+        // this test is asserting nothing.
+        expect(exercised).toBeGreaterThan(0);
+    });
+
+    it("only suggests dropping a filter that would actually help", async () => {
+        // The suggestion runs the WHOLE pipeline, so following it returns
+        // rows rather than another empty answer.
+        const { content } = await events({
+            when: "this week",
+            query: "a query matching nothing at all",
+            categories: ["Academics"],
+        });
+        const suggestion = content[0]!.text;
+        if (suggestion.includes("Nothing matched all of your filters")) {
+            // The query is the only cause here: dropping categories alone
+            // cannot rescue a query that matches nothing.
+            expect(suggestion).toContain("query");
+            expect(suggestion).not.toContain("Dropping categories or");
+        }
+    });
+
+    it("says nothing when the window itself is simply empty", async () => {
+        // No filters, no answer: there is no filter to blame.
+        const { content } = await events({ when: "2027-01-21", only: ["free food"] });
+        const text = content[0]!.text;
+        if (text.includes("Nothing on UT's calendar")) {
+            expect(text).not.toContain("Dropping only virtual");
         }
     });
 });

@@ -1,5 +1,5 @@
-// Reads UT's Localist calendar. `source` is on every event so a Longhorn Loop
-// provider can be added alongside later.
+// Reads UT's Localist calendar. `source` is on every event so a Longhorn Loop provider can be added
+// alongside later.
 
 import { cached, decode, getText, text } from "../../shared.ts";
 import { metresBetween, resolveBuilding, type Precision } from "./buildings.ts";
@@ -32,8 +32,8 @@ export const EVENT_CATEGORIES = [
     "Research",
     "Science & Technology",
     "Sports & Recreation",
-    // Published by the feed and missing here, so the tool printed "Study
-    // Break" on a row and then rejected it as an unknown category.
+    // Published by the feed and missing here, so the tool printed "Study Break" on a row and then
+    // rejected it as an unknown category.
     "Study Break",
     "Sustainability",
     "World & Culture",
@@ -72,33 +72,16 @@ export function austinInstant(
     return new Date(guess + austinOffsetMinutes(first) * 60_000);
 }
 
-/**
- * Separates what a loose query may match from what only an exact phrase may.
- *
- * Deriving the scope by counting lines was wrong: `description_text` carries
- * its own newlines, so "the first two lines" was usually still inside the first
- * paragraph, and the location sat outside it on 85% of rows. `query:
- * "basketball moody center"` therefore answered nothing on a night UT played at
- * the Moody Center. Everything before the break is fair game for an all-words
- * match; tags and departments sit after it, because matching those loosely
- * returned Liberal ARTS events for "art history".
- */
+/** Separates what a loose query may match from what only an exact phrase may. */
 export const SCOPE_BREAK = "\n\u0000\n";
 
-/**
- * Sorts by INSTANT, not by string.
- *
- * `start` is ISO 8601, and two sources writing the same moment as
- * "...T14:00:00Z" and "...T08:00:00-06:00" sort six hours apart under a string
- * compare. That put Law and Cockrell rows in the wrong place in every merged
- * answer, and made them the first thing dropped when `limit` bit.
- */
+/** Sorts by INSTANT, not by string. */
 export const byStart = (a: CampusEvent, b: CampusEvent): number =>
     Date.parse(a.start) - Date.parse(b.start) || a.instanceId - b.instanceId;
 
 /**
- * An instant as ISO 8601 with Austin's offset, which is the form
- * `CampusEvent.start` promises. `toISOString()` gives the Z form instead.
+ * An instant as ISO 8601 with Austin's offset, which is the form `CampusEvent.start` promises.
+ * `toISOString()` gives the Z form instead.
  */
 export function centralIso(at: Date): string {
     const offset = austinOffsetMinutes(at);
@@ -153,9 +136,9 @@ export interface CampusEvent {
     /** Which calendar this came from. */
     source: EventSource;
     /**
-     * Groups occurrences of one recurring event, when the source numbers each
-     * occurrence separately. McCombs does: "Let's Talk MSTC" is 13 rows with 13
-     * ids, which filled a third of a default answer with the same meeting.
+     * Groups occurrences of one recurring event, when the source numbers each occurrence
+     * separately. McCombs does: "Let's Talk MSTC" is 13 rows with 13 ids, which filled a third of a
+     * default answer with the same meeting.
      */
     seriesKey?: string;
 }
@@ -263,8 +246,8 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
     const feedLat = coordinate(event.geo?.latitude, 90);
     const feedLng = coordinate(event.geo?.longitude, 180);
 
-    // Prefer the room reference: "Reading Room (SRH 1.106)" names a building
-    // where "The University of Texas at Austin" does not.
+    // Prefer the room reference: "Reading Room (SRH 1.106)" names a building where "The University
+    // of Texas at Austin" does not.
     const resolved =
         feedLat === null || feedLng === null
             ? (resolveBuilding(room) ?? resolveBuilding(locationName))
@@ -337,12 +320,7 @@ export function normalizeEvent(raw: RawEvent): CampusEvent[] {
     return out;
 }
 
-/**
- * The shared parts of an event, so each provider only supplies what it knows.
- *
- * Lives here rather than in a provider because three of them need it and the
- * CS one had its own copy of the same twenty literal fields.
- */
+/** The shared parts of an event, so each provider only supplies what it knows. */
 export function buildEvent(opts: {
     id: number;
     instanceId?: number;
@@ -365,18 +343,17 @@ export function buildEvent(opts: {
     const plain = opts.description?.trim() || null;
     return {
         id: opts.id,
-        // Defaults to the event id. A source that publishes one row per
-        // occurrence passes its own, so two occurrences of a weekly meeting
-        // stay distinct rows under the same `id`.
+        // Defaults to the event id. A source that publishes one row per occurrence passes its own,
+        // so two occurrences of a weekly meeting stay distinct rows under the same `id`.
         instanceId: opts.instanceId ?? opts.id,
         title: opts.title,
         description:
             plain && plain.length > DESCRIPTION_LIMIT
                 ? `${plain.slice(0, DESCRIPTION_LIMIT).trimEnd()}...`
                 : plain,
-        // The department is in here because the `query` parameter promises to
-        // match it, and only the central calendar was honouring that: a
-        // `query: "school of law"` found nothing while `department` found ten.
+        // The department is in here because the `query` parameter promises to match it, and only
+        // the central calendar was honouring that: a `query: "school of law"` found nothing while
+        // `department` found ten.
         searchText: [
             [opts.title, (plain ?? "").slice(0, SEARCH_TEXT_LIMIT), room ?? ""]
                 .filter(Boolean)
@@ -429,19 +406,17 @@ export interface CalendarResult {
 
 /** Cached whole, not per page: a partial set would answer a later call with a prefix. */
 export async function getCalendar(days: number, groupId?: number): Promise<CalendarResult> {
-    // Bucketed, not exact: "today" (2), "this week" (8) and every ISO date
-    // produced its own `days` and so its own cold fetch, and a cold 60-day
-    // window took 9-16 seconds. Rounding up means the common phrasings share an
-    // entry, at the cost of fetching a few days more than asked for.
-    //
-    // The FETCH uses the bucket too. Keying on the bucket while fetching `days`
-    // would let a 21-day request populate the 31-day entry with 21 days of
-    // data, and the next 31-day caller would silently get the short answer.
+    // Bucketed, not exact: "today" (2), "this week" (8) and every ISO date produced its own `days`
+    // and so its own cold fetch, and a cold 60-day window took 9-16 seconds. Rounding up means the
+    // common phrasings share an entry, at the cost of fetching a few days more than asked for.  The
+    // FETCH uses the bucket too. Keying on the bucket while fetching `days` would let a 21-day
+    // request populate the 31-day entry with 21 days of data, and the next 31-day caller would
+    // silently get the short answer.
     const bucket = DAY_BUCKETS.find((b) => b >= days) ?? days;
     const key = `calendar:v${CACHE_VERSION}:${bucket}:${groupId ?? "all"}`;
     return cached(key, TTL_SECONDS, async () => {
-        // Non-optional: `readPage` has proved it is an array, and a `?? []` at
-        // every use is where an empty page would hide.
+        // Non-optional: `readPage` has proved it is an array, and a `?? []` at every use is where
+        // an empty page would hide.
         type FetchedPage = { events: RawEvent[]; page?: RawPage["page"] };
         const readPage = async (page: number): Promise<FetchedPage> => {
             const body = await getText(calendarUrl({ days: bucket, page, groupId }), TTL_SECONDS);
@@ -510,13 +485,7 @@ export interface EventFilters {
     onCampusOnly?: boolean;
 }
 
-/**
- * How a student writes a department, mapped to how a calendar publishes it.
- *
- * The filter is a substring match, and "computer science".includes("cs") is
- * false, so `department: "CS"` answered "Nothing on UT's calendar" with seven CS
- * events in hand. These are the four sources with their own calendar.
- */
+/** How a student writes a department, mapped to how a calendar publishes it. */
 const DEPARTMENT_ALIASES: Record<string, string> = {
     cs: "computer science",
     utcs: "computer science",
@@ -532,13 +501,7 @@ const DEPARTMENT_ALIASES: Record<string, string> = {
     "computer sciences": "computer science",
 };
 
-/**
- * Resolves an alias, else trims and lowercases.
- *
- * The lookup ignores punctuation and spacing, so "comp sci", "CS Department"
- * and "law school" land on the same entry as "cs" and "law". An exact-match
- * table answered "nothing" for all three.
- */
+/** Resolves an alias, else trims and lowercases. */
 function departmentTerm(raw: string | undefined): string {
     const value = raw?.trim().toLowerCase() ?? "";
     if (!value) return "";
@@ -546,8 +509,8 @@ function departmentTerm(raw: string | undefined): string {
     const key = squeeze(value);
     for (const [alias, full] of Object.entries(DEPARTMENT_ALIASES)) {
         const a = squeeze(alias);
-        // The alias, optionally with a word like "department" or "school"
-        // around it, but not an unrelated string that merely contains it.
+        // The alias, optionally with a word like "department" or "school" around it, but not an
+        // unrelated string that merely contains it.
         if (key === a || key === `${a}department` || key === `${a}school`) return full;
     }
     return value;
@@ -634,33 +597,14 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
     if (!trimmed) return true;
     const raw = fold(trimmed.toLowerCase());
     const haystack = fold(event.searchText);
-    // Punctuation trimmed off the ends, the way `when` already does, so that a
-    // quoted phrase reaches the matcher and a bare "?" does not match every
-    // description containing one.
+    // Punctuation trimmed off the ends, the way `when` already does, so that a quoted phrase
+    // reaches the matcher and a bare "?" does not match every description containing one.
     const needle = raw.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
-    // Nothing left to build a pattern from, so match what was typed as a
-    // substring: a query in another script still finds text in that script,
-    // and "&" still finds "E+E Film & Media Committee". A lone "?" therefore
-    // matches any description containing one, which is unhelpful but true --
-    // unlike returning the whole window, which was neither. The blank test
-    // matters: two combining marks fold to a lone space, and every row
-    // contains a space.
     if (!needle) return raw.trim() !== "" && haystack.includes(raw);
     const pattern = queryPattern(needle, loose);
     if (!pattern) return haystack.includes(needle);
     if (pattern.test(haystack)) return true;
 
-    // Then as ALL of the words, in any order. Joining them with "no
-    // alphanumerics between" meant a two-word query was a strict phrase, so
-    // `query: "football arkansas"` answered "Nothing on UT's calendar" on a day
-    // UT played Arkansas -- the title reads "Football vs Arkansas" and the "vs"
-    // defeated it. The phrase form is tried first, so an exact phrase still
-    // matches.
-    //
-    // Against the title and body only, not the whole search text: with the
-    // department in scope, "art history" matched three College of Liberal ARTS
-    // events whose description happened to contain "history", and "computer
-    // lab" matched three Computer Science "Lab meeting" rows.
     const words = needle.split(/[^a-z0-9]+/).filter(Boolean);
     const narrow = fold(event.searchText.split(SCOPE_BREAK)[0] ?? "");
     const allWords = (text: string) =>
@@ -668,11 +612,6 @@ function matchesQuery(event: CampusEvent, query: string, loose = false): boolean
         words.map((word) => queryPattern(word, loose)).every((p) => p && p.test(text));
     if (allWords(narrow)) return true;
 
-    // Then the same two passes with the TEXT's punctuation removed, so
-    // "premed" finds "Pre-Med" and "mens basketball" finds "Men's Basketball".
-    // This retry used to be gated to a single word, which is why a two-word
-    // query still lost to an apostrophe -- the same defeat as the adjacency
-    // bug, one character further in.
     const strip = (text: string) => text.replace(/[^a-z0-9\s]/g, "");
     if (pattern.test(strip(haystack))) return true;
     return allWords(strip(narrow));
@@ -702,8 +641,8 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
             : startMs + (event.allDay ? DAY_MS : ASSUMED_DURATION_MS);
         // `<=`, not `<`: an event that ends exactly when the window opens is over.
         if (filters.from && endMs <= filters.from.getTime()) return false;
-        // `>=`: the bound is the instant the next day begins, which is when its
-        // all-day events start.
+        // `>=`: the bound is the instant the next day begins, which is when its all-day events
+        // start.
         if (filters.to && startMs >= filters.to.getTime()) return false;
 
         if (filters.query && !matchesQuery(event, filters.query, filters.looseQuery)) return false;
@@ -720,9 +659,9 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
             return false;
         }
         if (wantVenues.size && !wantVenues.has(event.venue)) return false;
-        // The alias target OR the literal word. "engineering" resolves to
-        // "cockrell", which denied the Oden Institute for Computational Engineering
-        // while printing its name in the same sentence.
+        // The alias target OR the literal word. "engineering" resolves to "cockrell", which denied
+        // the Oden Institute for Computational Engineering while printing its name in the same
+        // sentence.
         if (
             department &&
             !event.departments.some(
@@ -743,40 +682,27 @@ export function filterEvents(events: CampusEvent[], filters: EventFilters): Camp
 /** Localist has no free-food field; its `free` flag means free ADMISSION. */
 const FOOD_PHRASES = [
     /\bfree\s+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|coffee|donuts?|tacos?|boba)\b/i,
-    // Up to three words between the noun and the verb, so "food and drinks
-    // will be provided" and "pastries, coffee and tea are served" count.
+    // Up to three words between the noun and the verb, so "food and drinks will be provided" and
+    // "pastries, coffee and tea are served" count.
     /\b(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|coffee|donuts?|tacos?|boba)\b(?:[\s,]+\w+){0,3}[\s,]+(will\s+be\s+|are\s+|is\s+)?(provided|served)\b/i,
     // And the verb-first form: "we will be providing food", "we provide bagels".
     /\b(provid\w*|serv\w*)\b(?:[\s,:-]+\w+){0,3}[\s,:-]+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|bagels|donuts?|tacos?|boba)\b/i,
     /\b(lunch|breakfast|dinner|refreshments?|snacks?)\s+(is|are)\s+included\b/i,
     /\bcomplimentary\s+(food|lunch|breakfast|dinner|refreshments?|snacks?|coffee)\b/i,
-    // "we will have pizza", "there will be snacks", "come enjoy food and
-    // drinks", "grab snacks", "a pancake buffet". These are the commonest
-    // phrasings on UT's calendar and none of the patterns above accepts them,
-    // so finals week -- the week a student most wants this -- answered nothing.
     /\b(we(?:'ll|\s+will)?\s+have|there\s+(?:will\s+be|are|is)|enjoy|grab|serving)\b(?:[\s,:-]+\w+){0,3}[\s,:-]+(food|pizza|lunch|breakfast|dinner|snacks?|refreshments?|pastries|bagels|donuts?|tacos?|boba|drinks)\b/i,
     /\b(pancake|pizza|taco|coffee|breakfast|dessert|ice\s+cream)\s+(buffet|bar|social|study\s+break)\b/i,
 ];
 
 export function mentionsFreeFood(event: CampusEvent): boolean {
-    // `searchText`, not `description`: the phrase is usually the last line, so
-    // the display cut found 2 of 6.
+    // `searchText`, not `description`: the phrase is usually the last line, so the display cut
+    // found 2 of 6.
     return FOOD_PHRASES.some((pattern) => pattern.test(event.searchText));
 }
 
 /** Main campus, near the Tower. Only used for an is-it-even-in-Austin test. */
 const CAMPUS_CENTRE = { latitude: 30.2849, longitude: -97.7341 };
 
-/**
- * Austin, not main campus.
- *
- * 15 km reached the Pickle Research Campus but stopped short of UT's own Lady
- * Bird Johnson Wildflower Center at 17.4 km -- in Austin, and a UT unit -- so
- * Fortlandia and Luminations were labelled "NOT on campus / away from Austin"
- * and `onCampusOnly` deleted all 47 of their instances. The city reaches about
- * 25 km from the Tower. 30 km covers it and still excludes every away venue in
- * the feed, the nearest being College Station at ~160 km.
- */
+/** Austin, not main campus. */
 const AUSTIN_RADIUS_M = 30_000;
 
 /** Out-of-state road games. Both AP abbreviations and full state names appear. */
@@ -812,8 +738,10 @@ export function onCampus(event: CampusEvent): boolean | null {
     return awayCity ? false : null;
 }
 
-/** In-state road games: rows read "City, Texas, Venue" either side of the line,
- * and home rows are always "Austin, Texas". `locationName` only. */
+/**
+ * In-state road games: rows read "City, Texas, Venue" either side of the line, and home rows are
+ * always "Austin, Texas". `locationName` only.
+ */
 function texasCityAwayFromAustin(locationName: string | null): boolean {
     if (!locationName) return false;
     const match = /^\s*([^,]+?)\s*,\s*Tex(?:as)?\s*(?:,|$)/i.exec(locationName);
@@ -830,25 +758,17 @@ export interface Collapsed {
     lastStart: string | null;
     /** The Austin dates seen, so `occurrences` counts days and not rows. */
     days: Set<string>;
-    /**
-     * Every distinct start in the window, sorted.
-     *
-     * Needed because days alone lose a second SHOWING on one day: "Buena Vista
-     * Social Club" plays Bass Concert Hall at 2pm and 8pm, and collapsing to a
-     * day reported only the matinee. Exact-instant duplicates -- the same
-     * meeting published twice -- still fold into one entry here.
-     */
+    /** Every distinct start in the window, sorted. */
     starts: string[];
 }
 
 export function collapseSeries(events: CampusEvent[]): Collapsed[] {
-    // Keyed by SOURCE and id: five calendars number their events
-    // independently, and two sharing an id would otherwise merge into one row
-    // with the other's start as `lastStart`.
+    // Keyed by SOURCE and id: five calendars number their events independently, and two sharing an
+    // id would otherwise merge into one row with the other's start as `lastStart`.
     const byId = new Map<string, Collapsed>();
     for (const event of events) {
-        // `seriesKey` lets a source that numbers every occurrence separately
-        // say so; the default is the event's own id.
+        // `seriesKey` lets a source that numbers every occurrence separately say so; the default is
+        // the event's own id.
         const key = `${event.source}:${event.seriesKey ?? event.id}`;
         const seen = byId.get(key);
         if (!seen) {
@@ -861,19 +781,11 @@ export function collapseSeries(events: CampusEvent[]): Collapsed[] {
             });
             continue;
         }
-        // Distinct DAYS, which is what the schema and the rendered text both
-        // promise. Counting rows said "runs on 2 days" inside a one-day window
-        // for two duplicate rows at the same instant.
+        // Distinct DAYS, which is what the schema and the rendered text both promise. Counting rows
+        // said "runs on 2 days" inside a one-day window for two duplicate rows at the same instant.
         seen.days.add(event.start.slice(0, 10));
         seen.occurrences = seen.days.size;
         if (!seen.starts.includes(event.start)) seen.starts.push(event.start);
-        // Only when there IS a later one. Setting it unconditionally left
-        // `occurrences: 1` beside a non-null `lastStart`, which is the
-        // fingerprint of a dropped showing.
-        // Gated on DAYS, matching what the field documents. Keying it on
-        // distinct times shipped `occurrences: 1` beside a non-null
-        // `lastStart`, which the schema says cannot happen; a same-day second
-        // showing is `alsoAt`'s job.
         seen.lastStart = seen.days.size > 1 ? seen.starts[seen.starts.length - 1]! : null;
     }
     return [...byId.values()];

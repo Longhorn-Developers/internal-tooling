@@ -1,19 +1,3 @@
-// The Computer Science department's own calendar, which the central UT calendar
-// does not carry. Cross-checked one week: 23 of 23 CS events were absent from
-// Localist, including Texas ACM's and Longhorn Developers' own events.
-//
-// The MONTHLY VIEW is the source of truth, not the RSS feed. `/events/rss/
-// <month>` ignores the month entirely: 2026-10, 2026-12 and 2027-03 all return
-// a byte-identical rolling 50 items ending about sixteen days out. Reading it
-// per month answered "nothing" for CS past that horizon and, when a window
-// spanned two months, concatenated the same 50 items twice so `collapseSeries`
-// reported one meeting as running on 2 days.
-//
-// The monthly HTML does respect the month and carries everything needed: the
-// event id, title, an ISO start and end with a Central offset, and the room.
-// The feed is still read once, for the descriptions the HTML omits, which is
-// what `freeFood` and a free-text `query` search.
-
 import { cached, decode, getText, text } from "../../shared.ts";
 import { austinNow } from "../dining/extract.ts";
 import { buildEvent, hashId, type CampusEvent } from "./extract.ts";
@@ -25,16 +9,16 @@ const CACHE_VERSION = 5; // 4 stored searchText without the scope break // 3 sto
 /** 30 minutes, matching the central calendar. */
 const TTL_SECONDS = 1_800;
 /**
- * A 61-day window can touch FOUR months: from 31 January it reaches 2 April.
- * Capping at three silently dropped the last one, with no note, which is the
- * same shape as the horizon bug this file was rewritten to fix.
+ * A 61-day window can touch FOUR months: from 31 January it reaches 2 April. Capping at three
+ * silently dropped the last one, with no note, which is the same shape as the horizon bug this file
+ * was rewritten to fix.
  */
 const MAX_MONTHS = 4;
 
 /** The YYYY-MM keys a window touches, in Austin's months rather than UTC's. */
 export function monthsSpanned(now: Date, days: number): string[] {
-    // Austin-local: after 6pm Central on the last day of a month UTC is already
-    // into the next one, and the current month would never be asked for.
+    // Austin-local: after 6pm Central on the last day of a month UTC is already into the next one,
+    // and the current month would never be asked for.
     const from = austinNow(now);
     const end = austinNow(new Date(now.getTime() + days * 86_400_000));
     const out: string[] = [];
@@ -61,13 +45,7 @@ function blocksOf(html: string): RegExpMatchArray[] {
     ];
 }
 
-/**
- * Event id to room.
- *
- * Both the room and the location field are rendered and one is empty, so this
- * takes the first non-empty VALUE. Preferring whichever one matched found 12 of
- * 102 rooms; this finds 101.
- */
+/** Event id to room. */
 export function parseRooms(html: string): Map<string, string> {
     const out = new Map<string, string>();
     for (const [, id, body] of blocksOf(html)) {
@@ -98,15 +76,15 @@ export interface CsRow {
 }
 
 /**
- * Events from the monthly view. `content="<ISO>"` already carries a Central
- * offset, so nothing here has to guess a timezone.
+ * Events from the monthly view. `content="<ISO>"` already carries a Central offset, so nothing here
+ * has to guess a timezone.
  */
 export function parseMonth(html: string): CsRow[] {
     const rooms = parseRooms(html);
     const out: CsRow[] = [];
-    // One row per OCCURRENCE, which is how Localist publishes too. Deduping by
-    // id here kept only a weekly meeting's first occurrence, so a window later
-    // in the month lost it entirely; `collapseSeries` does the grouping.
+    // One row per OCCURRENCE, which is how Localist publishes too. Deduping by id here kept only a
+    // weekly meeting's first occurrence, so a window later in the month lost it entirely;
+    // `collapseSeries` does the grouping.
     for (const [, id, body] of blocksOf(html)) {
         if (!id) continue;
         const title = text(
@@ -129,12 +107,7 @@ export function parseMonth(html: string): CsRow[] {
     return out;
 }
 
-/**
- * Descriptions, keyed by event id.
- *
- * `dc:creator` is deliberately not read: it names the student who booked the
- * room, which is the same call as HornsLink's officer record.
- */
+/** Descriptions, keyed by event id. */
 export function parseFeedDescriptions(xml: string): [string, string][] {
     const out: [string, string][] = [];
     for (const [, block] of xml.matchAll(/<item>(.*?)<\/item>/gs)) {
@@ -170,13 +143,7 @@ export interface CsResult {
     failed: string[];
 }
 
-/**
- * Every CS event in the window, with whichever months answered.
- *
- * Descriptions are one request for all months, because the feed is one rolling
- * list however it is asked for. Its failure is tolerated: an event without a
- * description is still an event.
- */
+/** Every CS event in the window, with whichever months answered. */
 export async function getCsCalendar(now: Date, days: number): Promise<CsResult> {
     const months = monthsSpanned(now, days);
     // Pairs, not a Map. `cached` stores JSON and rehydrates with res.json(), so

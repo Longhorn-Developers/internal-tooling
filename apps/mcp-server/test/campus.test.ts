@@ -99,8 +99,8 @@ type ToolResult = {
 type Registered = {
     config: {
         outputSchema?: { parse: (value: unknown) => unknown };
-        // The call has to go through the input schema: one that drops what it
-        // does not recognise is invisible from inside the handler.
+        // The call has to go through the input schema: one that drops what it does not recognise is
+        // invisible from inside the handler.
         inputSchema?: {
             safeParse: (value: unknown) => {
                 success: boolean;
@@ -177,8 +177,8 @@ describe("building data", () => {
     });
 
     it("measures a known distance across campus to the metre", () => {
-        // Pinned, not bounded. A loose range let the haversine be halved and
-        // the detour factor dropped with the suite still green.
+        // Pinned, not bounded. A loose range let the haversine be halved and the detour factor
+        // dropped with the suite still green.
         const d = (a: string, b: string) =>
             metresBetween(resolveBuilding(a)!.building, resolveBuilding(b)!.building);
         expect(d("GDC", "PCL")).toBeCloseTo(421.4, 0);
@@ -190,8 +190,8 @@ describe("building data", () => {
     });
 
     it("converts distance to walking minutes with a detour allowance", () => {
-        // 1.4 m/s with a 1.3 detour factor. Without pinning these, both the
-        // pace and the factor could be changed silently.
+        // 1.4 m/s with a 1.3 detour factor. Without pinning these, both the pace and the factor
+        // could be changed silently.
         expect(walkMinutes(421.4)).toBe(7);
         expect(walkMinutes(298.1)).toBe(5);
         expect(walkMinutes(253.0)).toBe(4);
@@ -219,9 +219,6 @@ describe("resolveBuilding", () => {
         expect(resolveBuilding("the SAC")?.building.code).toBe("WCP");
     });
 
-    // Each of these is a string UT's calendar publishes with no coordinate,
-    // which resolved to nothing before the alias table covered it. The row
-    // counts are from a 60-day pull measured 2026-11-09.
     it("resolves a venue inside a building", () => {
         expect(resolveBuilding("Cactus Cafe")?.building.code).toBe("UNB"); // 20 rows
         expect(resolveBuilding("Shirley Bird Perry Ballroom")?.building.code).toBe("UNB");
@@ -229,16 +226,16 @@ describe("resolveBuilding", () => {
     });
 
     it("resolves a building the feed names differently from UT's data", () => {
-        // TSC was in buildings.json the whole time. The city prefix athletics
-        // rows add, plus CTR against Center, meant no path reached it.
+        // TSC was in buildings.json the whole time. The city prefix athletics rows add, plus CTR
+        // against Center, meant no path reached it.
         const swimming = resolveBuilding("Austin, Texas, Lee and Joe Jamail Texas Swimming Center");
         expect(swimming?.building.code).toBe("TSC"); // 16 rows
         expect(resolveBuilding("Texas Swimming Center")?.building.code).toBe("TSC");
     });
 
     it("resolves SEAY, which is not SEA", () => {
-        // SEA is on the ambiguous-code list, so it only matches when it leads
-        // the string, and "SEAY" is a different token either way.
+        // SEA is on the ambiguous-code list, so it only matches when it leads the string, and
+        // "SEAY" is a different token either way.
         expect(resolveBuilding("SEAY Library - Room 4.244")?.building.code).toBe("SEA"); // 6 rows
     });
 
@@ -253,8 +250,8 @@ describe("resolveBuilding", () => {
     });
 
     it("still refuses an away game", () => {
-        // The remaining unresolved rows are road games, and resolving them to
-        // anything on campus would be worse than refusing.
+        // The remaining unresolved rows are road games, and resolving them to anything on campus
+        // would be worse than refusing.
         for (const away of [
             "Athens, Ga., Dan Magill Tennis Complex",
             "Lincoln, Neb., Sid and Hazel Dillon Tennis Center",
@@ -269,8 +266,8 @@ describe("resolveBuilding", () => {
     });
 
     it("resolves the dining names, so dining and events agree on a place", () => {
-        // The dining tools speak J2/JCL/Kins; nothing else on this server does,
-        // and without these a dining answer cannot be placed on a map.
+        // The dining tools speak J2/JCL/Kins; nothing else on this server does, and without these a
+        // dining answer cannot be placed on a map.
         expect(resolveBuilding("J2")?.building.code).toBe("JES");
         expect(resolveBuilding("JCL")?.building.code).toBe("JES");
         expect(resolveBuilding("Kins")?.building.code).toBe("KIN");
@@ -286,8 +283,8 @@ describe("resolveBuilding", () => {
     });
 
     it("does not put an off-campus address inside a campus building", () => {
-        // EDUCATION is unique to the Engineering Education and Research Center,
-        // so a name-token match alone sent this marine lab 200 miles into EER.
+        // EDUCATION is unique to the Engineering Education and Research Center, so a name-token
+        // match alone sent this marine lab 200 miles into EER.
         const hit = resolveBuilding(
             "Patton Center for Marine Science Education 855 E. Cotter Ave. Port Aransas",
         );
@@ -305,9 +302,6 @@ describe("resolveBuilding", () => {
     });
 
     it("resolves a code in parentheses even where the code is an English word", () => {
-        // UT's own feed writes this. ART is in AMBIGUOUS_CODES and sits at
-        // token 5, so the leading-word rule rejected it and the whole string
-        // resolved to nothing.
         expect(resolveBuilding("Art Building (ART)")?.building.code).toBe("ART");
         expect(resolveBuilding("Visual Arts Center, Art Building (ART)")?.building.code).toBe(
             "ART",
@@ -320,9 +314,6 @@ describe("resolveBuilding", () => {
     });
 
     it("treats online and unscheduled locations as absent, not unrecognised", () => {
-        // "N/A" was the miss: normalize() turns "/" into a space, so the raw
-        // list entry was unreachable and it fell through to the suggestion
-        // path, offering five buildings for a string meaning "unknown".
         for (const value of ["Online", "Zoom", "TBA", "TBD", "Virtual", "N/A", "Off-Campus", ""]) {
             expect(isNonPhysicalLocation(value)).toBe(true);
             expect(resolveBuilding(value)).toBeNull();
@@ -376,8 +367,8 @@ describe("resolve_ut_location", () => {
 
     it("says when a coordinate is the building centre rather than a marker", async () => {
         const loose = ALL_BUILDINGS.find((b) => b.precision !== "marker");
-        // Guard rather than assume: if UT's data ever becomes all-marker this
-        // test should stop asserting, not start failing for the wrong reason.
+        // Guard rather than assume: if UT's data ever becomes all-marker this test should stop
+        // asserting, not start failing for the wrong reason.
         if (!loose) return;
         const { data } = await location({ location: loose.code });
         expect(data.notes.join(" ")).toMatch(/approximate|footprint/);
@@ -407,15 +398,15 @@ describe("parseWindow", () => {
     });
 
     it("names the date it picked for a weekday", () => {
-        // A bare "friday" never told the reader WHICH Friday; only
-        // structuredContent.window revealed it.
+        // A bare "friday" never told the reader WHICH Friday; only structuredContent.window
+        // revealed it.
         expect(parseWindow("monday", CAMPUS_NOW)?.label).toBe("Monday, Nov 9");
         expect(parseWindow("friday", CAMPUS_NOW)?.label).toBe("Friday, Nov 13");
     });
 
     it("opens a same-day window at now, not at midnight", () => {
-        // CAMPUS_NOW is a Monday 09:00 Austin. Asked late in the day,
-        // "wednesday" on a Wednesday returned 56 events of which 31 were over.
+        // CAMPUS_NOW is a Monday 09:00 Austin. Asked late in the day, "wednesday" on a Wednesday
+        // returned 56 events of which 31 were over.
         const monday = parseWindow("monday", CAMPUS_NOW)!;
         expect(monday.from.toISOString()).toBe(CAMPUS_NOW.toISOString());
         // And by its own date, too.
@@ -429,8 +420,8 @@ describe("parseWindow", () => {
     });
 
     it("reads next <weekday> as the one after this coming one", () => {
-        // Asked on a Monday, "next friday" used to mean the same day as
-        // "friday", which is not what most people mean.
+        // Asked on a Monday, "next friday" used to mean the same day as "friday", which is not what
+        // most people mean.
         const friday = parseWindow("friday", CAMPUS_NOW)!;
         const nextFriday = parseWindow("next friday", CAMPUS_NOW)!;
         expect(nextFriday.from.getTime() - friday.from.getTime()).toBe(7 * 86_400_000);
@@ -467,8 +458,8 @@ describe("parseWindow", () => {
     });
 
     it("reads this week as now until midnight seven days out", () => {
-        // Not a 7x24h span: it starts at `now`, like "today", so a lecture
-        // that finished this morning is not in it.
+        // Not a 7x24h span: it starts at `now`, like "today", so a lecture that finished this
+        // morning is not in it.
         const week = parseWindow("this week", CAMPUS_NOW)!;
         expect(week.from.getTime()).toBe(CAMPUS_NOW.getTime());
         expect(week.to.toISOString()).toBe("2026-11-16T06:00:00.000Z");
@@ -487,8 +478,8 @@ describe("parseWindow", () => {
     });
 
     it("refuses a date that would silently roll into the next month", () => {
-        // "2026-02-30" as a Date rolls to 2 March and would answer about the
-        // wrong day without saying so.
+        // "2026-02-30" as a Date rolls to 2 March and would answer about the wrong day without
+        // saying so.
         expect(parseWindow("2026-02-30", CAMPUS_NOW)).toBeNull();
     });
 
@@ -498,9 +489,6 @@ describe("parseWindow", () => {
     });
 
     it("builds windows in Central time, not UTC", () => {
-        // Midnight in Austin on 10 November 2026 (CST) is 06:00 UTC. A window
-        // built in UTC would be six hours out and would answer about the wrong
-        // evening for anything after 18:00.
         const tomorrow = parseWindow("tomorrow", CAMPUS_NOW)!;
         expect(tomorrow.from.toISOString()).toBe("2026-11-10T06:00:00.000Z");
     });
@@ -589,17 +577,14 @@ describe("normalizeEvent text cleanup", () => {
         })[0];
 
     it("keeps real UTF-8 punctuation intact", () => {
-        // UT serves curly quotes and accents correctly, and they must survive:
-        // this is the common case and the reason not to be aggressive above.
+        // UT serves curly quotes and accents correctly, and they must survive: this is the common
+        // case and the reason not to be aggressive above.
         const row = one("Russell Lee’s Pedagogical Legacy", "Café — a talk");
         expect(row?.title).toBe("Russell Lee’s Pedagogical Legacy");
         expect(row?.description).toBe("Café — a talk");
     });
 
     it("strips a replacement character if a bad byte ever reaches us", () => {
-        // Not present in UT's feed today. `res.text()` substitutes U+FFFD for
-        // anything it cannot decode, and a black diamond in an answer is worse
-        // than a missing glyph.
         const row = one("Bad�byte", "Also�here");
         expect(row?.title).toBe("Badbyte");
         expect(row?.description).toBe("Alsohere");
@@ -610,13 +595,7 @@ describe("normalizeEvent text cleanup", () => {
     });
 });
 
-/**
- * A complete CampusEvent, so tests can override just the field under test.
- *
- * `searchText` is derived from the overrides unless one is given, the same way
- * `normalizeEvent` builds it. A hardcoded empty string here would make every
- * query and free-food test pass against a field the real code never sees.
- */
+/** A complete CampusEvent, so tests can override just the field under test. */
 function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
     const base: CampusEvent = {
         id: 1,
@@ -651,9 +630,9 @@ function makeEvent(over: Partial<CampusEvent> = {}): CampusEvent {
     if (over.searchText !== undefined) return base;
     return {
         ...base,
-        // Mirrors normalizeEvent, SCOPE_BREAK included. Joining everything with
-        // newlines made departments loosely matchable here and not in
-        // production — a helper that lies about the thing under test.
+        // Mirrors normalizeEvent, SCOPE_BREAK included. Joining everything with newlines made
+        // departments loosely matchable here and not in production — a helper that lies about the
+        // thing under test.
         searchText: [
             [base.title, base.description ?? "", base.locationName ?? "", base.room ?? ""]
                 .filter(Boolean)
@@ -681,8 +660,8 @@ describe("filterEvents window semantics", () => {
     });
 
     it("drops an all-day event from the following day", () => {
-        // Its assumed end is the instant the next day starts, which is not an
-        // overlap. With a `<` comparison every all-day event showed up twice.
+        // Its assumed end is the instant the next day starts, which is not an overlap. With a `<`
+        // comparison every all-day event showed up twice.
         const allDay = at("2026-11-09T00:00:00-06:00", null, true);
         expect(filterEvents([allDay], tue)).toHaveLength(0);
         expect(
@@ -845,8 +824,8 @@ describe("find_events", () => {
         await events({ when: "today" });
         const first = log.find((entry) => entry.url.includes("calendar.utexas.edu"))!;
         const days = Number(new URL(first.url).searchParams.get("days"));
-        // A regression that always asked for one day, or always for 60, would
-        // otherwise ship green: the fixture answers regardless of this value.
+        // A regression that always asked for one day, or always for 60, would otherwise ship green:
+        // the fixture answers regardless of this value.
         expect(days).toBeLessThanOrEqual(2);
 
         resetCache();
@@ -864,11 +843,11 @@ describe("find_events", () => {
     });
 
     it("collapses a multi-day run into one row with a day count", async () => {
-        // The fixture holds real repeated rows: Localist emits a multi-day
-        // event once per day, which inflated both the count and the row list.
+        // The fixture holds real repeated rows: Localist emits a multi-day event once per day,
+        // which inflated both the count and the row list.
         const raw = await getCalendar(30);
-        // Pick an id the feed really does repeat, rather than assuming titles
-        // are unique: two distinct UT Energy Symposium events share a title.
+        // Pick an id the feed really does repeat, rather than assuming titles are unique: two
+        // distinct UT Energy Symposium events share a title.
         const counts = new Map<number, number>();
         for (const event of raw.events) counts.set(event.id, (counts.get(event.id) ?? 0) + 1);
         const repeatedId = [...counts].find(([, n]) => n > 1)?.[0];
@@ -890,8 +869,8 @@ describe("find_events", () => {
         const raw = await getCalendar(30);
         const rowCount = raw.events.length;
         const distinct = new Set(raw.events.map((event) => event.id)).size;
-        // Guard the premise: if the fixture ever loses its repeats this test
-        // should be fixed, not quietly pass.
+        // Guard the premise: if the fixture ever loses its repeats this test should be fixed, not
+        // quietly pass.
         expect(distinct).toBeLessThan(rowCount);
         const { data } = await events({ when: "this week", limit: 40 });
         expect(data.matched).toBeLessThanOrEqual(distinct);
@@ -932,8 +911,8 @@ describe("find_events", () => {
         const { data } = await events({ when: "tomorrow", limit: 40 });
         expectAll(data.events, (event) => {
             const start = Date.parse(event.start);
-            // Same rule the filter uses: an all-day event runs to the end of
-            // its day, a timed one with no end is assumed to last an hour.
+            // Same rule the filter uses: an all-day event runs to the end of its day, a timed one
+            // with no end is assumed to last an hour.
             const end = event.end
                 ? Date.parse(event.end)
                 : start + (event.allDay ? 86_400_000 : 3_600_000);
@@ -970,8 +949,8 @@ describe("find_events", () => {
     });
 
     it("tolerates a category with stray whitespace or odd case", async () => {
-        // Validation trimmed and matching did not, so " Academics" validated
-        // and then matched nothing: a real answer became "nothing on".
+        // Validation trimmed and matching did not, so " Academics" validated and then matched
+        // nothing: a real answer became "nothing on".
         const plain = await events({ when: "this week", categories: ["Academics"], limit: 40 });
         for (const variant of [" Academics", "academics", "ACADEMICS ", "  Academics  "]) {
             const got = await events({ when: "this week", categories: [variant], limit: 40 });
@@ -1034,8 +1013,8 @@ describe("find_events", () => {
         expect(word).toBeDefined();
         const { data } = await events({ when: "this week", query: word!, limit: 40 });
         expect(data.matched).toBeGreaterThan(0);
-        // The point the old version missed: a filter that returns everything
-        // also satisfies "matched > 0".
+        // The point the old version missed: a filter that returns everything also satisfies
+        // "matched > 0".
         expect(data.matched).toBeLessThan(all.data.matched);
         const nonsense = await events({ when: "this week", query: "zzqqxx", limit: 40 });
         expect(nonsense.data.matched).toBe(0);
@@ -1113,8 +1092,8 @@ describe("find_events", () => {
     });
 
     it("excludes a road game written with a spelled-out state, not just an abbreviation", async () => {
-        // Abbreviations caught the tennis fixtures; "San Diego, California"
-        // and "Louisville, Kentucky" went through as campus events.
+        // Abbreviations caught the tennis fixtures; "San Diego, California" and "Louisville,
+        // Kentucky" went through as campus events.
         const raw = await getCalendar(30);
         const spelled = raw.events.filter((event) =>
             /\b(California|Kentucky|Georgia)\b/.test(event.locationName ?? ""),
@@ -1185,8 +1164,8 @@ describe("find_events", () => {
             );
             return !event.allDay && hour >= 18;
         });
-        // An evening event is the discriminating case: rendered in UTC it
-        // shows the next calendar day.
+        // An evening event is the discriminating case: rendered in UTC it shows the next calendar
+        // day.
         expect(evening).toBeDefined();
         const austinDay = new Intl.DateTimeFormat("en-US", {
             timeZone: "America/Chicago",
@@ -1228,8 +1207,8 @@ describe("find_events", () => {
     });
 
     it("explains malformed upstream data instead of leaking a TypeError", async () => {
-        // Each of these used to surface a raw JS message to the client, e.g.
-        // "object is not iterable" or "(list ?? []).map is not a function".
+        // Each of these used to surface a raw JS message to the client, e.g. "object is not
+        // iterable" or "(list ?? []).map is not a function".
         const LEAKS = /is not iterable|is not a function|Cannot read properties/;
 
         // No event list at all means the feed is broken, and that is an error.
@@ -1248,8 +1227,8 @@ describe("find_events", () => {
             expect(text).toContain("UT's calendar");
         }
 
-        // A bad row inside a good list is skipped, not fatal: one malformed
-        // entry should not cost the user the other ninety-nine.
+        // A bad row inside a good list is skipped, not fatal: one malformed entry should not cost
+        // the user the other ninety-nine.
         for (const body of [
             '{"events":[null],"page":{"total":1,"total_items":1}}',
             '{"events":[{"event":{"id":1,"title":7,"departments":"Fine Arts",' +
@@ -1265,8 +1244,8 @@ describe("find_events", () => {
     });
 
     it("rejects a feed coordinate that is out of range", async () => {
-        // A latitude and longitude swapped upstream gives latitude -97.73,
-        // which is not a latitude, and used to be passed through as "feed".
+        // A latitude and longitude swapped upstream gives latitude -97.73, which is not a latitude,
+        // and used to be passed through as "feed".
         const [row] = normalizeEvent({
             event: {
                 id: 99,
@@ -1290,9 +1269,6 @@ describe("find_events", () => {
 
 describe("boundaries the obvious tests miss", () => {
     it("trims inside filterEvents, not only at the tool boundary", () => {
-        // filterEvents is exported, so a caller that has not trimmed must
-        // still get the right answer. Trimming only in index.ts left this
-        // untested, and either fix alone hid the other's absence.
         const window = {
             from: new Date("2026-11-09T06:00:00Z"),
             to: new Date("2026-11-10T06:00:00Z"),
@@ -1309,9 +1285,6 @@ describe("boundaries the obvious tests miss", () => {
     });
 
     it("prefers the room reference over the location name", () => {
-        // Both resolve here, to different buildings. The old test used a
-        // location name that resolved to nothing, so it could not detect the
-        // ordering it existed to prove.
         const [row] = normalizeEvent({
             event: {
                 id: 1,
@@ -1329,9 +1302,6 @@ describe("boundaries the obvious tests miss", () => {
     });
 
     it("survives event_instances arriving as an object", async () => {
-        // The earlier malformed-data case had a numeric title, so it was
-        // rejected before it ever reached the instance loop, and `?? []` on a
-        // non-array went untested. An object is not iterable.
         vi.unstubAllGlobals();
         resetCache();
         stubFetch({
@@ -1347,8 +1317,8 @@ describe("boundaries the obvious tests miss", () => {
     });
 
     it("reads Austin's offset from the zone, not a fixed -6", () => {
-        // November is CST (UTC-6) and July is CDT (UTC-5). A hardcoded 360
-        // passed every test because the fixture clock is in November.
+        // November is CST (UTC-6) and July is CDT (UTC-5). A hardcoded 360 passed every test
+        // because the fixture clock is in November.
         const july = new Date("2026-07-15T15:00:00Z");
         const summer = parseWindow("tomorrow", july)!;
         expect(summer.from.toISOString()).toBe("2026-07-16T05:00:00.000Z");
@@ -1358,17 +1328,11 @@ describe("boundaries the obvious tests miss", () => {
     });
 
     it("does not find a short building name inside a longer word", () => {
-        // With the 9-character floor dropped, "UNION" and "MAIN" become name
-        // keys and BY_NAME matches on substring, so "Reunion" resolves to the
-        // Union Building and "Remaining" to the Main Building.
         expect(resolveBuilding("Class Reunion in the courtyard")).toBeNull();
         expect(resolveBuilding("Remaining seats for the lecture")).toBeNull();
     });
 
     it("degrades an unrecognised precision to the loosest, not the tightest", () => {
-        // A bad value in the data file would otherwise be reported as an exact
-        // marker, and the "approximate" warning would be decided by a string
-        // nobody checked.
         expect(toPrecision("marker")).toBe("marker");
         expect(toPrecision("centroid")).toBe("centroid");
         expect(toPrecision("geocoded")).toBe("geocoded");
@@ -1378,8 +1342,8 @@ describe("boundaries the obvious tests miss", () => {
 });
 
 /**
- * Each case here returned a confident, plausible, wrong answer at some point.
- * They are the ones worth keeping an eye on when touching the matcher.
+ * Each case here returned a confident, plausible, wrong answer at some point. They are the ones
+ * worth keeping an eye on when touching the matcher.
  */
 describe("searching event text, and what counts as on campus", () => {
     const longDescription = (tail: string) =>
@@ -1401,13 +1365,12 @@ describe("searching event text, and what counts as on campus", () => {
     describe("text features ran on the display truncation", () => {
         it("sees free food named past the 400-character display cut", () => {
             const row = synthetic({ description: longDescription("Lunch will be provided.") });
-            // The description really is cut, so this is not accidentally
-            // passing on a short string.
+            // The description really is cut, so this is not accidentally passing on a short string.
             expect(row.description!.length).toBeLessThanOrEqual(403);
             expect(row.description).not.toContain("Lunch will be provided");
             expect(row.searchText).toContain("lunch will be provided");
-            // Measured against the live feed: 2 of 6 before this, because UT
-            // puts "Lunch will be provided." at character 1,030 of 1,100.
+            // Measured against the live feed: 2 of 6 before this, because UT puts "Lunch will be
+            // provided." at character 1,030 of 1,100.
             expect(mentionsFreeFood(row)).toBe(true);
         });
 
@@ -1427,9 +1390,6 @@ describe("searching event text, and what counts as on campus", () => {
 
     describe("query matched inside unrelated words", () => {
         const ai = makeEvent({ title: "AI Ideas: Drop-in Hours" });
-        // These genuinely contain the letters "ai" inside a word: tr-ai-ning,
-        // ch-ai-r, m-ai-ntenance. A title that merely looks unrelated is not a
-        // test -- "Nation-Building" has no "ai" in it and passes either way.
         const notAi = makeEvent({ title: "Research Training Grant Workshop" });
 
         it("matches a short query at a word start", () => {
@@ -1437,8 +1397,8 @@ describe("searching event text, and what counts as on campus", () => {
         });
 
         it("does not match a short query mid-word", () => {
-            // A plain substring returned 48 of the week's 105 events as AI
-            // events, on matches exactly like this one.
+            // A plain substring returned 48 of the week's 105 events as AI events, on matches
+            // exactly like this one.
             expect(filterEvents([notAi], { query: "AI" })).toHaveLength(0);
             expect(
                 filterEvents([makeEvent({ title: "Department Chair Lecture" })], { query: "AI" }),
@@ -1451,8 +1411,8 @@ describe("searching event text, and what counts as on campus", () => {
         });
 
         it("treats a two- or three-letter query as a whole word", () => {
-            // A word-start anchor alone still matched "aid", "aims" and "air",
-            // which is most of a calendar. An acronym has to stand alone.
+            // A word-start anchor alone still matched "aid", "aims" and "air", which is most of a
+            // calendar. An acronym has to stand alone.
             for (const title of ["Financial Aid Night", "Air Quality Seminar", "Aims and Scope"]) {
                 expect(filterEvents([makeEvent({ title })], { query: "AI" })).toHaveLength(0);
             }
@@ -1484,8 +1444,8 @@ describe("searching event text, and what counts as on campus", () => {
         const homeGame = makeEvent({ locationName: "Austin, Texas, Moody Center" });
 
         it("calls a Texas city that is not Austin off campus", () => {
-            // The state tests cannot see this one: every athletics row is
-            // written "City, Texas, Venue" whichever side of the line it is on.
+            // The state tests cannot see this one: every athletics row is written "City, Texas,
+            // Venue" whichever side of the line it is on.
             expect(onCampus(awayGame)).toBe(false);
             expect(onCampus(makeEvent({ locationName: "Midland, Texas" }))).toBe(false);
         });
@@ -1500,8 +1460,8 @@ describe("searching event text, and what counts as on campus", () => {
         });
 
         it("does not read a street address as an away city", () => {
-            // An address legitimately contains "Austin, Texas" after a street,
-            // and a building-resolved row must not be thrown away.
+            // An address legitimately contains "Austin, Texas" after a street, and a building-
+            // resolved row must not be thrown away.
             expect(onCampus(makeEvent({ address: "2501 Speedway, Austin, Texas 78712" }))).not.toBe(
                 false,
             );
@@ -1512,10 +1472,6 @@ describe("searching event text, and what counts as on campus", () => {
 describe("the edges of a day, and venues UT has renamed", () => {
     // The clock is 2026-11-09 09:00 Austin, so "yesterday" is the 8th.
     it("refuses yesterday, not just the day before", async () => {
-        // The guard allowed a full day of grace, which meant yesterday was
-        // accepted at EVERY hour: the window closes at today 00:00 and only
-        // falls behind `now - 24h` once tomorrow starts. A student asking what
-        // was on yesterday got 46 finished events presented as upcoming.
         const result = await call("find_events", { when: "2026-11-08" });
         expect(result.isError).toBe(true);
         expect(result.content[0]!.text).toMatch(/in the past/);
@@ -1527,10 +1483,6 @@ describe("the edges of a day, and venues UT has renamed", () => {
     });
 
     it("excludes an all-day event belonging to the day after the window", async () => {
-        // An all-day event on the 10th starts at the instant the 10th begins,
-        // which is exactly the upper bound of a window for the 9th. With an
-        // inclusive bound, a one-day query reported the next day's events and
-        // `occurrences` counted a day outside the window.
         const monday = {
             from: new Date("2026-11-09T06:00:00Z"),
             to: new Date("2026-11-10T06:00:00Z"),
@@ -1557,8 +1509,8 @@ describe("the edges of a day, and venues UT has renamed", () => {
         });
         expect(data.events).toHaveLength(0);
         const stated = Number(/held (\d+) event/.exec(content[0]!.text)![1]);
-        // The old number was the uncollapsed multi-day fetch, which said 130
-        // for a day holding 45. It must not exceed the day's own total.
+        // The old number was the uncollapsed multi-day fetch, which said 130 for a day holding 45.
+        // It must not exceed the day's own total.
         const today = await events({ when: "today", limit: 40 });
         expect(stated).toBe(today.data.matched);
     });
@@ -1591,9 +1543,6 @@ describe("the edges of a day, and venues UT has renamed", () => {
         });
 
         it("does not read a year as a room number", async () => {
-            // GEARING is a legitimate surname token, so the word list does not
-            // block this one: only the room-number shape does. "2026" is four
-            // digits, which a bare length test accepts.
             const { data } = await location({ location: "Gearing 2026 Symposium" });
             expect(data.resolved).toBe(false);
         });
@@ -1612,8 +1561,8 @@ describe("short queries, punctuation, and which name wins", () => {
         const art = makeEvent({ title: "Art History Lecture" });
 
         it("lets a three-letter query reach its plural", () => {
-            // REGRESSION: holding short needles to a whole word meant "art"
-            // could not see "Arts" and lost 13 of 20 arts events.
+            // REGRESSION: holding short needles to a whole word meant "art" could not see "Arts"
+            // and lost 13 of 20 arts events.
             expect(filterEvents([arts], { query: "art" })).toHaveLength(1);
             expect(filterEvents([art], { query: "art" })).toHaveLength(1);
             expect(
@@ -1638,9 +1587,6 @@ describe("short queries, punctuation, and which name wins", () => {
         });
 
         it("matches whichever apostrophe the client typed", () => {
-            // UT's feed carries 114 events with a straight apostrophe and one
-            // with a curly one. An LLM that emits the typographic form used to
-            // get nothing at all.
             const straight = makeEvent({ title: "Women's Basketball vs Vanderbilt" });
             const curly = makeEvent({ title: "Mao’s Cultural War" });
             expect(filterEvents([straight], { query: "women’s basketball" })).toHaveLength(1);
@@ -1649,17 +1595,14 @@ describe("short queries, punctuation, and which name wins", () => {
         });
 
         it("does not let a PHRASE straddle two fields", () => {
-            // searchText joins fields with newlines so the adjacency form
-            // cannot run across a field boundary.
+            // searchText joins fields with newlines so the adjacency form cannot run across a field
+            // boundary.
             const row = makeEvent({ title: "Robotics", departments: ["Showcase"] });
             const phrase = queryPattern("robotics showcase");
             expect(phrase!.test(row.searchText)).toBe(false);
         });
 
         it("matches all the words wherever they are, which is the point", () => {
-            // A two-word query used to mean strict adjacency, so
-            // query:"football arkansas" answered nothing on a day UT played
-            // Arkansas -- the title reads "Football vs Arkansas".
             const game = makeEvent({ title: "University of Texas Football vs Arkansas" });
             expect(filterEvents([game], { query: "football arkansas" })).toHaveLength(1);
             expect(filterEvents([game], { query: "arkansas football" })).toHaveLength(1);
@@ -1675,9 +1618,6 @@ describe("short queries, punctuation, and which name wins", () => {
     });
 
     describe("dotted room numbers", () => {
-        // REGRESSION: `normalize` strips periods, so "2.014" became "2014" and
-        // the year guard threw it away along with every real floor-2 room
-        // numbered 0xx and floor-1 room numbered 9xx.
         it.each([
             ["Gearing 2.014", "GEA"],
             ["Gearing 1.902", "GEA"],
@@ -1698,9 +1638,6 @@ describe("short queries, punctuation, and which name wins", () => {
 
     describe("a named building beats a nickname", () => {
         it("does not let a college name shadow the building the string names", async () => {
-            // REGRESSION: "COLLEGE OF LIBERAL ARTS" was added as a phrase alias
-            // for RLP. It is the name of a college with departments in a dozen
-            // buildings, and Localist puts it in an event's `departments`.
             const { data } = await location({
                 location: "College of Liberal Arts, Burdine Hall 108",
             });
@@ -1708,8 +1645,7 @@ describe("short queries, punctuation, and which name wins", () => {
         });
 
         it("prefers a real code over a one-word alias elsewhere in the string", async () => {
-            // TOWER is an alias token, and sat earlier than the code the string
-            // actually gives.
+            // TOWER is an alias token, and sat earlier than the code the string actually gives.
             expect((await location({ location: "UT Tower, GDC 2.216" })).data.building?.code).toBe(
                 "GDC",
             );
@@ -1725,9 +1661,6 @@ describe("short queries, punctuation, and which name wins", () => {
 
 describe("falling back to a looser query, and how far ahead it reads", () => {
     it("retries a short query loosely and says it did", async () => {
-        // "bio" appears in the fixture only inside longer words (biography,
-        // biomedical, bioscience). Strictly it matches nothing, and a bare
-        // "nothing on UT's calendar" would be a wrong answer.
         const { data, content } = await events({ when: "this week", query: "bio", limit: 10 });
         expect(data.events.length).toBeGreaterThan(0);
         expect(data.notes.join(" ")).toMatch(
@@ -1742,17 +1675,13 @@ describe("falling back to a looser query, and how far ahead it reads", () => {
     });
 
     it("fetches far enough to cover the last day it advertises", async () => {
-        // The fetch used to stop at MAX_WINDOW_DAYS days from now, which ends
-        // partway through the last day the tool advertises, so that date was
-        // accepted and then answered "nothing" while UT published events on it.
-        // Clock is 2026-11-09 09:00 Austin, so the 60th day out is 2027-01-08.
         const edge = await call("find_events", { when: "2027-01-08" });
         expect(edge.isError).toBeFalsy();
         const days = log
             .filter((entry) => entry.url.includes("calendar.utexas.edu"))
             .map((entry) => Number(new URL(entry.url).searchParams.get("days")));
-        // It has to ask for one day MORE than the window's own reach, or the
-        // window's final hours are not in the response it filters.
+        // It has to ask for one day MORE than the window's own reach, or the window's final hours
+        // are not in the response it filters.
         expect(Math.max(...days)).toBe(MAX_WINDOW_DAYS + 1);
     });
 
@@ -1767,14 +1696,10 @@ describe("falling back to a looser query, and how far ahead it reads", () => {
 
 describe("a department filter that matches nothing", () => {
     it("says what the field holds instead of implying nothing is happening", async () => {
-        // Asked for "Computer Science" this answered "Nothing on UT's calendar"
-        // and the agent reported there are no CS events at UT that week. There
-        // were 23, on the CS department's own calendar. The central feed has no
-        // Computer Science department value at all.
         const { data, content } = await events({
             when: "this week",
-            // Nursing is not one of the departmental calendars read here, and
-            // the central feed carries no such value either.
+            // Nursing is not one of the departmental calendars read here, and the central feed
+            // carries no such value either.
             department: "School of Nursing Quilting Society",
             limit: 5,
         });
@@ -1782,8 +1707,8 @@ describe("a department filter that matches nothing", () => {
 
         const notes = data.notes.join(" ");
         expect(notes).toMatch(/No event in this window is tagged with a department matching/);
-        // The count has to be collapsed events, not occurrence rows, or it
-        // disagrees with the "window held N" line in the same answer.
+        // The count has to be collapsed events, not occurrence rows, or it disagrees with the
+        // "window held N" line in the same answer.
         const stated = Number(/of (\d+) events here/.exec(notes)![1]);
         const held = Number(/held (\d+) event/.exec(content[0]!.text)![1]);
         expect(stated).toBe(held);
@@ -1806,8 +1731,8 @@ describe("a department filter that matches nothing", () => {
 });
 
 describe("the CS department calendar", () => {
-    // The CS feed is forward-looking: the November feed starts on the 18th, so
-    // these fixtures have their own era rather than the shared campus clock.
+    // The CS feed is forward-looking: the November feed starts on the 18th, so these fixtures have
+    // their own era rather than the shared campus clock.
     const CS_NOW = new Date("2026-11-18T15:00:00Z");
     beforeEach(() => {
         vi.setSystemTime(CS_NOW);
@@ -1820,8 +1745,8 @@ describe("the CS department calendar", () => {
 
         const social = events.find((e) => e.title.includes("Longhorn Developers"));
         expect(social).toBeTruthy();
-        // The feed carries no location. The room comes from the monthly HTML,
-        // and the resolver turns it into coordinates.
+        // The feed carries no location. The room comes from the monthly HTML, and the resolver
+        // turns it into coordinates.
         expect(social!.room).toMatch(/^GDC /);
         expect(social!.buildingCode).toBe("GDC");
         expect(social!.latitude).toBeTypeOf("number");
@@ -1842,10 +1767,6 @@ describe("the CS department calendar", () => {
     });
 
     it("does not read events from the feed, which ignores the month it is asked for", async () => {
-        // /events/rss/<month> returns a byte-identical rolling 50 items for
-        // 2026-10, 2026-12 and 2027-03 alike. Reading it per month made CS
-        // invisible past its ~16-day horizon and double-counted a window that
-        // spanned two months.
         resetCache();
         const log = stubFetch();
         await getCsCalendar(CS_NOW, 40);
@@ -1859,9 +1780,6 @@ describe("the CS department calendar", () => {
     });
 
     it("reads each month separately instead of the same items twice", async () => {
-        // The old code fetched /events/rss/<month> per month and got identical
-        // items back, so a two-month window double-counted everything and
-        // collapseSeries called a single meeting a 2-day series.
         const { events } = await getCsCalendar(CS_NOW, 40);
         const november = events.filter((e) => e.start.startsWith("2026-11"));
         const december = events.filter((e) => e.start.startsWith("2026-12"));
@@ -1872,15 +1790,15 @@ describe("the CS department calendar", () => {
         const seen = new Set(events.map((e) => `${e.id}@${e.start}`));
         expect(seen.size).toBe(events.length);
 
-        // A genuinely recurring meeting still collapses to one row that says
-        // how many times it runs, rather than filling the answer.
+        // A genuinely recurring meeting still collapses to one row that says how many times it
+        // runs, rather than filling the answer.
         const collapsed = collapseSeries([...events].sort(byStart));
         expect(collapsed.length).toBeLessThan(events.length);
     });
 
     it("keeps every occurrence of a weekly meeting, not just the first", () => {
-        // parseMonth deduped by id at one point, which dropped a weekly
-        // meeting from any window after its first occurrence in the month.
+        // parseMonth deduped by id at one point, which dropped a weekly meeting from any window
+        // after its first occurrence in the month.
         const rows = parseMonth(fixture("cs-events-month.html"));
         const byId = new Map<string, number>();
         for (const r of rows) byId.set(r.id, (byId.get(r.id) ?? 0) + 1);
@@ -1891,8 +1809,8 @@ describe("the CS department calendar", () => {
     });
 
     it("counts the months a window touches in Austin's calendar, not UTC's", () => {
-        // After 6pm Central on the last day of a month, UTC is already into the
-        // next one, so the current month would never be asked for.
+        // After 6pm Central on the last day of a month, UTC is already into the next one, so the
+        // current month would never be asked for.
         const lateOnTheLast = new Date("2026-11-30T23:30:00Z"); // 17:30 Austin
         expect(monthsSpanned(lateOnTheLast, 1)[0]).toBe("2026-11");
         const spans = monthsSpanned(new Date("2026-11-18T15:00:00Z"), 40);
@@ -1909,20 +1827,17 @@ describe("the CS department calendar", () => {
     });
 
     it("does not return the organiser's name", async () => {
-        // The feed's dc:creator names a student. Same decision as HornsLink's
-        // officer record: not read at all.
+        // The feed's dc:creator names a student. Same decision as HornsLink's officer record: not
+        // read at all.
         const { events } = await getCsCalendar(CS_NOW, 8);
         expect(JSON.stringify(events)).not.toMatch(/dc:creator|Nikki/);
     });
 
     it("takes the room from whichever field carries it", () => {
-        // The view renders a room field and a location field and leaves one
-        // empty. Preferring whichever MATCHED found 12 of 102 rooms; checking
-        // the values finds 101.
         const html = fixture("cs-events-month.html");
         const rooms = parseRooms(html);
-        // A floor, not just "more than zero": reading only `location-1` found
-        // 12 of 102 rooms and still satisfied `> 0`.
+        // A floor, not just "more than zero": reading only `location-1` found 12 of 102 rooms and
+        // still satisfied `> 0`.
         const blocks = new Set(html.match(/calendar\.(\d+)\.field_date/g) ?? []).size;
         expect(blocks).toBeGreaterThan(0);
         expect(rooms.size).toBeGreaterThan(blocks * 0.6);
@@ -1935,8 +1850,8 @@ describe("the CS department calendar", () => {
     });
 
     it("answers a Computer Science department search", async () => {
-        // The question that started this: the central calendar has no Computer
-        // Science department value at all, so this used to answer "nothing".
+        // The question that started this: the central calendar has no Computer Science department
+        // value at all, so this used to answer "nothing".
         const { data } = await events({
             when: "this week",
             department: "Computer Science",
@@ -1949,8 +1864,8 @@ describe("the CS department calendar", () => {
 
 describe("one calendar failing", () => {
     it("still answers from the central calendar, and says which source was lost", async () => {
-        // Clock stays on the shared campus era, where the central fixture has
-        // events and the CS fixture has none, so this isolates the failure.
+        // Clock stays on the shared campus era, where the central fixture has events and the CS
+        // fixture has none, so this isolates the failure.
         resetCache();
         vi.unstubAllGlobals();
         stubFetch();
@@ -1984,16 +1899,16 @@ describe("departmental calendars in three formats", () => {
                 expect(e.departments).toEqual(["School of Law"]);
                 expect(e.start).toMatch(/^\d{4}-\d{2}-\d{2}T/);
             }
-            // The title of this test promised a room and never checked one, so
-            // a broken LOCATION parse passed. A law room resolves to TNH.
+            // The title of this test promised a room and never checked one, so a broken LOCATION
+            // parse passed. A law room resolves to TNH.
             const located = events.filter((e) => e.room);
             expect(located.length).toBeGreaterThan(0);
             expect(located.some((e) => e.buildingCode === "TNH")).toBe(true);
         });
 
         it("drops the accessibility trailer every description carries", () => {
-            // Every law description ends with the same boilerplate, so
-            // query:"accommodation" returned 11 events, all law.
+            // Every law description ends with the same boilerplate, so query:"accommodation"
+            // returned 11 events, all law.
             const blob = parsed()
                 .map((e) => e.description ?? "")
                 .join(" ");
@@ -2001,11 +1916,6 @@ describe("departmental calendars in three formats", () => {
         });
 
         it("unfolds a wrapped line before reading it", () => {
-            // RFC 5545 wraps a long value by starting the next line with a
-            // space, so a naive line parse reads half a LOCATION.
-            // The inserted space IS the fold marker, so unfolding deletes the
-            // newline and that space: "...was wr" + "\n apped" rejoins as
-            // "was wrapped".
             const folded = "SUMMARY:A title that was wr\n apped\r\nLOCATION:TNH 2.1\n 23";
             const out = unfoldIcs(folded);
             expect(out).toContain("that was wrapped");
@@ -2021,23 +1931,23 @@ describe("departmental calendars in three formats", () => {
         });
 
         it("puts an all-day event at midnight in summer too", () => {
-            // A hard-coded -06:00 was right in CST and an hour out in CDT, so
-            // an April all-day event started at 01:00.
+            // A hard-coded -06:00 was right in CST and an hour out in CDT, so an April all-day
+            // event started at 01:00.
             expect(icsInstant("20261118")).toBe("2026-11-18T00:00:00-06:00");
             expect(icsInstant("20270415")).toBe("2027-04-15T00:00:00-05:00");
         });
 
         it("emits the same offset form as every other source", () => {
-            // Mixing "...Z" and "...-06:00" sorted the merged list six hours
-            // wrong and dropped Law rows at the limit.
+            // Mixing "...Z" and "...-06:00" sorted the merged list six hours wrong and dropped Law
+            // rows at the limit.
             for (const e of parsed()) expect(e.start).toMatch(/[+-]\d{2}:\d{2}$/);
         });
 
         it("unescapes the commas and semicolons ICS escapes", () => {
             const events = parsed();
             const blob = events.map((e) => `${e.title} ${e.description ?? ""}`).join(" ");
-            // A BACKSLASH before a comma or semicolon, not the punctuation
-            // itself. The fixture legitimately contains plenty of both.
+            // A BACKSLASH before a comma or semicolon, not the punctuation itself. The fixture
+            // legitimately contains plenty of both.
             expect(blob).not.toMatch(/\\[,;]/);
             // And the fixture really does exercise it.
             expect(fixture("law-events.ics")).toMatch(/\\[,;]/);
@@ -2064,9 +1974,6 @@ describe("departmental calendars in three formats", () => {
         });
 
         it("does not claim an event with no location is in person", () => {
-            // is_online is null and online_url empty on every row, so the title
-            // is the only evidence. Asserting "inperson" returned virtual
-            // office hours to a student filtering for in-person events.
             const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
             for (const e of events) {
                 if (/virtual|online/i.test(e.title)) expect(e.venue).toBe("virtual");
@@ -2082,8 +1989,8 @@ describe("departmental calendars in three formats", () => {
         });
 
         it("groups a recurring series so one meeting is not thirteen rows", () => {
-            // LiveWhale numbers each occurrence, so collapseSeries could not
-            // group them and one weekday series filled a third of an answer.
+            // LiveWhale numbers each occurrence, so collapseSeries could not group them and one
+            // weekday series filled a third of an answer.
             const events = parseLiveWhale(JSON.parse(fixture("mccombs-events.json")));
             const repeated = events.filter((e) => e.title.includes("Talk MSTC"));
             if (repeated.length > 1) {
@@ -2106,8 +2013,8 @@ describe("departmental calendars in three formats", () => {
         it("builds a time from the date and the am/pm clock in post meta", () => {
             const events = parsed();
             expect(events.length).toBeGreaterThan(0);
-            // `noon ?? events[0]` passed even when the am/pm parse was broken.
-            // The fixture's events are all 12:00 pm Central.
+            // `noon ?? events[0]` passed even when the am/pm parse was broken. The fixture's events
+            // are all 12:00 pm Central.
             const noon = events.filter((e) => e.start.includes("T12:00:00-06:00"));
             expect(noon.length).toBeGreaterThan(0);
             for (const e of events) {
@@ -2158,9 +2065,6 @@ describe("departmental calendars in three formats", () => {
 
 describe("fixes from the five-source audit", () => {
     it("sorts the merged list by instant, not by string", () => {
-        // Law and Cockrell wrote "...Z" where the others wrote "...-06:00", so
-        // a string compare put an 8am law event between 2pm and 3pm, and made
-        // law and Cockrell the first rows dropped at the limit.
         const zulu = makeEvent({ id: 1, instanceId: 1, start: "2026-12-02T14:00:00.000Z" });
         const central = makeEvent({ id: 2, instanceId: 2, start: "2026-12-02T09:00:00-06:00" });
         const sorted = [central, zulu].sort(byStart);
@@ -2169,8 +2073,8 @@ describe("fixes from the five-source audit", () => {
     });
 
     it("does not merge two sources that happen to share an id", () => {
-        // collapseSeries keyed on the id alone, so the second event vanished
-        // and the first was relabelled as a 2-day series.
+        // collapseSeries keyed on the id alone, so the second event vanished and the first was
+        // relabelled as a 2-day series.
         const a = makeEvent({ id: 500, instanceId: 500, title: "Central thing" });
         const b = {
             ...makeEvent({ id: 500, instanceId: 500, title: "Law thing" }),
@@ -2180,8 +2084,8 @@ describe("fixes from the five-source audit", () => {
     });
 
     it("resolves the shorthand a student would type for a department", async () => {
-        // "computer science".includes("cs") is false, so department:"CS"
-        // answered "Nothing on UT's calendar" with CS events in hand.
+        // "computer science".includes("cs") is false, so department:"CS" answered "Nothing on UT's
+        // calendar" with CS events in hand.
         const cs = makeEvent({ departments: ["Computer Science"] });
         expect(filterEvents([cs], { department: "CS" })).toHaveLength(1);
         expect(filterEvents([cs], { department: "cs" })).toHaveLength(1);
@@ -2206,8 +2110,8 @@ describe("fixes from the five-source audit", () => {
     });
 
     it("asks upstream for the whole bucket it caches under", async () => {
-        // Keying on the bucket while fetching the exact window would let a
-        // 21-day request fill the 31-day entry with 21 days of data.
+        // Keying on the bucket while fetching the exact window would let a 21-day request fill the
+        // 31-day entry with 21 days of data.
         resetCache();
         const log = stubFetch();
         await events({ when: "this week", limit: 2 });
@@ -2232,11 +2136,6 @@ describe("fixes from the five-source audit", () => {
 
 describe("a warm edge cache, which only holds bytes", () => {
     it("still returns CS events on the second call", async () => {
-        // The regression this catches: the descriptions were cached as a Map,
-        // which survives a MISS and comes back as `{}` on a HIT. `.get` then
-        // threw, the whole CS source was reported as "did not answer", and
-        // every answer after the first in a TTL had no CS events at all. A
-        // cold-only check passes, which is how it shipped.
         resetCache();
         stubCaches();
         stubFetch();
@@ -2246,8 +2145,8 @@ describe("a warm edge cache, which only holds bytes", () => {
         expect(first.failed).toEqual([]);
         expect(first.events.length).toBeGreaterThan(0);
 
-        // A fresh isolate: the memo is gone and only the edge cache remains,
-        // so the second call reads back what was serialised.
+        // A fresh isolate: the memo is gone and only the edge cache remains, so the second call
+        // reads back what was serialised.
         resetCache();
         const second = await getCsCalendar(new Date("2026-11-18T15:00:00Z"), 8);
         expect(second.failed).toEqual([]);
@@ -2272,10 +2171,6 @@ describe("a warm edge cache, which only holds bytes", () => {
 
 describe("notes that used to contradict the rows", () => {
     it("does not claim a department has nothing when another filter emptied the list", async () => {
-        // This said "No event in this window is tagged with a department
-        // matching McCombs" and then listed "McCombs School of Business" among
-        // the departments present, because the note fired whenever the answer
-        // was empty for ANY reason.
         const { data } = await events({
             when: "this week",
             // Present in the window, so the department is NOT the reason the
@@ -2301,8 +2196,7 @@ describe("notes that used to contradict the rows", () => {
     });
 
     it("counts occurrences in days, not rows", () => {
-        // Two duplicate rows at the same instant reported "runs on 2 days"
-        // inside a one-day window.
+        // Two duplicate rows at the same instant reported "runs on 2 days" inside a one-day window.
         const twice = [
             makeEvent({ id: 9, instanceId: 1, start: "2026-11-19T09:00:00-06:00" }),
             makeEvent({ id: 9, instanceId: 2, start: "2026-11-19T09:00:00-06:00" }),
@@ -2349,26 +2243,19 @@ describe("department shorthand a student would actually type", () => {
         const cs = makeEvent({ departments: ["Computer Science"] });
         expect(filterEvents([cs], { department: "physics" })).toHaveLength(0);
         const outlaw = makeEvent({ departments: ["Outlaw Film Society"] });
-        // The published name still matches as a plain substring, which is the
-        // pre-existing behaviour; the alias table must not widen it further.
+        // The published name still matches as a plain substring, which is the pre-existing
+        // behaviour; the alias table must not widen it further.
         expect(filterEvents([outlaw], { department: "law school" })).toHaveLength(0);
     });
 });
 
 describe("fixes from the third audit round", () => {
     it("keeps a second showing on the same day", () => {
-        // REGRESSION from round two: counting distinct days dropped the 8pm
-        // performance of a matinee and left `occurrences: 1` beside a non-null
-        // `lastStart`, which was the only trace that anything was lost.
         const matinee = makeEvent({ id: 7, instanceId: 1, start: "2026-12-05T14:00:00-06:00" });
         const evening = makeEvent({ id: 7, instanceId: 2, start: "2026-12-05T20:00:00-06:00" });
         const [row] = collapseSeries([matinee, evening]);
         expect(row!.occurrences).toBe(1);
         expect(row!.starts).toHaveLength(2);
-        // `lastStart` is about DAYS, which is what the schema says, so a
-        // same-day second showing is carried by `starts`/`alsoAt` instead.
-        // Setting it here shipped `occurrences: 1` with a non-null
-        // `lastStart`, a combination the schema says cannot happen.
         expect(row!.lastStart).toBeNull();
     });
 
@@ -2386,17 +2273,14 @@ describe("fixes from the third audit round", () => {
         const text = content[0]!.text;
         expect(data.events.length).toBeGreaterThan(0);
         for (const row of data.events) {
-            // The contract: `lastStart` is about DAYS, so a row happening on
-            // one day must not claim a later one. The guard this replaced had
-            // become unsatisfiable, so it passed whatever the renderer did.
             if (row.occurrences === 1) expect(row.lastStart).toBeNull();
             if (row.occurrences === 1 && row.alsoAt.length) expect(text).toContain("also at");
         }
     });
 
     it("finds a name spelled without its accents", () => {
-        // UT publishes "Gloria Anzaldúa's Borderlands" and its own URL slug is
-        // ASCII, so the ASCII spelling has to work.
+        // UT publishes "Gloria Anzaldúa's Borderlands" and its own URL slug is ASCII, so the ASCII
+        // spelling has to work.
         const row = makeEvent({ title: "Gloria Anzaldúa's Borderlands Exhibition" });
         expect(filterEvents([row], { query: "anzaldua" })).toHaveLength(1);
         expect(filterEvents([row], { query: "anzaldúa" })).toHaveLength(1);
@@ -2405,9 +2289,6 @@ describe("fixes from the third audit round", () => {
     });
 
     it("searches the department on the departmental calendars too", () => {
-        // The `query` parameter promises to match the department, and only the
-        // central calendar honoured it: query:"school of law" found nothing
-        // while department:"law" found ten.
         const law = buildEvent({
             id: 1,
             title: "A talk",
@@ -2420,8 +2301,8 @@ describe("fixes from the third audit round", () => {
     });
 
     it("does not deny a department it names in the same breath", () => {
-        // "engineering" resolves to Cockrell, which denied the Oden Institute
-        // for Computational Engineering while printing its name in the note.
+        // "engineering" resolves to Cockrell, which denied the Oden Institute for Computational
+        // Engineering while printing its name in the note.
         const oden = makeEvent({
             departments: ["The Oden Institute for Computational Engineering & Sciences"],
         });
@@ -2470,9 +2351,6 @@ describe("fixes from the third audit round", () => {
 
 describe("note counts respect the other filters", () => {
     it("only offers venue unknown when that would return something", async () => {
-        // The count was window-wide, so asking for virtual CS events was told
-        // 5 rows were held back; following the advice returned none, because
-        // all five were McCombs rows the department filter excluded anyway.
         const { data } = await events({
             when: "this week",
             department: "Computer Science",
@@ -2509,9 +2387,6 @@ describe("note counts respect the other filters", () => {
 
 describe("fixes from the fourth audit round", () => {
     it("reads next <weekday> correctly for a day earlier in the week", () => {
-        // CAMPUS_NOW is a Monday. A flat +7 overshot whenever the named day
-        // sits earlier in the Mon-Sun week than today: asked on a Thursday,
-        // "next monday" landed a week late.
         const thursday = new Date("2026-11-19T15:00:00Z"); // Thursday
         expect(parseWindow("next monday", thursday)!.from.toISOString()).toBe(
             "2026-11-23T06:00:00.000Z",
@@ -2529,9 +2404,6 @@ describe("fixes from the fourth audit round", () => {
     });
 
     it("finds a name whose apostrophe the student left out", () => {
-        // Two words plus punctuation inside one of them: the depunctuated
-        // retry was gated to a single word, so "mens basketball" missed a game
-        // that was on that evening.
         const game = makeEvent({ title: "University of Texas Men's Basketball vs Southern" });
         expect(filterEvents([game], { query: "mens basketball" })).toHaveLength(1);
         expect(filterEvents([game], { query: "men's basketball" })).toHaveLength(1);
@@ -2540,8 +2412,8 @@ describe("fixes from the fourth audit round", () => {
     });
 
     it("does not match a query on the department alone", () => {
-        // "art history" matched College of Liberal ARTS events whose
-        // description happened to contain "history".
+        // "art history" matched College of Liberal ARTS events whose description happened to
+        // contain "history".
         const liberalArts = buildEvent({
             id: 2,
             title: "Tea and Tawla",
@@ -2552,16 +2424,16 @@ describe("fixes from the fourth audit round", () => {
             source: "calendar.utexas.edu",
         });
         expect(filterEvents([liberalArts], { query: "art history" })).toHaveLength(0);
-        // The phrase form still reaches the department, which is what the
-        // `query` parameter promises.
+        // The phrase form still reaches the department, which is what the `query` parameter
+        // promises.
         expect(filterEvents([liberalArts], { query: "liberal arts" })).toHaveLength(1);
     });
 
     it("prints a place once", async () => {
         const { content } = await events({ when: "this week", limit: 40 });
         for (const line of content[0]!.text.split("\n")) {
-            // "WCP 2.112 2.112" and "Benson ... Benson ..." came from a
-            // dedupe that only dropped an exact string match.
+            // "WCP 2.112 2.112" and "Benson ... Benson ..." came from a dedupe that only dropped an
+            // exact string match.
             const m = /^ {2}(\S.*)$/.exec(line);
             if (!m) continue;
             const parts = m[1]!.split(", ").map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, ""));
@@ -2576,9 +2448,6 @@ describe("fixes from the fourth audit round", () => {
     });
 
     it("resolves a building by UT's own accented spelling", async () => {
-        // The events tool prints "Perry-Castañeda Library (PCL)" on its rows,
-        // and pasting that back in resolved to nothing -- not even a
-        // suggestion, because the accent became a word break.
         expect((await location({ location: "Perry-Castañeda Library" })).data.building?.code).toBe(
             "PCL",
         );
@@ -2591,16 +2460,13 @@ describe("fixes from the fourth audit round", () => {
     });
 
     it("says when a category filter cannot reach a departmental calendar", async () => {
-        // Those feeds publish no category or audience, so the filter silently
-        // excluded all of them: "academic events this week" answered 4 on a
-        // week with 14 CS talks.
         const { data } = await events({ when: "this week", categories: ["Academics"], limit: 40 });
         expect(data.notes.join(" ")).toMatch(/publish no category or audience/);
     });
 
     it("counts the venue note against every filter the answer used", async () => {
-        // The probe ignored freeFood and the radius, so it promised rows the
-        // suggested follow-up call returned none of.
+        // The probe ignored freeFood and the radius, so it promised rows the suggested follow-up
+        // call returned none of.
         const { data } = await events({
             when: "this week",
             only: ["in person", "free food"],
@@ -2636,10 +2502,6 @@ describe("fixes from the fourth audit round", () => {
 
 describe("fixes from the fifth audit round", () => {
     it("lets a multi-word query see the location", () => {
-        // REGRESSION from round four: narrowing the all-words pass to "the
-        // first two lines of searchText" cut the location out, because a
-        // description carries its own newlines. query:"basketball moody center"
-        // answered nothing on a night UT played at the Moody Center.
         const game = makeEvent({
             title: "University of Texas Men's Basketball vs Southern Utah",
             description: "TV: SEC Network+\nSecond paragraph.\nThird paragraph.",
@@ -2650,8 +2512,8 @@ describe("fixes from the fifth audit round", () => {
     });
 
     it("still refuses to match a loose query on the department alone", () => {
-        // The other half of the same trade: tags and departments sit after the
-        // scope break, so "art history" must not sweep Liberal ARTS events.
+        // The other half of the same trade: tags and departments sit after the scope break, so "art
+        // history" must not sweep Liberal ARTS events.
         const liberalArts = makeEvent({
             title: "Tea and Tawla",
             description: "A history of the game",
@@ -2663,9 +2525,6 @@ describe("fixes from the fifth audit round", () => {
     });
 
     it("finds the singular when the student types the plural", () => {
-        // "exhibitions" answered a confident nothing while "exhibition"
-        // returned four: a singular query already matched plural text through
-        // the open prefix, so only the plural query was dead.
         const row = makeEvent({ title: "Experimental Seeing: an exhibition" });
         expect(filterEvents([row], { query: "exhibitions" })).toHaveLength(1);
         expect(filterEvents([row], { query: "exhibition" })).toHaveLength(1);
@@ -2685,10 +2544,6 @@ describe("fixes from the fifth audit round", () => {
     });
 
     it("does not call a UT venue in Austin a road game", () => {
-        // The Lady Bird Johnson Wildflower Center is a UT unit in Austin, 17.4
-        // km from the Tower. A 15 km radius labelled Fortlandia and
-        // Luminations "NOT on campus" and onCampusOnly deleted all 47 of their
-        // instances over 30 days.
         const wildflower = makeEvent({
             title: "Fortlandia",
             locationName: "Lady Bird Johnson Wildflower Center",
@@ -2709,9 +2564,6 @@ describe("fixes from the fifth audit round", () => {
     });
 
     it("says when a series runs more than once on a day", () => {
-        // alsoAt only listed the kept day's siblings and the prose suppressed
-        // it whenever the series spanned days, so the extra showings appeared
-        // in neither.
         const rows = [
             makeEvent({ id: 5, instanceId: 1, start: "2026-12-05T14:00:00-06:00" }),
             makeEvent({ id: 5, instanceId: 2, start: "2026-12-05T20:00:00-06:00" }),
@@ -2725,8 +2577,8 @@ describe("fixes from the fifth audit round", () => {
 
 describe("small things the audits left", () => {
     it("accepts a category it prints on its own rows", async () => {
-        // The feed publishes "Study Break" and the tool rejected it as
-        // unknown, while displaying it on the row it came from.
+        // The feed publishes "Study Break" and the tool rejected it as unknown, while displaying it
+        // on the row it came from.
         const result = await call("find_events", {
             when: "this week",
             categories: ["Study Break"],
@@ -2735,8 +2587,8 @@ describe("small things the audits left", () => {
     });
 
     it("ignores punctuation wrapped around a query", () => {
-        // A quoted phrase bypassed the matcher and matched nothing; a bare "?"
-        // matched any description containing one.
+        // A quoted phrase bypassed the matcher and matched nothing; a bare "?" matched any
+        // description containing one.
         const row = makeEvent({ title: "Free food in the SAC" });
         expect(filterEvents([row], { query: '"free food"' })).toHaveLength(1);
         const other = makeEvent({ title: "Anything", description: "Who knows?" });
@@ -2749,12 +2601,6 @@ describe("small things the audits left", () => {
 
 describe("fixes from the sixth round", () => {
     it("does not return the whole calendar for a query it cannot pattern-match", () => {
-        // REGRESSION from round five. An empty needle is the "no query given"
-        // short-circuit, so trimming the punctuation off a query that has no
-        // [a-z0-9] in it at all -- any non-Latin script, or "!!!" -- returned
-        // every row in the window as if they had all matched. The window held
-        // 76 events and the tool presented all 76 as matches for a Chinese
-        // query, with no note saying the query had been dropped.
         const rows = [
             makeEvent({ id: 1, title: "Football vs Arkansas" }),
             makeEvent({ id: 2, title: "Chamber Music Recital" }),
@@ -2771,11 +2617,6 @@ describe("fixes from the sixth round", () => {
     });
 
     it("does not let a plural query match a shorter prefix", () => {
-        // REGRESSION from round five. The stem dropped the ending instead of
-        // making it optional, and the pattern has no right-hand boundary, so
-        // "bass" became the prefix "bas" and matched "basketball" -- while the
-        // vaguer "bas" was held to a whole word and matched only Bass Concert
-        // Hall. The exact query was less precise than the vague one.
         const bass = makeEvent({
             id: 1,
             title: "Buena Vista Social Club",
@@ -2816,10 +2657,9 @@ describe("fixes from the sixth round", () => {
 
 describe("plural stemming is an English rule, not a character count", () => {
     it("does not offer a stem that is its own common word", () => {
-        // "notes" minus "es" is "not", and "faces" minus "es" is "fac". Bounded
-        // or not, the word "not" appears in most descriptions, so `query:
-        // "notes"` returned three unrelated rows. "es" is only a plural ending
-        // after s, x, z, ch or sh.
+        // "notes" minus "es" is "not", and "faces" minus "es" is "fac". Bounded or not, the word
+        // "not" appears in most descriptions, so `query: "notes"` returned three unrelated rows.
+        // "es" is only a plural ending after s, x, z, ch or sh.
         const not = makeEvent({
             id: 1,
             title: "Album Release Tour",
@@ -2853,12 +2693,6 @@ describe("plural stemming is an English rule, not a character count", () => {
 
 describe("fixes from the seventh round", () => {
     it("counts every unlabelled row, not only the departmental ones", async () => {
-        // The note blamed departmental calendars, but the central calendar
-        // publishes rows with no category and no audience too. It said 4 rows
-        // were unreachable on a day where 11 were -- and the response's own
-        // arithmetic gave it away: 22 unfiltered, 11 filtered.
-        // A one-day window, so every row fits under the limit and the count
-        // can be checked exactly rather than inferred by subtraction.
         const all = await events({ when: "tomorrow", limit: 40 });
         expect(all.data.matched).toBeLessThanOrEqual(40);
         const unlabelled = all.data.events.filter(
@@ -2874,17 +2708,11 @@ describe("fixes from the seventh round", () => {
         if (unlabelled.length > 0) {
             expect(note).toBeDefined();
             expect(note).toContain(`${unlabelled.length} event(s)`);
-            // The point of the fix: central rows are counted too. If the feed
-            // ever stops publishing unlabelled central rows this is vacuous,
-            // so assert the premise rather than let it rot.
             expect(central.length).toBeGreaterThan(0);
         }
     });
 
     it("reaches an -ies plural from the singular, and back", () => {
-        // "a singular query already matches plural text" is only true of
-        // endings an open prefix can reach. `query: "library"` answered nothing
-        // while "libraries" returned two library events -- bass/bas in reverse.
         const lib = makeEvent({ title: "Staff Picks", description: "From the UT libraries" });
         expect(filterEvents([lib], { query: "library" })).toHaveLength(1);
         expect(filterEvents([lib], { query: "libraries" })).toHaveLength(1);
@@ -2897,9 +2725,6 @@ describe("fixes from the seventh round", () => {
     });
 
     it("cannot be emptied into matching everything by a combining mark", () => {
-        // fold() strips U+0300-U+036F, so the emptiness test had to move BEFORE
-        // the fold: `query: "́"` folded to "" and hit the match-all
-        // short-circuit, returning all 76 rows in the window.
         const rows = [makeEvent({ id: 1, title: "Football vs Arkansas" }), makeEvent({ id: 2 })];
         for (const query of ["́", "̀́", "́ ́", "̈"]) {
             expect(filterEvents(rows, { query })).toHaveLength(0);
@@ -2918,8 +2743,7 @@ describe("date ranges and open-ended windows", () => {
         expect(content[0]!.text).toContain("2026-12-01 to 2026-12-07");
         for (const event of data.events) {
             expect(event.start.slice(0, 10) >= "2026-12-01").toBe(true);
-            // Through the 7th, not up to it: a person asking 1st-to-7th means
-            // the 7th as well.
+            // Through the 7th, not up to it: a person asking 1st-to-7th means the 7th as well.
             expect(event.start.slice(0, 10) <= "2026-12-07").toBe(true);
         }
         const spelled = await events({ when: "2026-12-01 to 2026-12-07", limit: 40 });
@@ -2928,8 +2752,8 @@ describe("date ranges and open-ended windows", () => {
 
     it("reads an open-ended window", async () => {
         const { data, content } = await events({ when: "after 2026-12-01", limit: 40 });
-        // Bounded, and labelled with its real end: calling it "onwards" is
-        // what let a reader conclude the season ended in January.
+        // Bounded, and labelled with its real end: calling it "onwards" is what let a reader
+        // conclude the season ended in January.
         expect(content[0]!.text).toMatch(/2026-12-01 to \d{4}-\d{2}-\d{2}/);
         expect(content[0]!.text).not.toContain("onwards");
         expect(content[0]!.text).toContain("has not been read");
@@ -2954,11 +2778,11 @@ describe("date ranges and open-ended windows", () => {
             expect(result.isError).toBe(true);
             expect(result.content[0]!.text).toContain("2026-12-01..2026-12-07");
         }
-        // But an open end whose START is in the past is a question about the
-        // future, and must answer as the widest open window, not be refused.
+        // But an open end whose START is in the past is a question about the future, and must
+        // answer as the widest open window, not be refused.
         const wide = await events({ when: "after 2020-01-01", limit: 1 });
-        // MAX + 1 calendar days: day 0 through day MAX is what the fetch
-        // reads, so "next 60 days" (days 0-59) stops one day short of it.
+        // MAX + 1 calendar days: day 0 through day MAX is what the fetch reads, so "next 60 days"
+        // (days 0-59) stops one day short of it.
         const widest = await events({ when: `next ${MAX_WINDOW_DAYS + 1} days`, limit: 1 });
         expect(wide.data.matched).toBe(widest.data.matched);
         expect(wide.data.window.to).toBe(widest.data.window.to);
@@ -3036,10 +2860,6 @@ describe("only replaces the four narrowing parameters", () => {
 
 describe("the window never advertises more than it read", () => {
     it("clamps a range or an open end to the readable horizon, and says so", async () => {
-        // The guard used to test only the window's START, so these advertised
-        // a window ending years out, fetched 61 days and dropped the rest in
-        // silence. An `after` window already ENDS at the horizon, so it is
-        // never trimmed and must not claim to be.
         for (const when of ["next 999 days", "2026-12-01..2027-06-01", "after 2026-12-12"]) {
             const { data } = await events({ when, limit: 1 });
             const spanDays =
@@ -3056,8 +2876,8 @@ describe("the window never advertises more than it read", () => {
     });
 
     it("labels the window it used, not the one that was typed", async () => {
-        // A range opening in the past printed its typed start, so a reader
-        // could not tell whether the count covered those weeks.
+        // A range opening in the past printed its typed start, so a reader could not tell whether
+        // the count covered those weeks.
         const { data, content } = await events({ when: "2026-01-01..2026-12-07", limit: 1 });
         const from = data.window.from.slice(0, 10);
         expect(content[0]!.text).toContain(from);
@@ -3065,9 +2885,6 @@ describe("the window never advertises more than it read", () => {
     });
 
     it("widens, never narrows, as the open end moves earlier", async () => {
-        // "after <past date>" ended 60 days after THAT date, so a wider
-        // request answered over a narrower window: 29 rows where the same
-        // question asked from today found 314.
         const counts = [];
         for (const when of ["after 2026-09-24", "after 2026-10-01", "after 2020-01-01"]) {
             const { data } = await events({ when, limit: 1 });
@@ -3079,9 +2896,6 @@ describe("the window never advertises more than it read", () => {
 
 describe("notes only name parameters that exist", () => {
     it("never tells the caller to pass a parameter the schema refuses", async () => {
-        // Three notes still said onCampusOnly, venue "unknown" and freeFood
-        // after those four parameters became `only`, and the schema is strict,
-        // so following the advice was an error.
         const gone = ["onCampusOnly", "freeAdmission", "freeFood", 'venue "unknown"', "venue:"];
         const calls = [
             { when: "today", limit: 3 },
@@ -3104,9 +2918,9 @@ describe("notes only name parameters that exist", () => {
 
 describe("the far edge of the horizon", () => {
     it("includes the last day it can read", async () => {
-        // The horizon was the midnight that OPENS day 60, so clamping threw
-        // that whole day away: `after <today+60>` collapsed to a zero-width
-        // window and answered "Nothing" for a day holding real events.
+        // The horizon was the midnight that OPENS day 60, so clamping threw that whole day away:
+        // `after <today+60>` collapsed to a zero-width window and answered "Nothing" for a day
+        // holding real events.
         const last = new Date(CAMPUS_NOW.getTime() + MAX_WINDOW_DAYS * 86_400_000)
             .toISOString()
             .slice(0, 10);
@@ -3138,9 +2952,6 @@ describe("the far edge of the horizon", () => {
     });
 
     it("quotes the day the caller typed, inclusively, in the trim note", async () => {
-        // Both dates were exclusive midnights, so the note named the day AFTER
-        // each end: it told someone who typed 2027-01-21 they asked as far as
-        // 2027-01-22, and contradicted its own header.
         const { content } = await events({ when: "2026-12-01..2027-06-01", limit: 1 });
         const text = content[0]!.text;
         expect(text).toContain("You asked as far as 2027-06-01");
@@ -3152,9 +2963,6 @@ describe("the far edge of the horizon", () => {
     });
 
     it("refuses with the range that was typed, not an inverted one", async () => {
-        // Clamping an out-of-range request leaves `from` after `to`, so the
-        // refusal quoted a backwards pair matching neither the request nor any
-        // real window.
         const far = await call("find_events", { when: "2027-03-01 to 2027-04-01" });
         expect(far.isError).toBe(true);
         expect(far.content[0]!.text).toContain("2027-03-01 to 2027-04-01");
@@ -3167,10 +2975,6 @@ describe("the far edge of the horizon", () => {
 
 describe("the span label does not depend on the time of day", () => {
     it("says the number of days asked for, in the afternoon too", () => {
-        // The label counted from `now`, so from noon onwards Math.round
-        // dropped one: "next 30 days" became "the next 29 days" and
-        // "next 2 days" became "the next 1 days". The suite's clock is 09:00,
-        // so only a parseWindow call with a later one can see it.
         for (const hour of [0, 9, 12, 13, 17, 23]) {
             const at = new Date(CAMPUS_NOW);
             at.setUTCHours(hour + 6, 30, 0, 0);
@@ -3185,11 +2989,6 @@ describe("the span label does not depend on the time of day", () => {
 
 describe("an empty answer names the filter that emptied it", () => {
     it("suggests only filters that actually rescue the answer", async () => {
-        // The invariant that matters: every name it offers must really return
-        // events when dropped. Guessing broke it twice -- it blamed unlabelled
-        // rows for an "online events for students" query the venue filter had
-        // emptied, and told a caller whose category value was wrong that 37
-        // unlabelled rows were the problem and to use query, which they had.
         const combos: Record<string, unknown>[] = [
             { when: "this week", categories: ["Athletics"], query: "basketball" },
             { when: "this week", only: ["virtual", "hybrid"], audiences: ["Students"] },
@@ -3218,14 +3017,14 @@ describe("an empty answer names the filter that emptied it", () => {
                 exercised++;
             }
         }
-        // And at least one combination has to have produced a suggestion, or
-        // this test is asserting nothing.
+        // And at least one combination has to have produced a suggestion, or this test is asserting
+        // nothing.
         expect(exercised).toBeGreaterThan(0);
     });
 
     it("only suggests dropping a filter that would actually help", async () => {
-        // The suggestion runs the WHOLE pipeline, so following it returns
-        // rows rather than another empty answer.
+        // The suggestion runs the WHOLE pipeline, so following it returns rows rather than another
+        // empty answer.
         const { content } = await events({
             when: "this week",
             query: "a query matching nothing at all",
@@ -3233,8 +3032,8 @@ describe("an empty answer names the filter that emptied it", () => {
         });
         const suggestion = content[0]!.text;
         if (suggestion.includes("Nothing matched all of your filters")) {
-            // The query is the only cause here: dropping categories alone
-            // cannot rescue a query that matches nothing.
+            // The query is the only cause here: dropping categories alone cannot rescue a query
+            // that matches nothing.
             expect(suggestion).toContain("query");
             expect(suggestion).not.toContain("Dropping categories or");
         }

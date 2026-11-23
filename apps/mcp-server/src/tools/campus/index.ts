@@ -53,14 +53,7 @@ const MAX_ROWS = 40;
 const DEFAULT_ROWS = 15;
 const DEFAULT_NEAR_METRES = 400;
 
-/**
- * The `only` vocabulary.
- *
- * One enumerated list replaced a venue enum and three booleans. Four separate
- * parameters meant a caller had to know in advance what each allowed; these
- * read off the schema. The venue half is a SET, so "virtual or hybrid" is
- * sayable, which the enum could not express.
- */
+/** The `only` vocabulary. */
 const ONLY_VENUES = [
     { label: "in person", venue: "inperson" },
     { label: "virtual", venue: "virtual" },
@@ -144,16 +137,7 @@ const EVENTS_OUTPUT = z.object({
             occurrences: z.number(),
             /** Start of its last occurrence in the window, when it runs more than once. */
             lastStart: z.string().nullable(),
-            /**
-             * Every other start time in the window, when there are any.
-             *
-             * Same-day only at first, which hid the extra showings of a series
-             * that also spans days. `lastStart` is a member of this too.
-             *
-             * A second showing used to be dropped: "Buena Vista Social Club"
-             * plays Bass Concert Hall at 2pm and 8pm and only the matinee was
-             * reported.
-             */
+            /** Every other start time in the window, when there are any. */
             alsoAt: z.array(z.string()),
             description: z.string().nullable(),
             url: z.string(),
@@ -167,23 +151,9 @@ export interface Window {
     from: Date;
     to: Date;
     label: string;
-    /**
-     * The end the caller asked for, when it reached past what this tool reads.
-     *
-     * Every window used to be at most 14 days wide, so a guard on the window's
-     * START was sufficient by accident. A range or an open end can start
-     * tomorrow and finish years out, and nothing re-checked the end: the tool
-     * printed "the next 999 days" over a window ending in 2029, fetched 61
-     * days, and dropped the rest without a word.
-     */
+    /** The end the caller asked for, when it reached past what this tool reads. */
     requestedTo?: Date;
-    /**
-     * Set when the caller asked for no end at all.
-     *
-     * An open end is always cut at the horizon, so `to > horizon` is never
-     * true for it and the trim went structurally unreported -- on the tool's
-     * own documented example, which is what the clamp was written to fix.
-     */
+    /** Set when the caller asked for no end at all. */
     openEnded?: boolean;
 }
 
@@ -197,9 +167,9 @@ function isoOf(at: Date): string {
 /**
  * The last day INSIDE a window, whose `to` is an exclusive midnight.
  *
- * The trim note reached for `toISOString()` instead and named the day AFTER
- * both ends: it told a caller who typed 2027-01-21 that they had asked as far
- * as 2027-01-22, and contradicted the label printed three lines above it.
+ * The trim note reached for `toISOString()` instead and named the day AFTER both ends: it told a
+ * caller who typed 2027-01-21 that they had asked as far as 2027-01-22, and contradicted the label
+ * printed three lines above it.
  */
 function lastDayOf(to: Date): string {
     return isoOf(new Date(to.getTime() - 1));
@@ -210,13 +180,7 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const today = austinNow(now);
     const dayStart = (offset: number) =>
         austinInstant(today.year, today.month, today.day + offset, 0);
-    /**
-     * A window of whole days.
-     *
-     * A span that starts TODAY opens at `now`, which is what "today" already
-     * did: asked at 22:11 for "wednesday", the midnight start returned 56
-     * events of which 31 had already finished, with nothing saying so.
-     */
+    /** A window of whole days. */
     const span = (fromOffset: number, toOffset: number, label: string): Window => ({
         from: fromOffset === 0 ? now : dayStart(fromOffset),
         to: dayStart(toOffset),
@@ -234,15 +198,12 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         }).format(at);
     };
 
-    // As far ahead as one call can actually read, EXCLUSIVE.
-    //
-    // `dayStart(MAX_WINDOW_DAYS)` is the midnight that OPENS the last readable
-    // day, so clamping to it threw that whole day away: `after <today+60>`
-    // collapsed to a zero-width window and answered "Nothing on UT's
-    // calendar" for a day holding 16 events, one of them a basketball game.
-    // `outOfRange` admits a start up to day 60 and `daysNeeded` fetches 61
-    // days, so the readable set is days 0 through 60 and the exclusive end is
-    // the midnight after day 60.
+    // As far ahead as one call can actually read, EXCLUSIVE.  `dayStart(MAX_WINDOW_DAYS)` is the
+    // midnight that OPENS the last readable day, so clamping to it threw that whole day away:
+    // `after <today+60>` collapsed to a zero-width window and answered "Nothing on UT's calendar"
+    // for a day holding 16 events, one of them a basketball game. `outOfRange` admits a start up to
+    // day 60 and `daysNeeded` fetches 61 days, so the readable set is days 0 through 60 and the
+    // exclusive end is the midnight after day 60.
     const horizon = dayStart(MAX_WINDOW_DAYS + 1);
     /** Clamps a window to the horizon, and remembers what was asked for. */
     const reachable = (from: Date, to: Date, label: (from: Date, to: Date) => string): Window => {
@@ -255,8 +216,8 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
             ...(to > horizon ? { requestedTo: to } : {}),
         };
     };
-    // Trailing punctuation is how a person types and how relayed text
-    // arrives: "tonight?" and "Tonight!" were rejected outright.
+    // Trailing punctuation is how a person types and how relayed text arrives: "tonight?" and
+    // "Tonight!" were rejected outright.
     const value = (phrase ?? "today")
         .trim()
         .toLowerCase()
@@ -286,28 +247,21 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const weekday = WEEKDAYS.indexOf(value.replace(/^(next|this|coming)\s+/, ""));
     if (weekday >= 0) {
         const ahead = (weekday - today.dayIndex + 7) % 7;
-        // "next friday" means the one after this coming Friday. A flat +7
-        // overshot whenever the named day is EARLIER in the week than today:
-        // `ahead` has already crossed into next week, so asked on a Thursday
-        // "next monday" landed on the 30th instead of the 23rd. Only add a
-        // week when the target is still inside this Monday-to-Sunday week.
         const sameWeek = today.dayIndex + ahead <= 6;
         const offset = /^next\s/.test(value) && sameWeek ? ahead + 7 : ahead;
         return span(offset, offset + 1, dated(offset));
     }
 
-    // "next 30 days", "next 3 days", "30 days". Bounded by the caller's
-    // out-of-range check, so an absurd N gets the same message as a far date.
+    // "next 30 days", "next 3 days", "30 days". Bounded by the caller's out-of-range check, so an
+    // absurd N gets the same message as a far date.
     const spanDays = /^(?:next\s+|the\s+next\s+)?(\d{1,3})\s*days?$/.exec(value);
     if (spanDays) {
         const days = Number(spanDays[1]);
         if (days < 1) return null;
-        // Counted in whole days from TODAY's midnight, not from `now`. From
-        // `now` the duration is `days` minus however much of today has gone,
-        // so Math.round dropped one from noon onwards: every afternoon,
-        // "next 30 days" was labelled "the next 29 days" and "next 2 days"
-        // became "the next 1 days". The suite's clock is 09:00, so it could
-        // never see it.
+        // Counted in whole days from TODAY's midnight, not from `now`. From `now` the duration is
+        // `days` minus however much of today has gone, so Math.round dropped one from noon onwards:
+        // every afternoon, "next 30 days" was labelled "the next 29 days" and "next 2 days" became
+        // "the next 1 days". The suite's clock is 09:00, so it could never see it.
         return reachable(now, dayStart(days), (_from, to) => {
             const span = Math.round((to.getTime() - dayStart(0).getTime()) / 86_400_000);
             return `the next ${Math.max(1, span)} days`;
@@ -327,10 +281,6 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         if (!start || !end) return null;
         if (end.midnight < start.midnight) return null;
         const to = austinInstant(end.year, end.month, end.day + 1, 0);
-        // Labelled from the window actually used, not from what was typed: a
-        // range starting in the past printed "2026-11-01 to 2026-12-07" over a
-        // window that opened today, and a reader could not tell whether the
-        // count included November.
         return reachable(
             start.midnight,
             to,
@@ -338,8 +288,8 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
         );
     }
 
-    // "after 2026-12-01", "from 2026-12-01", "2026-12-01 onwards". Runs to the
-    // far edge of what one call can serve; the caller trims and says so.
+    // "after 2026-12-01", "from 2026-12-01", "2026-12-01 onwards". Runs to the far edge of what one
+    // call can serve; the caller trims and says so.
     const open =
         /^(?:after|from|since|starting)\s+(\d{4}-\d{2}-\d{2})$|^(\d{4}-\d{2}-\d{2})\s+(?:onwards?|on)$/.exec(
             value,
@@ -368,20 +318,14 @@ export function parseWindow(phrase: string | undefined, now = new Date()): Windo
     const single = isoDay(value);
     if (single) {
         const to = austinInstant(single.year, single.month, single.day + 1, 0);
-        // Today by its date is still today: open at `now` rather than replaying
-        // the morning.
+        // Today by its date is still today: open at `now` rather than replaying the morning.
         const from = single.midnight < now && now < to ? now : single.midnight;
         return { from, to, label: value };
     }
     return null;
 }
 
-/**
- * One "YYYY-MM-DD", or null.
- *
- * Rejects a date that rolled: "2026-02-30" would otherwise answer about 2
- * March without saying so.
- */
+/** One "YYYY-MM-DD", or null. */
 function isoDay(
     value: string,
 ): { year: number; month: number; day: number; midnight: Date } | null {
@@ -723,8 +667,8 @@ export function registerCampusTools(server: McpServer) {
                         .optional()
                         .describe(`Rows to return. Default ${DEFAULT_ROWS}, max ${MAX_ROWS}.`),
                 })
-                // A non-strict schema drops an unknown key and ignores the filter: in
-                // dining that meant an allergy filter returning an unfiltered menu.
+                // A non-strict schema drops an unknown key and ignores the filter: in dining that
+                // meant an allergy filter returning an unfiltered menu.
                 .strict(),
         },
         guard(
@@ -752,10 +696,6 @@ export function registerCampusTools(server: McpServer) {
                 }
                 const unreachable = outOfRange(window, now);
                 if (unreachable) {
-                    // What they typed, not `window.label`: clamping a range
-                    // that is out of range leaves `from` after `to`, so the
-                    // refusal quoted a backwards pair matching neither the
-                    // request nor any real window.
                     throw new Error(
                         `Can't answer for ${input.when?.trim() || window.label}: ${unreachable}`,
                     );
@@ -787,8 +727,8 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
 
-                // A blank `near` skipped the guard, so the radius was never applied
-                // and a 50 m request returned the whole campus.
+                // A blank `near` skipped the guard, so the radius was never applied and a 50 m
+                // request returned the whole campus.
                 if (input.near !== undefined && !input.near.trim()) {
                     throw new Error(
                         'near was empty. Give a building, e.g. "GDC" or "the SAC", or leave it out.',
@@ -813,11 +753,6 @@ export function registerCampusTools(server: McpServer) {
                     }
                     near = hit.building;
                 }
-                // Bound to a const so it narrows inside the closures below.
-                // One enumerated list instead of a venue enum and three
-                // booleans. The model could not see what the four of them
-                // allowed; it can read this one off the schema. Venue is a set
-                // here, so "virtual or hybrid" is sayable, which it was not.
                 const only = new Set(input.only ?? []);
                 const venues = ONLY_VENUES.filter((v) => only.has(v.label)).map((v) => v.venue);
                 const freeFood = only.has("free food");
@@ -827,10 +762,6 @@ export function registerCampusTools(server: McpServer) {
                 const anchor = near;
                 const radius = input.withinMetres ?? DEFAULT_NEAR_METRES;
 
-                // Two sources, settled independently. The central calendar
-                // carries almost no departmental activity: cross-checked for
-                // one week, 23 of 23 CS events were absent from it. Neither
-                // source failing may take the other's answer down.
                 const days = daysNeeded(window, now);
                 const [central, departments] = await Promise.all([
                     getCalendar(days).then(
@@ -839,18 +770,17 @@ export function registerCampusTools(server: McpServer) {
                     ),
                     getDepartmentCalendars(now, days),
                 ]);
-                // The central calendar is the only one whose failure is fatal:
-                // without it there is no answer worth giving.
+                // The central calendar is the only one whose failure is fatal: without it there is
+                // no answer worth giving.
                 if (!central.ok) throw central.reason;
-                // `getDepartmentCalendars` settles every source internally, so
-                // it resolves even when all of them fail; the fallback that
-                // used to sit here was unreachable.
+                // `getDepartmentCalendars` settles every source internally, so it resolves even
+                // when all of them fail; the fallback that used to sit here was unreachable.
                 const extra = departments;
                 const calendar = {
                     ...central.value,
-                    // byStart compares INSTANTS. Sources write the same moment
-                    // as "...Z" or "...-06:00", and a string compare put Law
-                    // and Cockrell rows six hours out of place.
+                    // byStart compares INSTANTS. Sources write the same moment as "...Z" or
+                    // "...-06:00", and a string compare put Law and Cockrell rows six hours out of
+                    // place.
                     events: [...central.value.events, ...extra.events].sort(byStart),
                 };
                 const sourceNote = extra.failed.length
@@ -905,13 +835,6 @@ export function registerCampusTools(server: McpServer) {
                 }
                 if (sourceNote) notes.push(sourceNote);
 
-                // A department that matches nothing is the tool's most
-                // misleading empty answer: asked for "Computer Science" it said
-                // "Nothing on UT's calendar", and the agent reported that there
-                // are no CS events at UT this week. There were 23 that week, on
-                // the department's own calendar. So say what this field holds.
-                // Collapsed, or this counts occurrence rows and reports 170
-                // events in a window the line above calls 96.
                 const needsWindowCount = Boolean(input.department) || venues.length > 0;
                 const inWindowAll = needsWindowCount
                     ? collapseSeries(
@@ -919,11 +842,6 @@ export function registerCampusTools(server: McpServer) {
                       ).map((entry) => entry.event)
                     : [];
                 const inWindow = input.department ? inWindowAll : [];
-                // The DEPARTMENT has to be what emptied the list. Gating on
-                // "the answer is empty" fired for the venue, query, freeFood
-                // and freeAdmission filters too, so the tool told a student
-                // there are no law events this week while listing "School of
-                // Law" among the departments present in the same sentence.
                 const departmentMatched = input.department
                     ? filterEvents(inWindow, { department: input.department }).length
                     : 0;
@@ -940,13 +858,6 @@ export function registerCampusTools(server: McpServer) {
                             "try `query` instead, and treat this as 'not in the central calendar' rather than 'not happening'.",
                     );
                 }
-                // Whether the probe should match loosely is a property of the
-                // QUERY, not of the fully-filtered answer. With a category
-                // filter on, both passes come back empty, so `looseNote` is
-                // null, so a strict probe found nothing and the note went
-                // silent -- on a call where 11 rows were permanently out of
-                // that filter's reach. Same silence as the venue note's, by a
-                // different route.
                 const looseProbe =
                     Boolean(looseNote) ||
                     (Boolean(filters.query) &&
@@ -956,12 +867,10 @@ export function registerCampusTools(server: McpServer) {
                             query: filters.query,
                         }).length === 0);
 
-                // Every "held back" count has to run the WHOLE pipeline the
-                // answer ran. `filters` omits freeFood and the radius, which
-                // are applied after filterEvents, so a count taken from it
-                // promises rows the follow-up call it suggests cannot return.
-                // Three notes got this wrong one at a time; this is the single
-                // path they now share.
+                // Every "held back" count has to run the WHOLE pipeline the answer ran. `filters`
+                // omits freeFood and the radius, which are applied after filterEvents, so a count
+                // taken from it promises rows the follow-up call it suggests cannot return. Three
+                // notes got this wrong one at a time; this is the single path they now share.
                 const heldBack = ({
                     unlabelledOnly,
                     skipFreeFood,
@@ -969,11 +878,6 @@ export function registerCampusTools(server: McpServer) {
                 }: EventFilters & { unlabelledOnly?: boolean; skipFreeFood?: boolean }): number => {
                     let probe = filterEvents(calendar.events, filter);
                     if (unlabelledOnly) {
-                        // Any row with neither field, whatever calendar it came
-                        // from. Counting only the departmental ones said 4 rows
-                        // were unreachable on a day where 11 were -- and the
-                        // response's own arithmetic gave it away, since the
-                        // same day answered 22 unfiltered and 11 filtered.
                         probe = probe.filter(
                             (event) => !event.categories.length && !event.audiences.length,
                         );
@@ -995,12 +899,6 @@ export function registerCampusTools(server: McpServer) {
                 };
 
                 if (venues.length && !venues.includes("unknown")) {
-                    // Counted against the user's OTHER filters, not the whole
-                    // window. A window-wide count told someone asking for
-                    // virtual CS events that 5 rows were held back, and
-                    // following the advice returned none of them: all five were
-                    // McCombs rows the department filter excluded anyway.
-                    // `looseQuery` too, so a loose answer gets a loose probe.
                     const unknown = heldBack({
                         ...filters,
                         venues: ["unknown"],
@@ -1014,20 +912,12 @@ export function registerCampusTools(server: McpServer) {
                 }
 
                 if (input.categories?.length || input.audiences?.length) {
-                    // Against the user's OTHER filters, not the bare window:
-                    // counting the window claimed 33 rows were unreachable on a
-                    // call that had narrowed itself to 14 of them, then 30 on a
-                    // freeFood call where exactly 1 was reachable.
                     const { categories: _c, audiences: _a, ...others } = filters;
                     let unlabelled = heldBack({
                         ...others,
                         looseQuery: looseProbe,
                         unlabelledOnly: true,
                     });
-                    // An empty answer has to explain itself. With the other
-                    // filters ANDed in this came back 0 on a call the tool's
-                    // own examples suggest, so the one filter that CANNOT
-                    // reach a departmental row said nothing at all.
                     if (unlabelled > 0) {
                         notes.push(
                             `${unlabelled} event(s) in this window publish no category or audience at all, so this filter cannot reach them. Use query, or department where they have one, for those.`,
@@ -1071,9 +961,9 @@ export function registerCampusTools(server: McpServer) {
                     matched = series.map((entry) => entry.event);
                     const dropped = before - series.length;
                     if (dropped > 0) {
-                        // Counted apart. Lumping them together said "38
-                        // excluded by the radius" where 32 had no coordinates
-                        // at all, so widening it could only ever find 6.
+                        // Counted apart. Lumping them together said "38 excluded by the radius"
+                        // where 32 had no coordinates at all, so widening it could only ever find
+                        // 6.
                         const unplaceable = beforeRows.filter(
                             ({ event }) => event.latitude === null || event.longitude === null,
                         ).length;
@@ -1103,12 +993,6 @@ export function registerCampusTools(server: McpServer) {
                     );
                 }
 
-                // An empty answer has to say WHICH filter emptied it, and the
-                // only honest way to know is to drop each one and look. Guessing
-                // got it wrong twice: it blamed unlabelled rows for an
-                // "online events for students" query the venue filter had
-                // emptied, and told someone whose category value was simply
-                // wrong that 37 unlabelled rows were the problem.
                 if (series.length === 0) {
                     const alternatives: [string, EventFilters][] = [];
                     if (filters.query) {
@@ -1141,8 +1025,8 @@ export function registerCampusTools(server: McpServer) {
                             { ...filters, onCampusOnly: undefined },
                         ]);
                     }
-                    // Through the whole pipeline, so freeFood and the radius
-                    // count too and the suggestion can actually be followed.
+                    // Through the whole pipeline, so freeFood and the radius count too and the
+                    // suggestion can actually be followed.
                     const blame = alternatives
                         .filter(([, without]) => heldBack(without) > 0)
                         .map(([name]) => name);
@@ -1157,9 +1041,9 @@ export function registerCampusTools(server: McpServer) {
                     }
                 }
 
-                // Pushed here, after every filter. The note says "these
-                // matched", and freeFood or the radius could empty the answer
-                // after it had been decided, leaving it describing nothing.
+                // Pushed here, after every filter. The note says "these matched", and freeFood or
+                // the radius could empty the answer after it had been decided, leaving it
+                // describing nothing.
                 if (looseNote && series.length > 0) notes.push(looseNote);
 
                 const limit = input.limit ?? DEFAULT_ROWS;
@@ -1245,10 +1129,6 @@ export function registerCampusTools(server: McpServer) {
                         mentionsFreeFood: mentionsFreeFood(event),
                         onCampus: onCampus(event),
                         occurrences,
-                        // Every extra start in the window, not only the kept
-                        // day's: a series running several days with two
-                        // showings on some of them hid the extras in both the
-                        // prose and the data.
                         alsoAt: starts.filter((t) => t !== event.start),
                         lastStart,
                         description: event.description,
@@ -1265,18 +1145,8 @@ export function registerCampusTools(server: McpServer) {
                           ...out.map((row) =>
                               [
                                   `${row.when} — ${row.title}`,
-                                  // Both parts when they differ. Printing only
-                                  // the room gave lines like "2.106", and for a
-                                  // Pickle-campus event "2.102" while discarding
-                                  // "JJ Pickle Campus ROC BLDG. 196".
                                   `  ${
                                       [row.locationName, row.room]
-                                          // Drops a part that merely RESTATES
-                                          // the other: an exact-match filter
-                                          // left "WCP 2.112 2.112" and 59 rows
-                                          // of "Benson Latin American
-                                          // Collection Nettie Lee Benson
-                                          // Latin American Collection, ...".
                                           .filter((part, i, all) => {
                                               if (!part) return false;
                                               const squash = (v: string) =>
@@ -1285,8 +1155,8 @@ export function registerCampusTools(server: McpServer) {
                                               return !all.some((other, j) => {
                                                   if (j === i || !other) return false;
                                                   const them = squash(other);
-                                                  // Keep the longer of a pair
-                                                  // where one contains the other.
+                                                  // Keep the longer of a pair where one contains
+                                                  // the other.
                                                   return (
                                                       them.includes(self) &&
                                                       (them.length > self.length || j < i)
@@ -1296,15 +1166,13 @@ export function registerCampusTools(server: McpServer) {
                                           .join(", ") || "location not given"
                                   }` +
                                       (row.buildingCode ? ` [${row.buildingCode}]` : "") +
-                                      // The distance too, not just the walk
-                                      // time: it is what the rows are ordered
-                                      // by, so a reader can see the ranking.
+                                      // The distance too, not just the walk time: it is what the
+                                      // rows are ordered by, so a reader can see the ranking.
                                       (row.metresAway !== null
                                           ? ` · ${row.metresAway} m, ~${row.walkMinutes} min walk`
                                           : ""),
-                                  // Each segment supplies its own newline. The
-                                  // venue line had none, so it glued onto
-                                  // whatever followed it.
+                                  // Each segment supplies its own newline. The venue line had none,
+                                  // so it glued onto whatever followed it.
                                   (row.venue === "virtual"
                                       ? "  online\n"
                                       : row.venue === "hybrid"
@@ -1317,9 +1185,8 @@ export function registerCampusTools(server: McpServer) {
                                             (row.lastStart
                                                 ? `, last on ${when(row.lastStart, row.allDay)}`
                                                 : "") +
-                                            // Also when it spans days: a
-                                            // series with two showings on some
-                                            // of them hid the extras entirely.
+                                            // Also when it spans days: a series with two showings
+                                            // on some of them hid the extras entirely.
                                             (row.alsoAt.length > row.occurrences - 1
                                                 ? ", and more than once on some days"
                                                 : "") +

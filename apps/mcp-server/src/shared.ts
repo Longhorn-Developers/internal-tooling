@@ -47,8 +47,8 @@ export function decode(s: string): string {
         if (e[0] === "#") {
             const n =
                 e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-            // Past U+10FFFF fromCodePoint throws, which would abort the whole
-            // page parse over one bad entity in third-party markup.
+            // Past U+10FFFF fromCodePoint throws, which would abort the whole page parse over one
+            // bad entity in third-party markup.
             return Number.isFinite(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
         }
         return NAMED[e.toLowerCase()] ?? m;
@@ -56,9 +56,8 @@ export function decode(s: string): string {
 }
 
 /**
- * Remove tags, keeping the text between them. Scans linearly rather than using
- * a regex, so a `>` inside a quoted attribute does not end the tag early and
- * there is no backtracking to blow up on.
+ * Remove tags, keeping the text between them. Scans linearly rather than using a regex, so a `>`
+ * inside a quoted attribute does not end the tag early and there is no backtracking to blow up on.
  */
 function stripTags(html: string): string {
     let out = "";
@@ -75,9 +74,8 @@ function stripTags(html: string): string {
             continue;
         }
 
-        // A `<` that cannot start a tag is literal text. Without this, a stray
-        // "a < b" would open quote tracking on the next apostrophe and swallow
-        // the rest of the fragment.
+        // A `<` that cannot start a tag is literal text. Without this, a stray "a < b" would open
+        // quote tracking on the next apostrophe and swallow the rest of the fragment.
         if (!/[a-zA-Z/!?]/.test(html[lt + 1] ?? "")) {
             out += "<";
             i = lt + 1;
@@ -131,17 +129,17 @@ const UA =
 
 type Entry = { value: unknown; expires: number };
 
-// memo (per isolate) -> Cache API (per colo) -> UT.
-// The Cache API holds the parsed, trimmed value rather than the upstream body,
-// so a hit reads a few KB instead of re-parsing the 1.9 MB menu feed.
+// memo (per isolate) -> Cache API (per colo) -> UT. The Cache API holds the parsed, trimmed value
+// rather than the upstream body, so a hit reads a few KB instead of re-parsing the 1.9 MB menu
+// feed.
 const memo = new Map<string, Entry>();
 const inflight = new Map<string, Promise<unknown>>();
 const failures = new Map<string, { error: unknown; expires: number }>();
 
 const CACHE_HOST = "https://ut-mcp.cache";
 
-// Keys include recipe numbers, so bound this. Map keeps insertion order, so
-// re-inserting on read gives an LRU.
+// Keys include recipe numbers, so bound this. Map keeps insertion order, so re-inserting on read
+// gives an LRU.
 const MEMO_MAX = 256;
 
 /** Remember failures briefly so a UT outage doesn't mean one origin hit per request. */
@@ -291,15 +289,7 @@ export async function getText(url: string, ttlSeconds = 600): Promise<string> {
     return body;
 }
 
-/**
- * `getText` plus a guarded parse.
- *
- * A bare `JSON.parse` on an upstream body puts "Unexpected token '<', \"<!DOCTYPE
- * \"... is not valid JSON" in front of a student the first time the service
- * answers with an error page, a maintenance notice or an SSO redirect, because
- * tool handlers forward `error.message` verbatim. The host name is in the
- * message so the answer says which service is having trouble.
- */
+/** `getText` plus a guarded parse. */
 export async function getJson<T>(url: string, ttlSeconds = 600): Promise<T> {
     const body = await getText(url, ttlSeconds);
     try {

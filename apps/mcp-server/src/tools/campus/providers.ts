@@ -1,19 +1,3 @@
-// Departmental calendars. UT's central calendar carries almost none of this:
-// over 60 days it has 245 events and only 23 department values, nearly all
-// arts, student affairs and HR.
-//
-// There is no single format. Three families cover the three sources worth
-// reading, and each is the cheapest structured endpoint that site offers:
-//
-//   law         ICS feed              135 events, with locations
-//   mccombs     LiveWhale JSON        150 events, no location on this endpoint
-//   cockrell    WordPress REST        5 events, location in post meta
-//
-// Moody, Nursing, Fine Arts, Texas Global, Liberal Arts, the iSchool and
-// Physics expose none of these and would each need a bespoke HTML parser, which
-// is how Longhorn Loop reached 8 of 11 scrapers broken. Fine Arts is also
-// already the best-covered department in the central calendar.
-
 import { cached, decode, getJson, getText, text } from "../../shared.ts";
 import {
     austinInstant,
@@ -36,13 +20,7 @@ export const COCKRELL_SOURCE = "cockrell.utexas.edu";
 
 // ------------------------------------------------------------------- law, ICS
 
-/**
- * ICS unfolding, which has to happen before anything else.
- *
- * RFC 5545 wraps a long line by starting the continuation with a space or tab,
- * so a LOCATION or DESCRIPTION arrives split across lines and a naive line
- * parse reads half of it.
- */
+/** ICS unfolding, which has to happen before anything else. */
 export function unfoldIcs(body: string): string {
     return body.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
 }
@@ -50,11 +28,6 @@ export function unfoldIcs(body: string): string {
 /**
  * "20261118T083000", or a trailing Z for UTC, to an ISO string with Austin's
  * offset -- the form `CampusEvent.start` promises.
- *
- * No TZID parameter: every zone this feed names is Central, and accepting one
- * while ignoring it implied otherwise. A date-only value goes through
- * `austinInstant` too, so an all-day event in CDT is midnight rather than the
- * 01:00 a hard-coded -06:00 produced.
  */
 export function icsInstant(value: string): string | null {
     const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(value.trim());
@@ -106,8 +79,8 @@ export function parseIcs(body: string, source: EventSource, department: string):
 }
 
 /**
- * Every law description ends with the same accessibility trailer, which made
- * `query: "accommodation"` return 11 law events and nothing else.
+ * Every law description ends with the same accessibility trailer, which made `query:
+ * "accommodation"` return 11 law events and nothing else.
  */
 function lawDescription(raw: string): string | null {
     const body = text(raw).split(/To request an accommodation|Special Events Office/i)[0] ?? "";
@@ -142,10 +115,6 @@ interface LiveWhaleRow {
  * event that says neither is reported as `unknown` rather than asserted to be
  * in person, which was wrong in both directions -- the in-person filter
  * returned "MSF Virtual Office Hours" and the virtual filter returned nothing.
- *
- * `supported_fields` advertises a location and no spelling of a field-selection
- * parameter returns it. Loop gets locations by fetching each event's own page,
- * which is one subrequest per event and too expensive here.
  */
 function venueFromTitle(title: string): VenueType {
     if (/\b(virtual|online|zoom|webinar)\b/i.test(title)) return "virtual";
@@ -181,9 +150,9 @@ export function parseLiveWhale(payload: unknown): CampusEvent[] {
                 canceled: Boolean(row.is_canceled),
                 venue: venueFromTitle(clean),
                 freeAdmission: isFree(row.cost),
-                // LiveWhale gives every occurrence its own id, so without this
-                // one weekday series was 13 separate rows. `gid` is a calendar
-                // group, not a series, so the title and link are the key.
+                // LiveWhale gives every occurrence its own id, so without this one weekday series
+                // was 13 separate rows. `gid` is a calendar group, not a series, so the title and
+                // link are the key.
                 seriesKey: `${clean}|${row.url ?? ""}`,
             }),
         );
@@ -191,12 +160,7 @@ export function parseLiveWhale(payload: unknown): CampusEvent[] {
     return out;
 }
 
-/**
- * Pages until the feed runs out, up to MAX_PAGES.
- *
- * `per_page=100` alone read 100 of the 150 events the payload's own
- * `meta.total_results` declares, and said nothing about the other 50.
- */
+/** Pages until the feed runs out, up to MAX_PAGES. */
 const MAX_PAGES = 3;
 
 async function mccombsEvents(): Promise<CampusEvent[]> {
@@ -225,9 +189,8 @@ interface WpRow {
 }
 
 /**
- * Post meta is untyped, so a field that arrives as an object is treated as
- * absent rather than stringified into "[object Object]" and then parsed as a
- * date or a room.
+ * Post meta is untyped, so a field that arrives as an object is treated as absent rather than
+ * stringified into "[object Object]" and then parsed as a date or a room.
  */
 const metaString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
@@ -262,16 +225,15 @@ export function parseWordPress(payload: unknown): CampusEvent[] {
                 start: centralIso(
                     austinInstant(y, mo, d, startClock?.[0] ?? 0, startClock?.[1] ?? 0),
                 ),
-                // `cockrell_event_end_date` is its own field, so a multi-day
-                // event used to end on its start date and read as one day.
+                // `cockrell_event_end_date` is its own field, so a multi-day event used to end on
+                // its start date and read as one day.
                 end: endClock
                     ? centralIso(austinInstant(ey, emo, ed, endClock[0], endClock[1]))
                     : null,
                 allDay: !startClock,
                 description: null,
-                // The field carries markup: "\"HQ\" Room, Floor 1<br>North
-                // Tower, EER Building". `text` flattens it so the resolver sees
-                // one string.
+                // The field carries markup: "\"HQ\" Room, Floor 1<br>North Tower, EER Building".
+                // `text` flattens it so the resolver sees one string.
                 room: text(metaString(meta["cockrell_event_location"])) || null,
                 url: row.link?.trim() || `https://${COCKRELL_SOURCE}`,
                 department: "Cockrell School of Engineering",
@@ -286,8 +248,8 @@ export function parseWordPress(payload: unknown): CampusEvent[] {
 async function cockrellEvents(): Promise<CampusEvent[]> {
     return cached(`cockrell:v${CACHE_VERSION}`, TTL_SECONDS, async () => {
         const out: CampusEvent[] = [];
-        // WordPress reports the page count in a header, which `getJson` does
-        // not surface, so a full page is taken as a hint there may be another.
+        // WordPress reports the page count in a header, which `getJson` does not surface, so a full
+        // page is taken as a hint there may be another.
         for (let page = 1; page <= MAX_PAGES; page++) {
             const rows = await getJson<unknown[]>(
                 `https://${COCKRELL_SOURCE}/wp-json/wp/v2/event?per_page=100&page=${page}`,
@@ -308,20 +270,10 @@ export interface DepartmentResult {
     failed: string[];
 }
 
-/**
- * Every departmental calendar, each settled on its own.
- *
- * One source failing must not take the others down, which is the whole reason
- * these are separate cache entries with their own TTLs: a warm cache costs no
- * subrequests at all, and a cold one costs five.
- */
+/** Every departmental calendar, each settled on its own. */
 export async function getDepartmentCalendars(now: Date, days: number): Promise<DepartmentResult> {
     const sources: { id: string; run: () => Promise<CampusEvent[]> }[] = [
         {
-            // CS settles its months internally and reports which ones failed,
-            // so reading only `.events` would swallow a total outage. A partial
-            // loss stays quiet: some months answered, and the alternative is a
-            // note about a month the question may not even touch.
             id: CS_SOURCE,
             run: async () => {
                 const result = await getCsCalendar(now, days);
@@ -342,7 +294,6 @@ export async function getDepartmentCalendars(now: Date, days: number): Promise<D
         if (result.status === "fulfilled") events.push(...result.value);
         else failed.push(sources[i]!.id);
     });
-    // No sort here: index.ts sorts the merged list, which is the only order
-    // a caller sees.
+    // No sort here: index.ts sorts the merged list, which is the only order a caller sees.
     return { events, failed };
 }

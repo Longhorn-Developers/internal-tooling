@@ -123,20 +123,14 @@ export const ALL_BUILDINGS: readonly UtBuilding[] = [...BY_CODE.values()].sort((
 
 /** Uppercase, punctuation to spaces, whitespace collapsed. */
 function normalize(value: string): string {
-    return (
-        value
-            // Accents folded first. Otherwise a combining mark becomes a word
-            // BREAK: "PERRY-CASTANEDA" arrived as "PERRY CASTA EDA", which matched
-            // no token and produced not even a suggestion -- for a name the events
-            // tool prints on its own rows.
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toUpperCase()
-            .replace(/[&.'’]/g, "")
-            .replace(/[^A-Z0-9]+/g, " ")
-            .trim()
-            .replace(/\s+/g, " ")
-    );
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase()
+        .replace(/[&.'’]/g, "")
+        .replace(/[^A-Z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
 }
 
 /** Name without a trailing BLDG/BUILDING, which listings drop. */
@@ -280,7 +274,8 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
         if (building) return { building, matchedBy: "code" };
     }
 
-    // Periods kept, so a room number's floor separator survives for the room-reference rule at the end.
+    // Periods kept, so a room number's floor separator survives for the room-reference rule at the
+    // end.
     const rawTokens = location
         .toUpperCase()
         .replace(/['’&]/g, "")
@@ -327,8 +322,8 @@ export function resolveBuilding(location: string | null | undefined): Resolved |
     }
 
     const first = tokens[0];
-    // The RAW token: `normalize` strips periods, so "2.014" arrives as "2014" and
-    // the year guard threw away every real floor-2 room numbered 0xx.
+    // The RAW token: `normalize` strips periods, so "2.014" arrives as "2014" and the year guard
+    // threw away every real floor-2 room numbered 0xx.
     const second = rawTokens[1];
     if (first && second && isRoomNumber(second)) {
         const building = SURNAME_TOKENS.get(first);

@@ -240,8 +240,8 @@ export async function orgDetail(websiteKey: string): Promise<OrgContact> {
         async () => {
             const raw = await getJson<RawDetail>(orgDetailUrl(websiteKey), DIRECTORY_TTL_SECONDS);
             const social = raw.socialMedia ?? {};
-            // Not read: raw.primaryContact (a named student, personal email) and
-            // raw.contactInfo (street address, phone).
+            // Not read: raw.primaryContact (a named student, personal email) and raw.contactInfo
+            // (street address, phone).
             return {
                 email: link(raw.email),
                 website: link(social.ExternalWebsite),
@@ -296,16 +296,16 @@ export function queryRelevance(
 ): { matchedAll: Org[]; found: string[]; missing: string[] } {
     const haystack = (org: Org) => `${org.name} ${org.summary ?? ""}`.toLowerCase();
 
-    // Whitespace, not every non-alphanumeric: splitting "pre-med" into "pre" and
-    // "med" found both inside "president" and "media".
+    // Whitespace, not every non-alphanumeric: splitting "pre-med" into "pre" and "med" found both
+    // inside "president" and "media".
     const words = query
         .toLowerCase()
         .split(/\s+/)
         .filter((word) => word.replace(/[^a-z0-9]/g, "").length > 1);
     if (!words.length) return { matchedAll: rows, found: [], missing: [] };
 
-    // Anchored at a word start and flexible across punctuation, so "pre-med"
-    // finds "Pre Med Society" and "pre-medical" but not "president".
+    // Anchored at a word start and flexible across punctuation, so "pre-med" finds "Pre Med
+    // Society" and "pre-medical" but not "president".
     const test = (word: string) => {
         const parts = word
             .split(/[^a-z0-9]+/)

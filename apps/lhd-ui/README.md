@@ -21,7 +21,7 @@ Useful scripts (run from `apps/lhd-ui`, or via `pnpm --filter @longhorn-develope
 |--------|-------------|
 | `pnpm storybook` | Start [Storybook](https://storybook.js.org/) locally on [http://localhost:6006](http://localhost:6006) |
 | `pnpm build` | Build the library (`dist/` — CJS, ESM, and types) |
-| `pnpm dev` | Watch-mode build with tsup |
+| `pnpm dev` | Watch-mode build with `vp pack` |
 | `pnpm build-storybook` | Produce a static Storybook site |
 
 ### Storybook

@@ -1,13 +1,10 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx",
-    "types": [
-      "./worker-configuration.d.ts",
-      "node"
-    ]
-  },
-  "include": ["src/**/*"],
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "jsx": "react-jsx",
+        "types": ["./worker-configuration.d.ts", "node"]
+    },
+    "include": ["src/**/*"]
 }

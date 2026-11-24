@@ -20,3 +20,8 @@ their chatbots.
 A membership management portal for LHD, handling both applicant tracking and member membership and on-
 and off-boarding. This is specifically the **backend** logic for the management, as frontend is handled
 by the Website team.
+
+## Adding New Projects
+1. Add directories under `apps/`.
+2. Add them to the main protection ruleset
+3. Add them to `.github/workflows/fmt-and-lint.yml`

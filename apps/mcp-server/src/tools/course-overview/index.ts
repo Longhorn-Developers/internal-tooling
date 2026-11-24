@@ -4,6 +4,7 @@ import { fetchPage, jsonResponse, trimmed } from "../../shared.ts";
 import { nameMatches } from "../rate-my-professor/extract.ts";
 import { lookupProfessor } from "../rate-my-professor";
 import { courseResults } from "./extract.ts";
+import { loadGradeDistribution } from "./grades.ts";
 import { courseSearchUrl, semesterCode } from "./urls.ts";
 
 const MAX_SECTIONS = 50;
@@ -15,7 +16,7 @@ export function registerCourseOverview(server: McpServer) {
         {
             title: "Get Course Overview",
             description:
-                "Get UT course sections, syllabus links, and Rate My Professors ratings for any current or prior course. Every parameter is optional; give as many as possible to narrow results. The response says whether results are complete and what to ask for if not. Each matched professor includes a random sample of real ratings across the 1-5 quality range and a profileUrl; give the user the profileUrl so they can read every rating if they desire.",
+                "Get UT course sections, syllabus links, Rate My Professors ratings, and the professor's combined grade distribution for this course across published semesters. Every parameter is optional; give as many as possible to narrow results. The response says whether results are complete and what to ask for if not. Each matched professor includes a random sample of real ratings across the 1-5 quality range and a profileUrl; give the user the profileUrl so they can read every rating if they desire.",
             inputSchema: z.object({
                 unique: z.string().optional().describe("Five-digit UT unique number."),
                 name: z.string().optional().describe("Professor name."),
@@ -76,6 +77,13 @@ export function registerCourseOverview(server: McpServer) {
                 })),
             );
 
+            const course = sections[0]?.course ?? null;
+            const instructor = names.length === 1 ? (names[0] ?? null) : null;
+            const distribution =
+                course && instructor
+                    ? await loadGradeDistribution(course, instructor).catch(() => null)
+                    : null;
+
             const notes = [
                 ...found.errors,
                 found.sections.length === 0 && found.errors.length === 0
@@ -98,6 +106,9 @@ export function registerCourseOverview(server: McpServer) {
                 professors.some((professor) => (professor.matches?.length ?? 0) > 1)
                     ? "Several Rate My Professors profiles matched; call get_rate_my_professor with the exact name."
                     : "",
+                course && instructor && !distribution
+                    ? "UT has not published a grade distribution for this professor in this course."
+                    : "",
             ].filter(Boolean);
 
             return jsonResponse({
@@ -110,6 +121,7 @@ export function registerCourseOverview(server: McpServer) {
                 returned: sections.length,
                 sections,
                 professors,
+                gradeDistribution: distribution,
             });
         },
     );

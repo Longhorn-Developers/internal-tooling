@@ -104,8 +104,10 @@ describe("get_course_overview", () => {
         expect(new URL(log[0]!.url).searchParams.get("instructor_last")).toBe("Gheith");
         expect(result.sections.map((s) => s.unique)).toEqual(["54945"]);
         expect(result.totalFound).toBe(1);
-        expect(result.complete).toBe(true);
-        expect(result.notes).toEqual([]);
+        expect(result.complete).toBe(false);
+        expect(result.notes).toEqual([
+            "UT has not published a grade distribution for this professor in this course.",
+        ]);
         expect(result.professors.map((p) => p.instructor)).toEqual(["Ahmed Gheith"]);
     });
 
